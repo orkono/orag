@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.5] - 2026-10-02
+
+- Configuration file (`config.toml`) read once at startup: loopback bind, 1-10 MB document limit, model names
+
 ## [0.1.0-alpha.4] - 2026-10-02
 
 - Cargo workspace, `orag` binary with `--version` and `version` command, CI, version scripts
