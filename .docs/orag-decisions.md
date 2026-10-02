@@ -1,6 +1,6 @@
 # ORAG — Architecture Decision Record
 
-> **Status:** Accepted for v0.1 (2026-10-01)\
+> **Status:** Accepted for v0.1 (2026-10-01; owner revisions D-010, D-013, D-019, D-020 on 2026-10-02)\
 > **Supersedes:** conflicting parts of `orag-architecture-design-notes.md`.
 > That document remains the long-term vision; this file records what is
 > decided now, why, and what evidence would reopen each decision.\
@@ -173,22 +173,41 @@ and ingestion into that collection fail with `409 reindex_required`;
 uploads are checked before they are accepted (and again by the worker).
 Re-indexing (build new space, switch atomically) is v0.2 scope.
 
-## D-010 — PDF: P0 feasibility spike in v0.1, implementation in v0.2
+## D-010 — Supported formats: TXT, Markdown, DOCX, PDF (owner decision, 2026-10-01)
 
-**Decision.** v0.1 accepts only `text/plain` and `text/markdown`. v0.1 ends
-with a time-boxed spike comparing **PDFium statically linked via
-`pdfium-render`** against **pure-Rust `pdf_oxide`** on a representative
-TR/EN set (multi-column, tables, ligatures, missing ToUnicode maps, repeated
-headers, tagged PDFs). The spike's report picks the v0.2 extractor. MuPDF is
-excluded (AGPL or commercial license).
+**Decision.** v0.1 accepts exactly `.txt`, `.md`/`.markdown`, `.docx` and
+`.pdf`; everything else is rejected with `415 unsupported_format`. Both binary
+formats are parsed in pure Rust so the single-binary property (D-001) holds:
+- **DOCX:** `zip` + `roxmltree`. Headings come from paragraph style *names*,
+  which stay English in localized Word (Turkish `Balk1` is named `heading 1`).
+  The parser also handles lists, tables, content controls, text boxes (once,
+  not their `mc:Fallback` copy) and tracked changes (deletions and move
+  sources skipped). Each XML part is capped at 64 MB decompressed as a
+  ZIP-bomb guard.
+- **PDF:** `pdf_oxide =0.3.78`, page by page; its optional ONNX dependency
+  stays disabled.
+- Under `orag serve`, DOCX/PDF parsing runs in a child process with a 120 s
+  deadline. A parser crash (e.g. stack overflow) or hang fails only that
+  document. On Linux the child is also capped at 2 GiB of address space and
+  is the OOM killer's first choice. On macOS only the deadline applies.
+- JSON text uploads: a filename with a supported extension sets the format;
+  known unsupported document types (`.xlsx`, `.html`, …) are 415; other dotted
+  names (`Toplantı 12.10.2026`) are plain text.
+
+This replaces the earlier plan for a PDFium vs `pdf_oxide` spike. During
+planning, `pdf_oxide` extracted a Turkish PDF intact (`İ ı ş ğ ç ö ü`).
+Uploads are signature-checked before storage: `%PDF-` for PDF, a ZIP header
+for DOCX. Binary formats must arrive as multipart uploads. MuPDF is excluded
+(AGPL or commercial license). Page-number provenance in citations is v0.2.
 
 ## D-011 — OCR / Document AI is not in v1's supported scope
 
-**Decision.** Pages without reliable text are detected and reported with an
-`ocr_required` warning; externally OCRed searchable PDFs are accepted. A later
-optional OCR build (PaddleOCR-VL GGUF via llama.cpp `mtmd`, plus a layout
-model) is a separate executable variant, because a model pack cannot switch
-on a compile-time feature.
+**Decision.** PDF pages without a text layer are not OCRed. The document is
+still indexed from its readable pages and carries an
+`ocr_required: page(s) … have no extractable text` warning. Externally OCRed
+searchable PDFs are accepted. A later optional OCR build (PaddleOCR-VL GGUF via
+llama.cpp `mtmd`, plus a layout model) is a separate executable variant,
+because a model pack cannot switch on a compile-time feature.
 
 ## D-012 — Offline-first provisioning; no implicit network
 
@@ -201,23 +220,38 @@ revisions on a connected machine, verifying against the SHA-256 that the
 Hugging Face API publishes for each LFS file. An in-app downloader is v0.3
 (desktop) scope, and it will only run on explicit user action.
 
-## D-013 — Local API security
+## D-013 — Local API access: no authentication, loopback only (owner decision, 2026-10-01)
 
-**Decision.** Bind `127.0.0.1` only by default. Every `/v1/*` route except
-`GET /v1/health` requires `Authorization: Bearer <token>`; the token is
-generated on first start into `~/.orag/api-token` with mode 0600. Requests
-whose `Host` is not a loopback name/address are rejected (DNS rebinding);
-requests carrying an `Origin` header are rejected unless allow-listed (the
-desktop origin is added in v0.3). Request bodies are size-limited. Retrieved
-text is treated as untrusted data inside the prompt, never as instructions.
+**Decision.** The API has **no authentication**: no token and no
+`Authorization` header. Documents are uploaded and queried by calling the API
+directly. Protection comes from reachability:
+- the server binds only `127.0.0.1` / `::1` (non-loopback binds are refused at
+  startup);
+- requests whose `Host` is not a loopback name or address are rejected with
+  `403 forbidden_host` (DNS rebinding);
+- requests carrying an `Origin` header are rejected with `403 forbidden_origin`
+  unless allow-listed (the desktop origin is added in v0.3), so web pages in a
+  local browser cannot call it.
+
+Request bodies are size-limited (D-019). Retrieved text is treated as
+untrusted data inside the prompt, never as instructions.
+
+**Accepted risk, stated precisely.** Loopback TCP has no per-user isolation.
+Any process on the same machine can read and delete every indexed document:
+other OS user accounts, containers using host networking, and local malware.
+That includes a shared terminal server or a family computer with several
+accounts. ORAG v1 targets single-user personal machines; README and
+`docs/api.md` say this plainly. If multi-user hosts become a target, the
+answer is a Unix domain socket with file permissions, or an opt-in token —
+not a silent change.
 
 ## D-014 — API shape: first-class collections
 
 **Decision.** A `default` collection is created automatically. Routes:
 
 ```text
-GET    /v1/health                                   (no auth)
-GET    /v1/version
+GET    /v1/health
+GET    /v1/version                                  (+ effective config)
 POST   /v1/collections            GET /v1/collections
 DELETE /v1/collections/{collection_id}
 POST   /v1/collections/{collection_id}/documents   → 202 {document_id, job_id}
@@ -245,7 +279,7 @@ workspace as `apps/desktop` in v0.3.
 ## D-016 — Desktop: Tauri v2 with the service as managed sidecar (v0.3)
 
 **Decision.** The desktop app bundles the `orag` executable as a Tauri
-`externalBin` sidecar, starts it on a free loopback port with a fresh token,
+`externalBin` sidecar, starts it on a free loopback port (its own `config.toml`),
 supervises it (restart on crash, kill on exit — no orphans) and talks to it
 over the public HTTP API. Crash isolation of native inference code is the
 deciding factor over in-process embedding. Windows installers must include
@@ -262,7 +296,7 @@ the WebView2 offline installer.
   `0.M.0-alpha.N`, N incrementing per merged change; the milestone release is
   `0.M.0`; fixes after it are `0.M.P`.
 - The version is exposed by `orag --version` and `GET /v1/version`
-  (`{version, api: "v1", schema_version, git_sha}`).
+  (`{version, api: "v1", schema_version, git_sha, config}`).
 - The HTTP contract version (`/v1`) changes only on breaking API changes.
 - DB schema version lives in `PRAGMA user_version`; migrations are ordered,
   transactional and embedded in the binary; a newer-than-known schema is
@@ -279,6 +313,48 @@ accentless typing, unanswerable. Relevance is labeled as
 Metrics reported separately: recall@5/10, MRR@10, nDCG@10 per strategy
 (lexical, dense, hybrid), and latency p50/p95. Answer-level metrics
 (citation correctness, faithfulness, abstention) arrive with v0.2.
+
+## D-019 — Configuration file, read once at startup (owner decision, 2026-10-01)
+
+**Decision.** `$ORAG_HOME/config.toml` (default `~/.orag/config.toml`) is the
+only source of runtime settings. On first start it is created with every key
+commented out, so an install follows the built-in defaults of the running
+version (e.g. the later 10 MB default) until the user uncomments a line. It is read **once** when `orag serve` starts and is never watched or
+reloaded. After editing it, restart the application. Keys:
+
+| Key | Default | Rule |
+|---|---|---|
+| `bind` | `127.0.0.1:7613` | loopback IP:port only |
+| `max_document_mb` | `5` | integer 1–10; the next milestone raises the default to 10; values above 10 are not supported |
+| `embedding_model` | `qwen3-embedding-0.6b-q8_0` | installed model pack id |
+| `generation_model` | `qwen3.5-4b-q4_k_m` | installed model pack id |
+| `log_level` | `info` | error, warn, info, debug, trace |
+
+Unknown keys or invalid values stop startup with a message naming the file.
+`ORAG_HOME` is the only environment variable; it locates the directory and
+sets nothing else. Uploads above the limit get `413 too_large` before they are
+stored. `GET /v1/version` reports the settings in effect.
+
+## D-020 — Development workflow (owner rules, 2026-10-01)
+
+1. Only the orchestrating session runs git write commands. Subagents never
+   commit, push, merge or branch.
+2. Tasks run strictly in order, one at a time.
+3. No worktrees and no pull requests. Each task gets a local branch
+   `step/NN-<slug>` from `main`; it is merged with `--no-ff`, `main` is pushed,
+   and the branch is deleted.
+4. Every task bumps the version and adds a `CHANGELOG.md` entry (D-017).
+5. Every task delivers its tests.
+6. `/code-review high` runs before every push; findings are fixed first.
+7. When undecided, ask a `claude-fable-5-1` subagent first, then gpt-6-astra
+   (Codex) if needed.
+8. If the usage limit is hit, wait and resume from the last merged step. An
+   unmerged `step/*` branch marks the interrupted task.
+9. Tags are never created by the agent; they are handed to the owner.
+
+The owner authorized commit, merge into `main` and push for this repository
+only (2026-10-01). This repository-scoped grant overrides the owner's general
+"never commit/push" policy here and nowhere else.
 
 ---
 
