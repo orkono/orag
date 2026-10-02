@@ -26,6 +26,17 @@ pub enum OragError {
     /// diagnosable. There is no `source`, so `{err:#}` prints it once.
     #[error("I/O error: {0}")]
     Io(std::io::Error),
+    /// Like `Io`: the cause is in Display and there is no `source`.
+    #[error("storage error: {0}")]
+    Storage(rusqlite::Error),
+    /// A storage error while opening or migrating the database at `path`.
+    #[error("database {path}: {cause}")]
+    Database {
+        path: String,
+        cause: rusqlite::Error,
+    },
+    #[error("serialization error: {0}")]
+    Serialization(serde_json::Error),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -33,6 +44,18 @@ pub enum OragError {
 impl From<std::io::Error> for OragError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
+    }
+}
+
+impl From<rusqlite::Error> for OragError {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::Storage(err)
+    }
+}
+
+impl From<serde_json::Error> for OragError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Serialization(err)
     }
 }
 
