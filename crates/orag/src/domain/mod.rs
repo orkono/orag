@@ -1,5 +1,6 @@
 //! Pure domain logic. Nothing in this module performs I/O.
 
+pub mod document;
 pub mod normalize;
 
 pub type CollectionId = i64;
