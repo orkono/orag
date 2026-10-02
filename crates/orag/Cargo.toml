@@ -1,0 +1,17 @@
+[package]
+name = "orag"
+description = "Local-first, offline RAG engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published: the version test reads the workspace CHANGELOG.md.
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"

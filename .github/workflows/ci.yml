@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only token: CI only builds and tests.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04 = the oldest supported Linux (glibc 2.35 floor in the README), the same
+        # image release.yml builds on. When GitHub retires this image, build inside a pinned
+        # `ubuntu:22.04` container instead of moving to a newer runner (that would raise the floor).
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: scripts/check-version.sh
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
