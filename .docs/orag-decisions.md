@@ -116,11 +116,28 @@ deterministic routing cannot fix.
 
 **Decision.** FTS5 indexes a *normalized shadow text*; original text is kept
 in `chunks.text` and used for embeddings and citations. One Rust function
-normalizes both indexed text and queries: NFKC → fold `İ`, `I`, `ı` to `i`
-(symmetric, so English and Turkish casing both match; the ı/i distinction is
-deliberately lost for recall) → Unicode lowercase. Tokenizer:
-`unicode61 remove_diacritics 0` — ç/ş/ğ/ö/ü are preserved. User queries are
-turned into quoted OR-terms, never passed to FTS5 as raw syntax.
+normalizes both indexed text and queries: NFKC → drop invisible format
+characters (Default_Ignorable: soft hyphen, zero-width space, joiners, BOM,
+variation selectors; `unicode61` would split a word at them) → fold `İ`, `I`,
+`ı` to `i` (symmetric, so English and Turkish casing both match; the ı/i
+distinction is deliberately lost for recall) and drop a U+0307 dot directly
+after `i` → private-use characters (PDF glyph codes) become spaces → Unicode
+lowercase, `ß` → `ss` → NFC (so `ı` + U+0301 and `í` are the same text).
+Tokenizer: `unicode61 remove_diacritics 0` — ç/ş/ğ/ö/ü are preserved. User
+queries are turned into quoted OR-terms, never passed to FTS5 as raw syntax: a
+term is a run of letters, numbers and combining marks with at least one letter
+or number, and FTS5 splits the inside of each quoted term with the index's own
+tokenizer, so the query side never mirrors SQLite's character tables. Only the
+first 4096 characters of a query are used (a term cut there is dropped), at
+most 32 terms. The Unicode tables behind the normalizer (`unicode-normalization`,
+pinned with `=`, and the toolchain's std) are part of it: bumping them bumps
+`NORMALIZER_VERSION`. `tests/lexical_fts5.rs` checks the contract against a
+real FTS5 table.
+
+**Known limit.** `unicode61` does not segment scripts written without spaces
+(CJK, Thai): a run is one token, so lexical search only finds the whole run,
+not a word inside it. Dense retrieval still covers these texts; a segmenting
+or trigram tokenizer is a later, evaluation-driven decision.
 
 **Deferred.** Stemming and an accent-folded secondary field are added only if
 the evaluation set (which includes accentless-typing queries) shows a gain.
