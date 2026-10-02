@@ -188,11 +188,18 @@ formats are parsed in pure Rust so the single-binary property (D-001) holds:
   stays disabled.
 - Under `orag serve`, DOCX/PDF parsing runs in a child process with a 120 s
   deadline. A parser crash (e.g. stack overflow) or hang fails only that
-  document. On Linux the child is also capped at 2 GiB of address space and
-  is the OOM killer's first choice. On macOS only the deadline applies.
-- JSON text uploads: a filename with a supported extension sets the format;
-  known unsupported document types (`.xlsx`, `.html`, …) are 415; other dotted
-  names (`Toplantı 12.10.2026`) are plain text.
+  document. On Linux the child is also capped at 4 GiB of address space
+  (`MALLOC_ARENA_MAX=2`) and, where the host allows it, is the OOM killer's
+  first choice; if the cap cannot be installed the parse is refused as an
+  internal error. The parent reads at most 64 MiB
+  of parser output on every platform; macOS lacks only the memory cap.
+- JSON text uploads: filename rules come first. Known unsupported document
+  types (`.xlsx`, `.html`, …) are 415 whatever `format` says; a `format` that
+  contradicts a supported extension is 400 `invalid_input`; `.pdf`/`.docx`
+  names or formats are 400 "upload as multipart" (until DOCX/PDF support
+  lands in Task 23 they are 415 like any unsupported type). Without a supported
+  extension (`Toplantı 12.10.2026`, `notes.v2`) the given `format` applies,
+  else plain text.
 
 This replaces the earlier plan for a PDFium vs `pdf_oxide` spike. During
 planning, `pdf_oxide` extracted a Turkish PDF intact (`İ ı ş ğ ç ö ü`).
@@ -331,9 +338,43 @@ reloaded. After editing it, restart the application. Keys:
 | `log_level` | `info` | error, warn, info, debug, trace |
 
 Unknown keys or invalid values stop startup with a message naming the file.
+
 `ORAG_HOME` is the only environment variable; it locates the directory and
-sets nothing else. Uploads above the limit get `413 too_large` before they are
+sets nothing else (debug builds also read a test-only parse delay; release
+binaries ignore it). Uploads above the limit get `413 too_large` before they are
 stored. `GET /v1/version` reports the settings in effect.
+
+**Resource budget.** `max_document_mb` limits each document, not the
+service. A 5 MB DOCX/PDF can expand a lot when decompressed, and the HTTP
+body may be up to ~6× the limit (JSON escaping). Mitigations:
+- only the upload route accepts document-sized bodies; every other route is
+  limited to 64 KiB;
+- at most 4 uploads are accepted at once (`429 busy` beyond that);
+- an upload whose whole body is not received within 60 s gets
+  `408 upload_timeout` and frees its slot, so a stalled client holds a slot
+  for at most 60 s (a total deadline, ample for ≤ 60 MB over loopback). A
+  local process that keeps re-opening stalled uploads can still keep uploads
+  busy; on a single-user machine (D-013) that process is the user's own;
+- a host that refuses the parser's memory limit fails the job as an internal
+  error, never as a bad file;
+- binary parsing is isolated with a deadline and output cap (D-010);
+- on macOS there is no memory cap; the 120 s deadline and the output cap
+  still apply;
+- these limits (4 uploads, 60 s, 64 KiB, 64 MiB of parser output) are fixed
+  constants by design: config.toml holds only the owner-chosen keys.
+
+**Upgrades.** Because defaults are commented, a release that changes a
+default model makes existing installs use it after the upgrade. Startup then
+fails if that pack is not installed. Only a change of the **embedding** model
+also makes existing collections answer `409 reindex_required` (D-009); a new
+generation model needs no reindex. Release notes mark such changes as
+**Upgrade note**.
+Users can keep their current models by uncommenting `embedding_model` /
+`generation_model` before upgrading.
+
+**Partial indexing.** A `ready` document with an `ocr_required` or
+`extraction_failed` warning is only partially indexed: the listed pages are
+not searchable.
 
 ## D-020 — Development workflow (owner rules, 2026-10-01)
 
@@ -348,8 +389,10 @@ stored. `GET /v1/version` reports the settings in effect.
 6. `/code-review high` runs before every push; findings are fixed first.
 7. When undecided, ask a `claude-fable-5-1` subagent first, then gpt-6-astra
    (Codex) if needed.
-8. If the usage limit is hit, wait and resume from the last merged step. An
-   unmerged `step/*` branch marks the interrupted task.
+8. If the usage limit is hit, wait and resume from the last merged step. A
+   step is finished only when `main` has its merge commit
+   (`merge: step NN <slug> (v<VERSION>)`) and CHANGELOG has its version;
+   any other `step/*` branch is the interrupted task (plan P0 rule 8).
 9. Tags are never created by the agent; they are handed to the owner.
 
 The owner authorized commit, merge into `main` and push for this repository
