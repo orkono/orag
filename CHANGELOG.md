@@ -5,6 +5,19 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.3] - 2026-10-02
+
+Plan fixes from Muse's review, a Fable 5.1 second opinion and repeated `/code-review` rounds.
+
+- **Versions:** every task's version moves up by one (this step is alpha.3): Task N produces `0.1.0-alpha.(N+3)` through Task 22, and 23a/23b produce alpha.26/27. This supersedes the alpha.2 entry's numbering.
+- **llama.cpp binding:** the llama-cpp-2 calls of Tasks 12–13 are stated as verified (crate source file:line, compiled during planning); the stale `token_eos` note is removed. Default features are off, so OpenMP is off and there is no dynamic `libgomp` (D-001). Task 13 no longer accepts each token twice (`sample` already accepts). There is no `metal` feature: llama-cpp-2 enables Metal itself on Apple Silicon.
+- **Build and platform guards:** `scripts/platform-floors.sh` holds every supported floor (macOS 14; glibc 2.35, GLIBCXX_3.4.30, CXXABI_1.3.13, GCC_7.0.0) and the version helpers. `.cargo/config.toml` forces `MACOSX_DEPLOYMENT_TARGET=14.0` for every build. `scripts/check-llama-build.sh` checks the real build output (Metal backend built, no OpenMP, every llama.cpp archive at macOS ≤ 14). `scripts/check-binary-deps.sh` takes strict arguments, checks the final macOS binary's minimum version, and on the ubuntu-22.04 CI and release image (`--release-floor`) the Linux symbol-version floor. CI and Linux releases build on Ubuntu 22.04.
+- **Fingerprint:** hand-written, length-prefixed, fixed-order encoding, exhaustive over the descriptor's fields, with a golden test (D-009).
+- **Retrieval test:** the collection-scope dense-search test uses skewed data that would catch post-top-k filtering (pre-filtering verified against sqlite-vec 0.1.9).
+- **Capacity and shutdown:** a query waits at most 120 s for the generation slot, then gets `429 busy` with `Retry-After: 5`. Server shutdown has one signal (`AppState::begin_shutdown()` / `subscribe_shutdown()`), shared with the ingest worker; every waiting point (generation slot, upload body) goes through `AppState::until_shutdown` and ends with `503 shutting_down`. A consumer's Break is final (no `Done` follows): a JSON query stopped by shutdown gets `503`, never `500` or a truncated `200`; an SSE stream ends with one `event: error`, while an already finished answer is still delivered. On shutdown a full SSE buffer gets 2 s per event, and graceful shutdown drains for at most 10 s. Parser isolation (23b) keeps its own process-wide stop, `isolate::request_shutdown()` in `app.rs`.
+- **Task 23** is split into 23a (parsers, unused until wired) and 23b (format detection, isolation, signature checks and JSON rules in one merge), so `main` never accepts a binary upload without all of them.
+- **Release docs:** system requirements (macOS 14+, glibc 2.35+), provisional-retrieval note, measured generation speed, and accurate manual recovery for `409 reindex_required` (the default collection cannot be deleted; pinning the old model works only when nothing else in the space changed).
+
 ## [0.1.0-alpha.2] - 2026-10-02
 
 - Plan fixes from the Codex review: parser output is capped in the parent; the Linux memory cap is checked and verified by a Linux test; an explicit JSON `format` can no longer bypass filename rules; an end-to-end test covers interrupted isolated ingestion; at most 4 uploads are accepted at once (`429 busy`).
