@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.9] - 2026-10-02
+
+- Reciprocal Rank Fusion (k = 60) of lexical and dense rankings; ranks count distinct chunks, ties break by chunk id.
+- Citation extraction: raw-text scan for [n], [n, m], [a-b], [^n] markers (1-3 digits), skipping only closed code fences (also inside lists and quotes) in linear time; tuned to never miss a real citation, accepted limitations documented in the module.
+
 ## [0.1.0-alpha.8] - 2026-10-02
 
 - Structure-aware chunker: heading breadcrumbs, token budget with exact counting, overlapping windows cut at word and grapheme boundaries
