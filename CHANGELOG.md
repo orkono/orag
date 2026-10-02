@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.4] - 2026-10-02
+
+- Cargo workspace, `orag` binary with `--version` and `version` command, CI, version scripts
+
 ## [0.1.0-alpha.3] - 2026-10-02
 
 Plan fixes from Muse's review, a Fable 5.1 second opinion and repeated `/code-review` rounds.

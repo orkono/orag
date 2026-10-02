@@ -1,0 +1,5 @@
+[env]
+# README minimum macOS (scripts/platform-floors.sh MACOS_MIN, checked from Task 12).
+# Without it llama.cpp targets the build machine's SDK. `force`: a
+# MACOSX_DEPLOYMENT_TARGET in the shell cannot override it.
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }
