@@ -19,10 +19,22 @@ use it. The service is the product core; the GUI is a client.
 
 ## D-001 — "Single binary" means one service executable per platform/backend
 
-**Decision.** The headless service ships as one statically linked executable
-per supported target: `aarch64-apple-darwin` (Metal), `x86_64-unknown-linux-gnu`
-(CPU), later `x86_64-pc-windows-msvc` (CPU, then Vulkan/CUDA variants). Model
-files live outside the executable. GPU drivers are documented system
+**Decision.** The headless service ships as one self-contained executable
+per supported target:
+- `aarch64-apple-darwin` with Metal (llama.cpp's CMake builds it by default
+  on Apple; no ORAG feature flag; CI checks the built backend), macOS 14+
+  (`MACOSX_DEPLOYMENT_TARGET=14.0` forced in `.cargo/config.toml`; every llama.cpp
+  object and the final binary are checked);
+- `x86_64-unknown-linux-gnu` (CPU);
+- later `x86_64-pc-windows-msvc` (CPU, then Vulkan/CUDA variants).
+
+Everything ORAG builds (llama.cpp, SQLite, sqlite-vec) is linked statically.
+The only dynamic dependencies are the platform's base libraries: glibc,
+libstdc++ and libgcc_s on Linux (built against glibc 2.35 / GLIBCXX_3.4.30 /
+CXXABI_1.3.13), and on macOS system libraries under `/usr/lib` and system
+frameworks; `check-binary-deps.sh` enforces this. OpenMP is off on
+every target, so there is no dynamic `libgomp`/`libomp` (`check-llama-build.sh`).
+Model files live outside the executable. GPU drivers are documented system
 prerequisites, not bundled.
 
 **Why.** CUDA needs a matching driver and, depending on linking, runtime
@@ -165,13 +177,16 @@ beyond job status.
 ## D-009 — Embedding-space fingerprint
 
 **Decision.** Each collection is bound to one embedding space whose
-fingerprint is SHA-256 over: model file SHA-256, pooling, query prefix,
+fingerprint is SHA-256 over: model id, model file SHA-256, pooling, query prefix,
 document prefix, dimension, normalization flag, maximum input tokens,
-trailing-EOS rule, chunker version and normalizer version. Vectors from different spaces are never mixed. If the
+trailing-EOS rule, chunker version, normalizer version and the encoding version. Vectors from different spaces are never mixed. If the
 configured embedder's fingerprint differs from a collection's space, queries
 and ingestion into that collection fail with `409 reindex_required`;
 uploads are checked before they are accepted (and again by the worker).
 Re-indexing (build new space, switch atomically) is v0.2 scope.
+The fingerprint uses a hand-written, length-prefixed, fixed-order encoding
+with a golden test, so no dependency feature (such as serde_json
+`preserve_order`) can silently change it.
 
 ## D-010 — Supported formats: TXT, Markdown, DOCX, PDF (owner decision, 2026-10-01)
 
@@ -196,8 +211,8 @@ formats are parsed in pure Rust so the single-binary property (D-001) holds:
 - JSON text uploads: filename rules come first. Known unsupported document
   types (`.xlsx`, `.html`, …) are 415 whatever `format` says; a `format` that
   contradicts a supported extension is 400 `invalid_input`; `.pdf`/`.docx`
-  names or formats are 400 "upload as multipart" (until DOCX/PDF support
-  lands in Task 23 they are 415 like any unsupported type). Without a supported
+  names or formats are 400 "upload as multipart" (until DOCX/PDF uploads
+  land in Task 23b they are 415 like any unsupported type). Without a supported
   extension (`Toplantı 12.10.2026`, `notes.v2`) the given `format` applies,
   else plain text.
 
@@ -360,17 +375,28 @@ body may be up to ~6× the limit (JSON escaping). Mitigations:
 - binary parsing is isolated with a deadline and output cap (D-010);
 - on macOS there is no memory cap; the 120 s deadline and the output cap
   still apply;
-- these limits (4 uploads, 60 s, 64 KiB, 64 MiB of parser output) are fixed
+- a query waits at most 120 s for the single generation slot, then gets
+  `429 busy` (with `Retry-After: 5`); shutdown wakes waiting queries with
+  `503 shutting_down`;
+  waiting queries are served in arrival order, but a retry after a 429
+  joins the end of the queue (accepted: one generation slot, single user);
+- graceful shutdown drains open connections for at most 10 s; a full SSE
+  buffer gets 2 s per event once shutdown starts;
+- these limits (4 uploads, 60 s upload body, 120 s generation wait, 64 KiB,
+  64 MiB of parser output, 10 s shutdown drain, 2 s SSE shutdown grace) are fixed
   constants by design: config.toml holds only the owner-chosen keys.
 
 **Upgrades.** Because defaults are commented, a release that changes a
-default model makes existing installs use it after the upgrade. Startup then
-fails if that pack is not installed. Only a change of the **embedding** model
-also makes existing collections answer `409 reindex_required` (D-009); a new
-generation model needs no reindex. Release notes mark such changes as
-**Upgrade note**.
-Users can keep their current models by uncommenting `embedding_model` /
-`generation_model` before upgrading.
+default model makes existing installs use it after the upgrade, and startup
+fails if that pack is not installed; uncommenting `generation_model` (and
+`embedding_model`) before upgrading keeps the current models. Any change to an
+input of the embedding fingerprint (D-009: embedding model id or file SHA-256,
+pooling, prefixes, dimension, normalization flag, token limit, trailing-EOS
+rule, chunker or normalizer version, encoding version) makes existing
+collections answer `409 reindex_required`; a new generation model needs no
+reindex. Pinning `embedding_model` avoids the 409 only when the release
+changed nothing else in that list. Release notes mark every such change as
+**Upgrade note** and say whether pinning is enough.
 
 **Partial indexing.** A `ready` document with an `ocr_required` or
 `extraction_failed` warning is only partially indexed: the listed pages are
