@@ -1,5 +1,6 @@
 //! Pure domain logic. Nothing in this module performs I/O.
 
+pub mod chunker;
 pub mod document;
 pub mod normalize;
 

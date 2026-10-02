@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.8] - 2026-10-02
+
+- Structure-aware chunker: heading breadcrumbs, token budget with exact counting, overlapping windows cut at word and grapheme boundaries
+
 ## [0.1.0-alpha.7] - 2026-10-02
 
 - Text and Markdown parsing into document blocks with strict UTF-8 validation and format detection
