@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.10] - 2026-10-02
+
+- SQLite store: WAL, sqlite-vec 0.1.9 (pinned), orag application id; refuses other apps' databases and non-UTF-8 paths.
+- Migrations: one transaction each with BEGIN IMMEDIATE and a re-read version (safe under concurrent opens), foreign keys off with foreign_key_check, newer schema refused.
+- Backups: complete pre-upgrade copy per upgrade (removed if nothing changed), VACUUM INTO via a synced temp file so a partial file never appears; chunks must share their document's collection.
+
 ## [0.1.0-alpha.9] - 2026-10-02
 
 - Reciprocal Rank Fusion (k = 60) of lexical and dense rankings; ranks count distinct chunks, ties break by chunk id.

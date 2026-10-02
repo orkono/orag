@@ -14,13 +14,14 @@ anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 html-escape = "0.2.15"
 pulldown-cmark = { version = "0.13.4", default-features = false }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sqlite-vec = "=0.1.9"
 thiserror = "2.0.21"
 toml = "1.1.6"
 unicode-normalization = "=0.1.25"
 unicode-segmentation = "1.13.3"
 
 [dev-dependencies]
-rusqlite = { version = "0.40.2", features = ["bundled"] }
 tempfile = "3.27.0"
