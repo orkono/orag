@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.19] - 2026-10-03
+
+- HTTP server foundation: loopback only, no authentication (D-013); Host must be a loopback name with an optional digits-only port; Origin is checked against allowed_origins after normalization, and cross-site browser requests without an Origin are refused.
+- JSON errors everywhere, including unknown routes (not_found), wrong methods (method_not_allowed) and a missing JSON content type (415 unsupported_media_type); busy() adds Retry-After.
+- GET /v1/health and GET /v1/version (with schema version and the effective config). serve() starts the app's own shutdown, so requests waiting for a slot or a body get 503 shutting_down.
+
 ## [0.1.0-alpha.18] - 2026-10-03
 
 - Hybrid retrieval (lexical, dense, RRF) with a per-query trace; lexical search keeps working after an embedding model change.
