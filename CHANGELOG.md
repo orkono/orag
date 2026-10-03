@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.16] - 2026-10-03
+
+- LlamaGenerator: streaming generation on a worker thread with back-pressure and cancellation; prompts as ChatML, ChatML no-think, the model's own GGUF template, or a plain transcript.
+- Prompt injection guard: the text of every guarded special token in the vocabulary (control and user-defined, 2+ non-blank characters) is broken in message content; the prompt is tokenized whole, as the model was trained, and refused if a guarded token did not come from template markup.
+- A GGUF chat template is applied with placeholder slots, its trimming detected per call, and tried with three conversation layouts at load before the KV cache is allocated. context_tokens may be at most 4x the trained context.
+- UTF-8 reassembly of token bytes; reasoning (<think>) spans are hidden only for formats that reason, including templates that open <think> in the prompt; other control tokens are never streamed.
+
 ## [0.1.0-alpha.15] - 2026-10-03
 
 - llama.cpp backend (llama-cpp-2 =0.1.158, default features off: no OpenMP) behind the `llama` feature, on by default; Metal on Apple Silicon.

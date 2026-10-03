@@ -10,6 +10,9 @@ use crate::error::{OragError, Result};
 
 pub const MANIFEST_FILE: &str = "orag-model.toml";
 
+/// Smallest `context_tokens` a generation manifest may declare.
+pub const MIN_CONTEXT_TOKENS: usize = 512;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelRole {
@@ -147,7 +150,7 @@ impl ModelManifest {
                 }
             }
             (ModelRole::Generation, None, Some(spec)) => {
-                if !(512..=131072).contains(&spec.context_tokens)
+                if !(MIN_CONTEXT_TOKENS..=131072).contains(&spec.context_tokens)
                     || spec.max_output_tokens < 16
                     || spec.max_output_tokens > spec.context_tokens / 2
                 {

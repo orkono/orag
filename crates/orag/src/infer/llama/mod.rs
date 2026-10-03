@@ -2,6 +2,7 @@
 //! types. Pinned to llama-cpp-2 =0.1.158; binding API changes are absorbed here.
 
 pub mod embedder;
+pub mod generator;
 
 use std::path::Path;
 use std::sync::OnceLock;

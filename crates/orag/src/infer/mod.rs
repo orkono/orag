@@ -5,6 +5,8 @@ pub mod fake;
 #[cfg(feature = "llama")]
 pub mod llama;
 pub mod models;
+pub mod prompt;
+pub mod stream;
 pub mod tokens;
 
 use std::ops::ControlFlow;
