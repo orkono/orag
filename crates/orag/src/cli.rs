@@ -23,6 +23,14 @@ pub enum Command {
         #[command(subcommand)]
         command: ModelsCommand,
     },
+    /// Run the HTTP service.
+    Serve {
+        /// Serve with deterministic fake models (development and UI work only).
+        #[arg(long, hide = true)]
+        dev_fake_models: bool,
+    },
+    /// Write a consistent copy of the database (safe while the server runs).
+    Backup { dest: std::path::PathBuf },
 }
 
 #[derive(Debug, Subcommand)]
@@ -53,6 +61,16 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             print_stdout(&serde_json::to_string_pretty(&info)?)
         }
         Command::Models { command } => run_models(command),
+        Command::Serve { dev_fake_models } => {
+            crate::app::run_server(load_config()?, crate::app::ServeOptions { dev_fake_models })
+        }
+        Command::Backup { dest } => {
+            // Read-only: no config is loaded, so a mistyped ORAG_HOME is not
+            // created, and the live database is never migrated by this binary.
+            let home = crate::config::resolve_home(&|key| std::env::var_os(key))?;
+            crate::store::backup_database(&home.join(crate::config::DB_FILE), &dest)?;
+            print_stdout(&format!("backup written to {}", dest.display()))
+        }
     }
 }
 
@@ -102,7 +120,7 @@ fn run_models(command: ModelsCommand) -> anyhow::Result<()> {
 /// Writes one line to stdout. A reader that closed the pipe early
 /// (`orag version | head -1`) wanted no more output, so that is success;
 /// every other write error is reported. (`println!` would panic instead.)
-fn print_stdout(text: &str) -> anyhow::Result<()> {
+pub(crate) fn print_stdout(text: &str) -> anyhow::Result<()> {
     match writeln!(std::io::stdout().lock(), "{text}") {
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         result => Ok(result?),

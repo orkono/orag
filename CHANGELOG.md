@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.22] - 2026-10-03
+
+- `orag serve`: config.toml is read once at startup; prints exactly one stdout line `orag listening on http://<addr>` (bind = "127.0.0.1:0" picks a free port, reported by /v1/version); an exclusive orag.lock refuses a second instance on the same home; interrupted jobs resume.
+- The port is bound before the models load, so a busy port fails at once; SIGINT/SIGTERM handlers are installed before the listening line; the HTTP drain (10 s, now inside server::serve) and the worker/blocking tasks (5 s) are bounded, so shutdown cannot hang.
+- `orag backup <DEST>`: a read-only, consistent copy that is safe while the server runs; a missing database (for example a mistyped ORAG_HOME) is an error and nothing is created, the live database is never migrated, and an existing DEST is never overwritten.
+
 ## [0.1.0-alpha.21] - 2026-10-03
 
 - POST /v1/collections/{id}/query: JSON answer or SSE stream (sources, tokens, then done or one error event), with sources, validated citations, abstention and a per-query trace.

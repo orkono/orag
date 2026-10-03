@@ -103,16 +103,31 @@ impl Store {
     /// connection, so writers are not blocked. Only a complete copy ever
     /// appears at `dest`, and an existing `dest` is never overwritten.
     pub fn backup_to(&self, dest: &Path) -> Result<()> {
-        let exists = || OragError::InvalidInput(format!("{} already exists", dest.display()));
-        if dest.exists() {
-            return Err(exists());
-        }
-        let reader = open_connection(&self.path, true)?;
-        migrations::copy_database(&reader, dest).map_err(|err| match err {
-            OragError::Io(io) if io.kind() == std::io::ErrorKind::AlreadyExists => exists(),
-            other => other,
-        })
+        backup_database(&self.path, dest)
     }
+}
+
+/// `backup_to` for a database this process has not opened (`orag backup`
+/// beside a running server). The source is only ever read: a missing file is
+/// an error, never created, and an older or newer schema is copied as is.
+pub fn backup_database(source: &Path, dest: &Path) -> Result<()> {
+    if !source.is_file() {
+        return Err(OragError::InvalidInput(format!(
+            "no database at {}",
+            source.display()
+        )));
+    }
+    register_sqlite_vec()?;
+    let exists = || OragError::InvalidInput(format!("{} already exists", dest.display()));
+    if dest.exists() {
+        return Err(exists());
+    }
+    let reader = open_connection(&absolute(source)?, true)?;
+    check_ownership(&reader)?;
+    migrations::copy_database(&reader, dest).map_err(|err| match err {
+        OragError::Io(io) if io.kind() == std::io::ErrorKind::AlreadyExists => exists(),
+        other => other,
+    })
 }
 
 /// ISO-8601 UTC timestamp expression used in UPDATE statements.
@@ -361,6 +376,35 @@ mod tests {
         .unwrap();
         assert_eq!(version, 2);
         assert_eq!(backups(dir.path()).len(), 1);
+    }
+
+    #[test]
+    fn backup_database_never_creates_or_migrates_its_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.db");
+        let err = backup_database(&missing, &dir.path().join("a.db")).unwrap_err();
+        assert!(err.to_string().contains("no database"), "{err}");
+        assert!(!missing.exists() && !dir.path().join("a.db").exists());
+        // A schema this build does not know (a newer orag) is copied as is.
+        let newer = dir.path().join("newer.db");
+        drop(Store::open(&newer).unwrap());
+        rusqlite::Connection::open(&newer)
+            .unwrap()
+            .pragma_update(None, "user_version", 99)
+            .unwrap();
+        let copy = dir.path().join("copy.db");
+        backup_database(&newer, &copy).unwrap();
+        let version: i64 = rusqlite::Connection::open(&copy)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 99);
+        let foreign = dir.path().join("foreign.db");
+        rusqlite::Connection::open(&foreign)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (x);")
+            .unwrap();
+        assert!(backup_database(&foreign, &dir.path().join("f.db")).is_err());
     }
 
     #[test]

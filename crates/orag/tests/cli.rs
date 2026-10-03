@@ -75,3 +75,314 @@ fn models_import_then_list() {
         "{stdout}"
     );
 }
+
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
+use std::path::{Path, PathBuf};
+use std::process::{Child, ExitStatus, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+/// Generous for a debug build on a loaded CI runner; a hang still fails.
+const PROCESS_LIMIT: Duration = Duration::from_secs(30);
+
+/// A running `orag serve`, killed on drop even when a test panics.
+struct Server {
+    child: Child,
+    stdout: mpsc::Receiver<String>,
+    stderr: PathBuf,
+}
+
+impl Server {
+    fn stderr(&self) -> String {
+        std::fs::read_to_string(&self.stderr).unwrap_or_default()
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// A home whose config.toml asks for an ephemeral loopback port.
+fn ephemeral_home() -> tempfile::TempDir {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join("config.toml"), "bind = \"127.0.0.1:0\"\n").unwrap();
+    home
+}
+
+/// Starts `orag serve` with stdout lines forwarded to a channel and stderr
+/// kept in a file next to the home, so a failure can show the reason.
+fn spawn_serve(home: &Path, args: &[&str]) -> Server {
+    let stderr = home.with_extension(format!("stderr-{}.log", std::process::id()));
+    let mut child = orag()
+        .env("ORAG_HOME", home)
+        .arg("serve")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(std::fs::File::create(&stderr).unwrap())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    Server {
+        child,
+        stdout: rx,
+        stderr,
+    }
+}
+
+fn start_server(home: &Path) -> (Server, String) {
+    let server = spawn_serve(home, &["--dev-fake-models"]);
+    let line = server
+        .stdout
+        .recv_timeout(PROCESS_LIMIT)
+        .unwrap_or_else(|_| panic!("no listening line; stderr: {}", server.stderr()));
+    let addr = line
+        .strip_prefix("orag listening on http://")
+        .unwrap_or_else(|| panic!("unexpected: {line}"))
+        .to_string();
+    (server, addr)
+}
+
+/// Waits for the process to exit, or returns `None` after `limit`.
+fn wait_with_deadline(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + limit;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    None
+}
+
+fn http_get(addr: &str, path: &str, host: &str) -> String {
+    let mut stream = TcpStream::connect(addr).unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+
+#[test]
+fn serve_starts_on_ephemeral_port_without_credentials() {
+    let home = ephemeral_home();
+    let (_server, addr) = start_server(home.path());
+    assert!(http_get(&addr, "/v1/health", &addr).starts_with("HTTP/1.1 200"));
+    let version = http_get(&addr, "/v1/version", &addr);
+    assert!(version.starts_with("HTTP/1.1 200"), "{version}");
+    assert!(version.contains("\"max_document_mb\":5"), "{version}");
+    assert!(
+        version.contains(&format!("\"bind\":\"{addr}\"")),
+        "reports the real port: {version}"
+    );
+    assert!(http_get(&addr, "/v1/version", "evil.example").starts_with("HTTP/1.1 403"));
+    assert!(
+        !home.path().join("api-token").exists(),
+        "no credentials are created"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_signal_shuts_down_cleanly_after_exactly_one_stdout_line() {
+    for signal in ["-INT", "-TERM"] {
+        let home = ephemeral_home();
+        let (mut server, _addr) = start_server(home.path());
+        let pid = server.child.id().to_string();
+        assert!(orag_kill(signal, &pid).success());
+        let status = wait_with_deadline(&mut server.child, PROCESS_LIMIT)
+            .unwrap_or_else(|| panic!("{signal}: still running; stderr: {}", server.stderr()));
+        assert!(
+            status.success(),
+            "{signal}: {status}; stderr: {}",
+            server.stderr()
+        );
+        let extra: Vec<String> = server.stdout.iter().collect();
+        assert!(
+            extra.is_empty(),
+            "{signal}: more stdout after the listening line: {extra:?}"
+        );
+        assert!(
+            server.stderr().contains("shutting down"),
+            "{}",
+            server.stderr()
+        );
+    }
+}
+
+#[cfg(unix)]
+fn orag_kill(signal: &str, pid: &str) -> ExitStatus {
+    std::process::Command::new("kill")
+        .args([signal, pid])
+        .status()
+        .unwrap()
+}
+
+#[test]
+fn config_is_read_only_at_startup() {
+    let home = ephemeral_home();
+    let (_server, addr) = start_server(home.path());
+    std::fs::write(
+        home.path().join("config.toml"),
+        "bind = \"127.0.0.1:0\"\nmax_document_mb = 10\n",
+    )
+    .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let version = http_get(&addr, "/v1/version", &addr);
+    assert!(
+        version.contains("\"max_document_mb\":5"),
+        "a running server must not reload config: {version}"
+    );
+}
+
+#[test]
+fn invalid_config_stops_startup_with_the_reason() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join("config.toml"), "max_document_mb = 50\n").unwrap();
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .args(["serve", "--dev-fake-models"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("between 1 and 10"));
+}
+
+#[test]
+fn a_busy_port_is_reported_before_models_load() {
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let bind = taken.local_addr().unwrap();
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!("bind = \"{bind}\"\n"),
+    )
+    .unwrap();
+    // No models are installed: binding must fail first, not the model load.
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .arg("serve")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(&format!("binding {bind}")), "{stderr}");
+}
+
+#[test]
+fn second_instance_on_the_same_home_is_refused() {
+    let home = ephemeral_home();
+    let (_server, _addr) = start_server(home.path());
+    let mut second = spawn_serve(home.path(), &["--dev-fake-models"]);
+    let status = wait_with_deadline(&mut second.child, PROCESS_LIMIT)
+        .expect("the second instance must exit, not serve");
+    assert!(!status.success());
+    assert!(
+        second.stderr().contains("another orag instance"),
+        "{}",
+        second.stderr()
+    );
+}
+
+fn backup(home: &Path, dest: &Path) -> std::process::Output {
+    orag()
+        .env("ORAG_HOME", home)
+        .arg("backup")
+        .arg(dest)
+        .output()
+        .unwrap()
+}
+
+fn collection_names(db: &Path) -> Vec<String> {
+    let store = orag::store::Store::open(db).unwrap();
+    store
+        .list_collections()
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect()
+}
+
+#[test]
+fn backup_writes_a_consistent_copy_and_refuses_overwrite() {
+    let home = tempfile::tempdir().unwrap();
+    let store = orag::store::Store::open(&home.path().join("orag.db")).unwrap();
+    store.create_collection("arsiv").unwrap();
+    drop(store);
+    let dest = home.path().join("backup.db");
+    let first = backup(home.path(), &dest);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let written = std::fs::read(&dest).unwrap();
+    let second = backup(home.path(), &dest);
+    assert!(!second.status.success());
+    assert!(String::from_utf8_lossy(&second.stderr).contains("already exists"));
+    assert_eq!(
+        std::fs::read(&dest).unwrap(),
+        written,
+        "an existing backup is never touched"
+    );
+    assert!(collection_names(&dest).contains(&"arsiv".to_string()));
+}
+
+#[test]
+fn backup_of_a_missing_home_fails_and_creates_nothing() {
+    let parent = tempfile::tempdir().unwrap();
+    let home = parent.path().join("yanlis-yol");
+    let dest = parent.path().join("backup.db");
+    let out = backup(&home, &dest);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no database"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!home.exists(), "backup must not create a home");
+    assert!(!dest.exists(), "no empty backup may be written");
+}
+
+#[test]
+fn backup_while_serving_is_a_usable_copy() {
+    let home = ephemeral_home();
+    let (_server, _addr) = start_server(home.path());
+    let dest = home.path().join("live.db");
+    let out = backup(home.path(), &dest);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(collection_names(&dest).contains(&"default".to_string()));
+}
+
+#[cfg(feature = "llama")]
+#[test]
+fn serve_without_installed_models_explains_how_to_fix() {
+    let home = ephemeral_home();
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .arg("serve")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("orag models import"), "{stderr}");
+}

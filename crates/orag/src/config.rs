@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{OragError, Result};
 
 pub const CONFIG_FILE: &str = "config.toml";
+pub const DB_FILE: &str = "orag.db";
 pub const DEFAULT_PORT: u16 = 7613;
 pub const DEFAULT_BIND: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), DEFAULT_PORT);
 pub const DEFAULT_MAX_DOCUMENT_MB: u32 = 5;
@@ -137,7 +138,7 @@ impl Config {
     }
 
     pub fn db_path(&self) -> PathBuf {
-        self.home.join("orag.db")
+        self.home.join(DB_FILE)
     }
 
     pub fn models_dir(&self) -> PathBuf {

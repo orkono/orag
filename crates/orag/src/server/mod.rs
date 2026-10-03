@@ -10,6 +10,7 @@ pub mod system;
 
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -174,6 +175,9 @@ async fn method_not_allowed() -> ApiError {
     )
 }
 
+/// Longest graceful drain after shutdown starts; then open connections are closed.
+pub const GRACEFUL_SHUTDOWN_LIMIT: Duration = Duration::from_secs(10);
+
 pub async fn serve(
     state: AppState,
     listener: TcpListener,
@@ -186,10 +190,27 @@ pub async fn serve(
         shutdown.await;
         stopper.begin_shutdown();
     };
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown)
-        .await
-        .map_err(|err| OragError::Internal(format!("server error: {err}")))
+    // The drain is bounded: a peer that stopped reading (a stalled SSE client)
+    // cannot keep the server alive after shutdown starts, however it started.
+    let mut stopped = state.subscribe_shutdown();
+    let drain_limit = async move {
+        if stopped.wait_for(|stopping| *stopping).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+        tokio::time::sleep(GRACEFUL_SHUTDOWN_LIMIT).await;
+    };
+    let served = axum::serve(listener, router(state)).with_graceful_shutdown(shutdown);
+    tokio::select! {
+        served = served => {
+            served.map_err(|err| OragError::Internal(format!("server error: {err}")))
+        }
+        () = drain_limit => {
+            tracing::warn!(
+                "open connections did not finish within {GRACEFUL_SHUTDOWN_LIMIT:?}; closing them"
+            );
+            Ok(())
+        }
+    }
 }
 
 /// Runs blocking store/inference work off the async workers.
