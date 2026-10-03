@@ -8,6 +8,8 @@ use unicode_normalization::UnicodeNormalization;
 use crate::domain::{CollectionId, DocumentId, JobId};
 use crate::error::{OragError, Result};
 use crate::ingest::format::SourceFormat;
+use crate::store::publish::{ChunkScope, delete_chunk_rows, delete_orphan_sources};
+use crate::store::spaces::collection_space_id;
 use crate::store::{NOW_SQL, Store, conversion_error};
 
 const MAX_FILENAME_CHARS: usize = 255;
@@ -325,6 +327,35 @@ impl Store {
         .ok_or(OragError::NotFound {
             kind: "document",
             id: document_id,
+        })
+    }
+
+    /// Removes the document, its chunks, FTS rows, vectors, jobs and (if no
+    /// longer referenced) its source snapshot, atomically.
+    pub fn delete_document(
+        &self,
+        collection_id: CollectionId,
+        document_id: DocumentId,
+    ) -> Result<()> {
+        self.write(|conn| {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let sha: String = tx
+                .query_row(
+                    "SELECT source_sha256 FROM documents WHERE id = ?1 AND collection_id = ?2",
+                    params![document_id, collection_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .ok_or(OragError::NotFound {
+                    kind: "document",
+                    id: document_id,
+                })?;
+            let space_id = collection_space_id(&tx, collection_id)?;
+            delete_chunk_rows(&tx, space_id, ChunkScope::Document(document_id))?;
+            tx.execute("DELETE FROM documents WHERE id = ?1", [document_id])?;
+            delete_orphan_sources(&tx, &[sha])?;
+            tx.commit()?;
+            Ok(())
         })
     }
 }
