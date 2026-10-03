@@ -2,6 +2,9 @@
 //! short-lived read-only connections (WAL allows concurrent readers).
 //! All methods block: async callers must use `tokio::task::spawn_blocking`.
 
+pub mod collections;
+pub mod documents;
+pub mod jobs;
 pub mod migrations;
 
 use std::path::{Path, PathBuf};
@@ -16,10 +19,6 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Store {
     path: PathBuf,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "first caller arrives in Task 8")
-    )]
     writer: Mutex<Connection>,
     schema_version: u32,
 }
@@ -69,10 +68,6 @@ impl Store {
     /// leaves the mutex poisoned and possibly a transaction open; the lock is
     /// recovered and that transaction rolled back, so one bad write cannot
     /// disable the store for the rest of the process.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "first caller arrives in Task 8")
-    )]
     pub(crate) fn write<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         let mut conn = RollbackOnUnwind(self.writer.lock().unwrap_or_else(|poisoned| {
             self.writer.clear_poison();
@@ -96,6 +91,11 @@ impl Store {
         }
     }
 
+    /// Short-lived read-only connection; WAL lets it run beside the writer.
+    pub(crate) fn read(&self) -> Result<Connection> {
+        open_connection(&self.path, true)
+    }
+
     /// Consistent online backup via `VACUUM INTO` (D-004) on its own read-only
     /// connection, so writers are not blocked. Only a complete copy ever
     /// appears at `dest`, and an existing `dest` is never overwritten.
@@ -110,6 +110,14 @@ impl Store {
             other => other,
         })
     }
+}
+
+/// ISO-8601 UTC timestamp expression used in UPDATE statements.
+pub(crate) const NOW_SQL: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+
+/// A column value that could not be turned into its Rust type.
+pub(crate) fn conversion_error(index: usize, message: String) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, message.into())
 }
 
 /// The writer lock; if a write panics, its open transaction is rolled back

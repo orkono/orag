@@ -68,7 +68,7 @@ fn is_private_use(ch: char) -> bool {
 
 /// Unicode's Default_Ignorable_Code_Point property (DerivedCoreProperties,
 /// Unicode 17.0, the version `unicode_tables_are_pinned` checks).
-fn is_default_ignorable(ch: char) -> bool {
+pub(crate) fn is_default_ignorable(ch: char) -> bool {
     matches!(
         ch,
         '\u{00AD}'

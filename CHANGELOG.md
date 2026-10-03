@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.11] - 2026-10-03
+
+- Collections: create/list/get with NFC names, case- and Turkish-I-insensitive uniqueness, invisible characters refused.
+- Documents: content-addressed source snapshots (SHA-256), duplicate detection per collection, a re-upload of a failed document retries it with a new job; NFC filenames reduced to their base name, hidden and bidi characters refused; strict page limits (1-200).
+- Jobs: durable queue with IMMEDIATE claims, failure recording that reports whether it applied, and restart recovery.
+
 ## [0.1.0-alpha.10] - 2026-10-02
 
 - SQLite store: WAL, sqlite-vec 0.1.9 (pinned), orag application id; refuses other apps' databases and non-UTF-8 paths.
