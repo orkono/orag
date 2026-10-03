@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.13] - 2026-10-03
+
+- Embedding spaces: a collection binds to a space on first ingest; collections with the same fingerprint share one vec0 table. A collection with no chunks follows a model change instead of answering reindex_required; a space no collection uses is dropped.
+- Atomic publish of chunks, FTS rows and unit-length vectors in one IMMEDIATE transaction; results of a deleted document or stale job are discarded.
+- Lexical (FTS5/BM25) and dense (sqlite-vec, exact k-NN) search scoped to the collection; the dense query is normalized so scores are true cosine; k is capped at 4096 (MAX_SEARCH_K).
+- get_chunks takes the collection id and never returns another collection's chunks.
+- Deleting a document or collection removes chunks, FTS and vector rows, jobs and now-unused sources in one transaction; the default collection is protected.
+
 ## [0.1.0-alpha.12] - 2026-10-03
 
 - Inference boundaries: Embedder, Generator and VectorIndex traits; the RAG core never sees llama.cpp types.

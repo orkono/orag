@@ -6,6 +6,9 @@ pub mod collections;
 pub mod documents;
 pub mod jobs;
 pub mod migrations;
+pub mod publish;
+pub mod search;
+pub mod spaces;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};

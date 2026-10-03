@@ -7,6 +7,8 @@ use unicode_normalization::UnicodeNormalization;
 use crate::domain::CollectionId;
 use crate::error::{OragError, Result};
 use crate::store::Store;
+use crate::store::publish::{ChunkScope, delete_chunk_rows, delete_orphan_sources};
+use crate::store::spaces::{collection_space_id, drop_unused_space};
 
 pub const DEFAULT_COLLECTION: &str = "default";
 const MAX_NAME_CHARS: usize = 64;
@@ -114,6 +116,45 @@ impl Store {
         .ok_or(OragError::NotFound {
             kind: "collection",
             id,
+        })
+    }
+
+    /// Deletes a collection and everything in it. The default collection is protected.
+    pub fn delete_collection(&self, id: CollectionId) -> Result<()> {
+        self.write(|conn| {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let name: String = tx
+                .query_row("SELECT name FROM collections WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .optional()?
+                .ok_or(OragError::NotFound {
+                    kind: "collection",
+                    id,
+                })?;
+            if name == DEFAULT_COLLECTION {
+                return Err(OragError::Conflict(
+                    "the default collection cannot be deleted".into(),
+                ));
+            }
+            let space_id = collection_space_id(&tx, id)?;
+            delete_chunk_rows(&tx, space_id, ChunkScope::Collection(id))?;
+            let shas: Vec<String> = {
+                let mut stmt = tx.prepare(
+                    "SELECT DISTINCT source_sha256 FROM documents WHERE collection_id = ?1",
+                )?;
+                let rows = stmt.query_map([id], |r| r.get(0))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            tx.execute("DELETE FROM documents WHERE collection_id = ?1", [id])?;
+            // Only this collection's sources can have become unused.
+            delete_orphan_sources(&tx, &shas)?;
+            tx.execute("DELETE FROM collections WHERE id = ?1", [id])?;
+            if let Some(space) = space_id {
+                drop_unused_space(&tx, space)?;
+            }
+            tx.commit()?;
+            Ok(())
         })
     }
 }
