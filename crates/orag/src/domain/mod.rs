@@ -5,6 +5,7 @@ pub mod citations;
 pub mod document;
 pub mod normalize;
 pub mod rrf;
+pub mod space;
 
 pub type CollectionId = i64;
 pub type DocumentId = i64;
