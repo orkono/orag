@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.17] - 2026-10-03
+
+- Ingestion worker: parse, chunk and embed outside the write lock, then publish atomically; restart recovery requeues interrupted jobs.
+- A document deleted at any point while its job runs is discarded, not failed; a reindex-required collection fails the job before any embedding work.
+- A panicking job is failed instead of left running; shutdown stops a running job between embedding batches and leaves it for the next start; the worker also stops if the shutdown sender is dropped.
+- The chunker config is validated against the embedding model at startup (IngestContext::check) and kept unchanged when the model has room; user-facing job errors never leak internal details.
+
 ## [0.1.0-alpha.16] - 2026-10-03
 
 - LlamaGenerator: streaming generation on a worker thread with back-pressure and cancellation; prompts as ChatML, ChatML no-think, the model's own GGUF template, or a plain transcript.
