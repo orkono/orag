@@ -2,7 +2,10 @@
 //! the RAG core never sees llama.cpp types (D-002).
 
 pub mod fake;
+#[cfg(feature = "llama")]
+pub mod llama;
 pub mod models;
+pub mod tokens;
 
 use std::ops::ControlFlow;
 
@@ -86,6 +89,15 @@ pub trait VectorIndex: Send + Sync {
         query: &[f32],
         k: usize,
     ) -> Result<Vec<(ChunkId, f32)>>;
+}
+
+/// Every embedder rejects blank text: its vector would encode only the
+/// prefix and special tokens.
+pub(crate) fn require_text(text: &str) -> Result<()> {
+    if text.trim().is_empty() {
+        return Err(OragError::InvalidInput("cannot embed empty text".into()));
+    }
+    Ok(())
 }
 
 /// Returns `v / ‖v‖`. A zero, non-finite or overflowing vector is a model

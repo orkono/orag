@@ -67,6 +67,7 @@ impl FakeEmbedder {
 
     /// Like a real model, refuses text over the descriptor's `max_tokens`.
     fn embed_checked(&self, text: &str) -> Result<Vec<f32>> {
+        crate::infer::require_text(text)?;
         let limit = self.descriptor.max_tokens;
         if self.count_tokens(text) > limit {
             return Err(OragError::Model(format!(
@@ -395,5 +396,18 @@ mod tests {
             "a needle inside another word must not match"
         );
         assert!((e.embed_query("Orx nedir").unwrap()[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fake_embedder_rejects_blank_text_like_the_real_one() {
+        let embedder = FakeEmbedder::new();
+        assert!(matches!(
+            embedder.embed_query("  "),
+            Err(OragError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            embedder.embed_documents(&["ok".into(), "".into()]),
+            Err(OragError::InvalidInput(_))
+        ));
     }
 }
