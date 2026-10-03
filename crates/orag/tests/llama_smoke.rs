@@ -174,3 +174,104 @@ fn max_tokens_beyond_the_trained_context_is_rejected() {
         .unwrap();
     assert!(err.to_string().contains("trained context"), "{err}");
 }
+
+use std::ops::ControlFlow;
+
+use orag::infer::llama::generator::LlamaGenerator;
+use orag::infer::{ChatMessage, GenerationRequest, Generator, Role};
+
+fn tiny_generator(dir: &Path, gguf: &Path) -> LlamaGenerator {
+    let models = dir.join("models");
+    install_fixture(
+        gguf,
+        &models,
+        "tiny-gen",
+        "generation",
+        "[generation]\ncontext_tokens = 512\nmax_output_tokens = 32\n",
+    );
+    LlamaGenerator::load(&find_model(&models, "tiny-gen", ModelRole::Generation).unwrap()).unwrap()
+}
+
+fn request(max: usize) -> GenerationRequest {
+    GenerationRequest {
+        messages: vec![ChatMessage {
+            role: Role::User,
+            content: "Once upon a time".into(),
+        }],
+        max_output_tokens: max,
+    }
+}
+
+#[test]
+fn generator_streams_bounded_output() {
+    let Some(gguf) = fixture() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let generator = tiny_generator(dir.path(), &gguf);
+    let mut text = String::new();
+    let stats = generator
+        .generate(&request(16), &mut |piece| {
+            text.push_str(piece);
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert!(stats.prompt_tokens > 0);
+    assert!(stats.completion_tokens <= 16);
+    assert!(!text.is_empty());
+    assert!(!stats.cancelled);
+}
+
+#[test]
+fn generator_cancels_when_consumer_breaks() {
+    let Some(gguf) = fixture() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let generator = tiny_generator(dir.path(), &gguf);
+    let mut pieces = 0;
+    let stats = generator
+        .generate(&request(32), &mut |_| {
+            pieces += 1;
+            ControlFlow::Break(())
+        })
+        .unwrap();
+    // Nothing is delivered after a Break. If the model emitted no visible text
+    // at all, there was nothing to break on.
+    assert!(pieces <= 1, "{pieces} pieces after a Break");
+    assert_eq!(stats.cancelled, pieces == 1);
+}
+
+#[test]
+fn generator_rejects_prompt_that_cannot_fit() {
+    let Some(gguf) = fixture() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let generator = tiny_generator(dir.path(), &gguf);
+    let huge = GenerationRequest {
+        messages: vec![ChatMessage {
+            role: Role::User,
+            content: "word ".repeat(2000),
+        }],
+        max_output_tokens: 16,
+    };
+    assert!(
+        generator
+            .generate(&huge, &mut |_| ControlFlow::Continue(()))
+            .is_err()
+    );
+}
+
+#[test]
+fn generator_rejects_a_context_far_beyond_its_training() {
+    let Some(gguf) = fixture() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let models = dir.path().join("models");
+    install_fixture(
+        &gguf,
+        &models,
+        "tiny-huge",
+        "generation",
+        "[generation]\ncontext_tokens = 8192\nmax_output_tokens = 32\n",
+    );
+    let err =
+        LlamaGenerator::load(&find_model(&models, "tiny-huge", ModelRole::Generation).unwrap())
+            .err()
+            .unwrap();
+    assert!(err.to_string().contains("trained context"), "{err}");
+}
