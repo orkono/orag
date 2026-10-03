@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.15] - 2026-10-03
+
+- llama.cpp backend (llama-cpp-2 =0.1.158, default features off: no OpenMP) behind the `llama` feature, on by default; Metal on Apple Silicon.
+- LlamaEmbedder: rejects at load a manifest whose dimensions differ from the model's output width, whose max_tokens exceed the trained context, or that requires an EOS the model lacks. Guarantees exactly one trailing EOS when required; overlong input is an error, never truncated.
+- Document and query text are tokenized with parse_special = false, so text such as `</s>` cannot become a control token. Blank text is rejected by every embedder, including the fake.
+- scripts/check-llama-build.sh checks the real build: Metal backend built on Apple Silicon, no OpenMP, llama.cpp objects target macOS 14. CI fetches (and caches) the pinned 1.2 MB stories260K fixture for llama smoke tests.
+
 ## [0.1.0-alpha.14] - 2026-10-03
 
 - Offline model packs: `orag models import|list|verify`. A pack is a manifest (`orag-model.toml`), GGUF weights and a license file.
