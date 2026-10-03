@@ -2,6 +2,7 @@
 //! the RAG core never sees llama.cpp types (D-002).
 
 pub mod fake;
+pub mod models;
 
 use std::ops::ControlFlow;
 

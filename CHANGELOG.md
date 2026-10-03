@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.14] - 2026-10-03
+
+- Offline model packs: `orag models import|list|verify`. A pack is a manifest (`orag-model.toml`), GGUF weights and a license file.
+- Import copies into a private staging directory, hashes the weights as they are written, and renames into place; a checksum mismatch installs nothing. Staging left by an interrupted import is removed after 24 h.
+- Manifests are validated: plain file names that are not the manifest itself, distinct weights and license files, lowercase SHA-256, the role matching its section.
+- Model lookups accept only plain ids and require the manifest id to equal its directory name; `models list` reports broken packs as warnings instead of failing.
+- `orag version` reports the supported schema version.
+
 ## [0.1.0-alpha.13] - 2026-10-03
 
 - Embedding spaces: a collection binds to a space on first ingest; collections with the same fingerprint share one vec0 table. A collection with no chunks follows a model change instead of answering reindex_required; a space no collection uses is dropped.
