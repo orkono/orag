@@ -755,25 +755,38 @@ async fn seed(app: &TestApp) {
 /// so only cancellation can keep the count below it.
 const LONG_REPLY_WORDS: usize = 400;
 
-/// About 0.8 s for a full answer, so an uncancelled run is easy to observe.
+/// At least 0.8 s for a full answer (several seconds on a loaded CI runner),
+/// so an uncancelled run is easy to observe.
 fn slow_long_generator() -> FakeGenerator {
     FakeGenerator::new(&"kelime ".repeat(LONG_REPLY_WORDS))
         .with_context(4096, LONG_REPLY_WORDS)
         .with_token_delay(Duration::from_millis(2))
 }
 
-/// Generation has stopped: the token count settles below a full answer and
-/// the single generation permit is free again.
+/// Generation has stopped: the single generation permit comes back and the
+/// token count is below a full answer. Waits for the event, not a fixed time:
+/// the permit is dropped when the generation task ends, after its last token
+/// was counted, so once it is free the count is final.
 async fn assert_generation_stopped(app: &TestApp, why: &str) {
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let permit = loop {
+        if let Ok(permit) = app.state.generation.clone().try_acquire_owned() {
+            break permit;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the generation permit was not released: {why}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    drop(permit);
     let settled = app.generator.emitted_tokens();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(app.generator.emitted_tokens(), settled, "{why}");
-    assert!(settled < LONG_REPLY_WORDS, "{why}");
     assert!(
-        app.state.generation.clone().try_acquire_owned().is_ok(),
-        "the generation permit was not released"
+        settled < LONG_REPLY_WORDS,
+        "{why}: all {settled} tokens were generated"
     );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(app.generator.emitted_tokens(), settled, "{why}");
 }
 
 #[tokio::test]
@@ -875,17 +888,23 @@ async fn dropping_sse_stream_stops_generation() {
     let _first = body.frame().await.expect("first frame");
     drop(body);
     assert_generation_stopped(&app, "generation kept running after disconnect").await;
-    // The generation permit was released: a new query completes.
-    let follow_up = tokio::time::timeout(
-        Duration::from_secs(5),
-        send(
-            &app,
-            json_request("POST", "/v1/collections/1/query", json!({"query": "iade"})),
-        ),
-    )
-    .await
-    .expect("permit released");
-    assert_eq!(follow_up.0, StatusCode::OK);
+    // The server still answers: a new stream starts with its sources. (Waiting
+    // for a whole slow answer would only add a timing-dependent wait.)
+    let request = json_request(
+        "POST",
+        "/v1/collections/1/query",
+        json!({"query": "iade", "stream": true}),
+    );
+    let response = router(app.state.clone()).oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = response
+        .into_body()
+        .frame()
+        .await
+        .expect("first frame")
+        .unwrap();
+    let text = String::from_utf8_lossy(first.data_ref().expect("data frame")).to_string();
+    assert!(text.starts_with("event: sources"), "{text}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -1015,11 +1034,12 @@ async fn abandoned_json_query_stops_generation() {
     let app = app_with(slow_long_generator(), 1024 * 1024);
     seed(&app).await;
     let request = json_request("POST", "/v1/collections/1/query", json!({"query": "iade"}));
-    let abandoned = tokio::time::timeout(Duration::from_millis(100), send(&app, request)).await;
-    assert!(
-        abandoned.is_err(),
-        "the request should still be running when abandoned"
-    );
+    let pending = tokio::spawn(router(app.state.clone()).oneshot(request));
+    // Abandoned mid-generation, however slow the runner: dropping the request
+    // future is what a client disconnect does.
+    wait_until_generating(&app).await;
+    pending.abort();
+    assert!(pending.await.unwrap_err().is_cancelled());
     assert_generation_stopped(&app, "generation kept running for a disconnected client").await;
 }
 

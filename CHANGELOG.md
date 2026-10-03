@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.23] - 2026-10-04
+
+- Cancellation tests wait for events instead of fixed times: they wait for the generation permit to come back (it is released after the last token is counted), and the abandoned JSON query is dropped mid-generation. A macOS CI runner had failed a follow-up query that waited for a whole slow answer; the follow-up now only checks that a new stream starts.
+- **Versions:** this out-of-band fix takes alpha.23, so Tasks 20-22 produce alpha.24-26 and 23a/23b produce alpha.27/28 (Task 24 is still 0.1.0). This supersedes the alpha.3 entry's numbering.
+
 ## [0.1.0-alpha.22] - 2026-10-03
 
 - `orag serve`: config.toml is read once at startup; prints exactly one stdout line `orag listening on http://<addr>` (bind = "127.0.0.1:0" picks a free port, reported by /v1/version); an exclusive orag.lock refuses a second instance on the same home; interrupted jobs resume.
