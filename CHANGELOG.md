@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.18] - 2026-10-03
+
+- Hybrid retrieval (lexical, dense, RRF) with a per-query trace; lexical search keeps working after an embedding model change.
+- Answer engine: token-budgeted context (two candidates per slot, skipped chunks counted in the trace), streamed sources, tokens and a summary with validated [n] citations; empty retrieval abstains without calling the model.
+- Source text is quoted line by line (every line-break character) so it cannot forge a source header or the question; a refusal is detected in either language only when the answer is the refusal itself.
+- A question too long for the embedding or answer model is InvalidInput; a consumer Break is final, so no Done follows.
+
 ## [0.1.0-alpha.17] - 2026-10-03
 
 - Ingestion worker: parse, chunk and embed outside the write lock, then publish atomically; restart recovery requeues interrupted jobs.
