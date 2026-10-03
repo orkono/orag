@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.12] - 2026-10-03
+
+- Inference boundaries: Embedder, Generator and VectorIndex traits; the RAG core never sees llama.cpp types.
+- Embedding-space fingerprint: SHA-256 over a fixed-order, length-prefixed encoding with chunker and normalizer versions; golden-value test; new descriptor fields fail to compile until encoded.
+- l2_normalize returns an error for zero or non-finite vectors and computes the norm in f64. Deterministic fakes enforce the same token, context and output limits as real models; fixtures match whole words.
+
 ## [0.1.0-alpha.11] - 2026-10-03
 
 - Collections: create/list/get with NFC names, case- and Turkish-I-insensitive uniqueness, invisible characters refused.
