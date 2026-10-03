@@ -1,6 +1,9 @@
 //! Loopback HTTP API (D-013, D-014).
 
+pub mod collections;
+pub mod documents;
 pub mod errors;
+pub mod jobs;
 pub mod security;
 pub mod system;
 
@@ -11,7 +14,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::routing::get;
+use axum::routing::{delete, get};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
 
@@ -123,6 +126,28 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(system::health))
         .route("/v1/version", get(system::version))
+        .route(
+            "/v1/collections",
+            get(collections::list).post(collections::create),
+        )
+        .route(
+            "/v1/collections/{collection_id}",
+            delete(collections::remove),
+        )
+        .route(
+            "/v1/collections/{collection_id}/documents",
+            get(documents::list)
+                .post(documents::upload)
+                // Route-level limit overrides the router's SMALL_BODY_LIMIT (axum 0.8):
+                // DefaultBodyLimit only sets a request extension and the inner layer
+                // writes last. A wrapping limiter (tower-http RequestBodyLimit) would not.
+                .layer(upload_body_limit(state.max_upload_bytes)),
+        )
+        .route(
+            "/v1/collections/{collection_id}/documents/{document_id}",
+            get(documents::get_one).delete(documents::remove),
+        )
+        .route("/v1/jobs/{job_id}", get(jobs::get_one))
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(middleware::from_fn_with_state(

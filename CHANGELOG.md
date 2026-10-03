@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.20] - 2026-10-03
+
+- Collections (list, create, delete), document upload (JSON text or multipart file), cursor-paginated listing, get/delete, and job status endpoints.
+- Uploads: content type, collection and model compatibility are checked before one of 4 upload slots is taken; the body has 60 s; a multipart file is streamed and stopped as soon as it passes max_document_mb.
+- One set of JSON-text format rules (SourceFormat::detect_text) with whitespace-trimmed extensions, so padded names and dotfiles such as 'rapor.xlsx ' or '.html' are refused like any other unsupported type.
+- Bad path and query values are JSON invalid_input errors (ApiPath/ApiQuery); an unsupported JSON media type is 415 unsupported_media_type.
+
 ## [0.1.0-alpha.19] - 2026-10-03
 
 - HTTP server foundation: loopback only, no authentication (D-013); Host must be a loopback name with an optional digits-only port; Origin is checked against allowed_origins after normalization, and cross-site browser requests without an Origin are refused.

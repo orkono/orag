@@ -119,6 +119,48 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// `Path` whose rejection is the API's JSON `invalid_input` error.
+pub struct ApiPath<T>(pub T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ApiPath<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, ApiError> {
+        axum::extract::Path::<T>::from_request_parts(parts, state)
+            .await
+            .map(|axum::extract::Path(value)| ApiPath(value))
+            .map_err(|e| ApiError::invalid(e.body_text()))
+    }
+}
+
+/// `Query` whose rejection is the API's JSON `invalid_input` error.
+pub struct ApiQuery<T>(pub T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ApiQuery<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, ApiError> {
+        axum::extract::Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|axum::extract::Query(value)| ApiQuery(value))
+            .map_err(|e| ApiError::invalid(e.body_text()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::header::RETRY_AFTER;

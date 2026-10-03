@@ -68,6 +68,40 @@ impl SourceFormat {
     }
 }
 
+impl SourceFormat {
+    /// Format of JSON text content (D-010). Filename rules come first: a known
+    /// unsupported type is rejected whatever `declared` says, and a `declared`
+    /// format that contradicts a supported extension is `InvalidInput`. Without
+    /// a supported extension (no name, `Toplantı 12.10.2026`, `notes.v2`)
+    /// `declared` applies, else plain text.
+    pub fn detect_text(
+        filename: Option<&str>,
+        declared: Option<SourceFormat>,
+    ) -> Result<SourceFormat> {
+        let ext = filename.and_then(extension);
+        if let Some(ext) = ext.as_deref().filter(|e| REJECTED_EXTENSIONS.contains(e)) {
+            return Err(OragError::UnsupportedFormat(format!(
+                "`.{ext}` files are not supported"
+            )));
+        }
+        let named = match ext.as_deref() {
+            Some("md" | "markdown") => Some(SourceFormat::Markdown),
+            Some("txt") => Some(SourceFormat::PlainText),
+            _ => None,
+        };
+        match (declared, named) {
+            (Some(declared), Some(named)) if declared != named => {
+                Err(OragError::InvalidInput(format!(
+                    "format `{}` contradicts the filename extension",
+                    declared.as_str()
+                )))
+            }
+            (Some(declared), _) => Ok(declared),
+            (None, named) => Ok(named.unwrap_or(SourceFormat::PlainText)),
+        }
+    }
+}
+
 /// Never parsed as text: other document, markup and archive types, and DOCX
 /// and PDF until their parsers exist (Task 23).
 pub const REJECTED_EXTENSIONS: &[&str] = &[
@@ -99,7 +133,8 @@ fn mime_kind(mime: Option<&str>) -> MimeKind {
 
 /// Lowercased extension; a dotfile such as `.md` counts as one.
 fn extension(name: &str) -> Option<String> {
-    let base = Path::new(name).file_name()?.to_str()?;
+    // Surrounding whitespace is trimmed, as the stored filename is.
+    let base = Path::new(name.trim()).file_name()?.to_str()?;
     let ext = match Path::new(base).extension() {
         Some(ext) => ext.to_str()?,
         None => base.strip_prefix('.')?,
@@ -217,5 +252,25 @@ mod tests {
             SourceFormat::detect(None, Some("application/x-markdown")).unwrap(),
             SourceFormat::Markdown
         );
+    }
+
+    #[test]
+    fn json_text_follows_filename_rules() {
+        use SourceFormat::*;
+        assert_eq!(SourceFormat::detect_text(None, None).unwrap(), PlainText);
+        assert_eq!(
+            SourceFormat::detect_text(Some("a.md "), None).unwrap(),
+            Markdown
+        );
+        assert_eq!(
+            SourceFormat::detect_text(Some("notes.v2"), Some(Markdown)).unwrap(),
+            Markdown
+        );
+        assert!(SourceFormat::detect_text(Some("rapor.xlsx "), Some(PlainText)).is_err());
+        assert!(SourceFormat::detect_text(Some(".html"), None).is_err());
+        assert!(matches!(
+            SourceFormat::detect_text(Some("a.md"), Some(PlainText)),
+            Err(OragError::InvalidInput(_))
+        ));
     }
 }
