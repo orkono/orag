@@ -6,5 +6,6 @@ pub mod domain;
 pub mod error;
 pub mod infer;
 pub mod ingest;
+pub mod retrieval;
 pub mod store;
 pub mod version;
