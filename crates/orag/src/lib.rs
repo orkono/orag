@@ -7,5 +7,6 @@ pub mod error;
 pub mod infer;
 pub mod ingest;
 pub mod retrieval;
+pub mod server;
 pub mod store;
 pub mod version;
