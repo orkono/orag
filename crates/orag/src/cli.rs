@@ -18,6 +18,21 @@ pub struct Cli {
 pub enum Command {
     /// Print version information as JSON.
     Version,
+    /// Manage offline model packs.
+    Models {
+        #[command(subcommand)]
+        command: ModelsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ModelsCommand {
+    /// Verify and install a model pack directory.
+    Import { dir: std::path::PathBuf },
+    /// List installed models.
+    List,
+    /// Re-check an installed model's SHA-256.
+    Verify { id: String },
 }
 
 pub fn run() -> ExitCode {
@@ -33,8 +48,53 @@ pub fn run() -> ExitCode {
 fn execute(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Command::Version => {
-            let info = version::version_info(None);
+            let info =
+                version::version_info(Some(crate::store::migrations::SUPPORTED_SCHEMA_VERSION));
             print_stdout(&serde_json::to_string_pretty(&info)?)
+        }
+        Command::Models { command } => run_models(command),
+    }
+}
+
+/// Reads `$ORAG_HOME/config.toml` (D-019); `ORAG_HOME` is the only environment variable.
+fn load_config() -> anyhow::Result<crate::config::Config> {
+    let home = crate::config::resolve_home(&|key| std::env::var_os(key))?;
+    Ok(crate::config::Config::load(&home)?)
+}
+
+fn run_models(command: ModelsCommand) -> anyhow::Result<()> {
+    use crate::infer::models;
+    let config = load_config()?;
+    match command {
+        ModelsCommand::Import { dir } => {
+            let manifest = models::import_pack(&dir, &config.models_dir())?;
+            print_stdout(&format!(
+                "installed {} ({}, {})",
+                manifest.id,
+                manifest.role.as_str(),
+                manifest.license
+            ))
+        }
+        ModelsCommand::List => {
+            let listing = models::list_models(&config.models_dir())?;
+            for model in &listing.installed {
+                let m = &model.manifest;
+                print_stdout(&format!(
+                    "{}\t{}\t{}\t{}",
+                    m.id,
+                    m.role.as_str(),
+                    m.file,
+                    m.license
+                ))?;
+            }
+            for broken in &listing.broken {
+                eprintln!("warning: {}: {}", broken.dir.display(), broken.error);
+            }
+            Ok(())
+        }
+        ModelsCommand::Verify { id } => {
+            models::verify_model(&config.models_dir(), &id)?;
+            print_stdout(&format!("{id}: ok"))
         }
     }
 }
