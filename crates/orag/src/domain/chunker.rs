@@ -29,7 +29,7 @@ impl Default for ChunkerConfig {
 impl ChunkerConfig {
     /// `0 < target <= max`, and an overlap below half the budget. A violation
     /// is a server configuration error, not a problem with the document.
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         let ok = self.target_tokens > 0
             && self.target_tokens <= self.max_tokens
             && self.overlap_tokens < self.max_tokens.div_ceil(2);
