@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.21] - 2026-10-03
+
+- POST /v1/collections/{id}/query: JSON answer or SSE stream (sources, tokens, then done or one error event), with sources, validated citations, abstention and a per-query trace.
+- One generation slot: a query waits at most 120 s, then gets 429 busy with Retry-After; queued and running queries get 503 shutting_down, never a truncated 200.
+- A disconnected client (JSON or SSE) stops generation and frees the slot; a client that stops reading loses its stream after 30 s.
+- Unknown collection and embedding-model mismatch are checked before and again after the wait, so they stay 404/409 statuses instead of a 200 stream with an error event.
+- A prompt the generator refuses after budgeting is reported as a model error, not as the user's invalid input; HTTP and engine share one question validation.
+
 ## [0.1.0-alpha.20] - 2026-10-03
 
 - Collections (list, create, delete), document upload (JSON text or multipart file), cursor-paginated listing, get/delete, and job status endpoints.

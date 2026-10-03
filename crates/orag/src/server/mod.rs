@@ -4,6 +4,7 @@ pub mod collections;
 pub mod documents;
 pub mod errors;
 pub mod jobs;
+pub mod query;
 pub mod security;
 pub mod system;
 
@@ -14,7 +15,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
 
@@ -148,6 +149,7 @@ pub fn router(state: AppState) -> Router {
             get(documents::get_one).delete(documents::remove),
         )
         .route("/v1/jobs/{job_id}", get(jobs::get_one))
+        .route("/v1/collections/{collection_id}/query", post(query::query))
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(middleware::from_fn_with_state(

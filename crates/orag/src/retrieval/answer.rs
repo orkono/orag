@@ -140,12 +140,15 @@ impl AnswerEngine {
         let started = Instant::now();
         let mut answer = String::new();
         let mut stopped = false;
-        let stats = self.generator.generate(&request, &mut |piece| {
-            answer.push_str(piece);
-            let flow = emit(AnswerEvent::Token(piece.to_string()));
-            stopped |= flow.is_break();
-            flow
-        })?;
+        let stats = self
+            .generator
+            .generate(&request, &mut |piece| {
+                answer.push_str(piece);
+                let flow = emit(AnswerEvent::Token(piece.to_string()));
+                stopped |= flow.is_break();
+                flow
+            })
+            .map_err(generator_failure)?;
         if stopped || stats.cancelled {
             // The consumer stopped the answer (disconnect, shutdown): a Break is final,
             // so no Done follows, whatever the generator reports.
@@ -167,7 +170,18 @@ impl AnswerEngine {
     }
 }
 
-fn validate_question(question: &str) -> Result<&str> {
+/// The prompt was already budgeted by `select_context`, so a generator that
+/// still refuses it has a capacity problem (D-005), not a bad user request.
+fn generator_failure(err: OragError) -> OragError {
+    match err {
+        OragError::InvalidInput(msg) => {
+            OragError::Model(format!("generator refused the prompt: {msg}"))
+        }
+        other => other,
+    }
+}
+
+pub(crate) fn validate_question(question: &str) -> Result<&str> {
     let trimmed = question.trim();
     if trimmed.is_empty() {
         return Err(OragError::InvalidInput("query must not be empty".into()));
@@ -704,5 +718,43 @@ mod tests {
             .answer(1, &question, &mut |_| ControlFlow::Continue(()))
             .unwrap_err();
         assert!(matches!(err, OragError::InvalidInput(_)), "{err:?}");
+    }
+
+    #[test]
+    fn a_prompt_the_generator_refuses_is_a_model_error_not_the_users() {
+        use crate::infer::{ChatMessage, GenerationStats};
+        /// Counts prompts smaller than it really is, so the overflow only shows
+        /// up inside `generate` (the estimate and the backend disagree).
+        struct Undercounting(FakeGenerator);
+        impl Generator for Undercounting {
+            fn model_id(&self) -> &str {
+                self.0.model_id()
+            }
+            fn context_tokens(&self) -> usize {
+                self.0.context_tokens()
+            }
+            fn max_output_tokens(&self) -> usize {
+                self.0.max_output_tokens()
+            }
+            fn count_prompt_tokens(&self, _: &[ChatMessage]) -> Result<usize> {
+                Ok(1)
+            }
+            fn generate(
+                &self,
+                request: &GenerationRequest,
+                on_token: &mut dyn FnMut(&str) -> ControlFlow<()>,
+            ) -> Result<GenerationStats> {
+                self.0.generate(request, on_token)
+            }
+        }
+        let (_dir, retriever) = indexed(FakeEmbedder::new(), &[("k.md", DOC)]);
+        let engine = AnswerEngine {
+            retriever,
+            generator: Arc::new(Undercounting(FakeGenerator::new("x").with_context(40, 20))),
+        };
+        let err = engine
+            .answer(1, "iade", &mut |_| ControlFlow::Continue(()))
+            .unwrap_err();
+        assert!(matches!(err, OragError::Model(_)), "{err:?}");
     }
 }
