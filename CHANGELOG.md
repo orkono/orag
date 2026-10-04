@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.25] - 2026-10-04
+
+- `orag eval vector-scale [--chunks 100000] [--dimensions 1024] [--queries 50] [--work-dir DIR]`: synthetic dense-search latency benchmark for the D-003 gate (warm p95 < 250 ms at 100k × 1024); exits non-zero when the gate fails and never touches ORAG_HOME.
+- The benchmark cannot pass by measuring nothing: every search must return k hits, sizes are bounded (1-1 000 000 chunks, 20-10 000 queries), an all-zero random vector is drawn again, "insert s" counts SQLite inserts only, and --work-dir puts the throwaway database on the disk that is measured (Linux /tmp can be tmpfs).
+- Recorded in .docs/benchmarks/vector-scale.md: 100k × 1024 p95 99.9 ms (PASS) and 300k p95 294.0 ms (informational) on an Apple M5 Max; the two reference machines (M-series 16 GB, x86-64 Linux 16 GB) are still to be measured before v0.1.0.
+- Release builds link on macOS again: thin LTO dropped Rust's `__isPlatformVersionAtLeast`, which llama.cpp's Metal code needs, so build.rs links clang's runtime archive explicitly (no new dynamic dependency) and reruns when the toolchain moves; CI now builds the release profile on macOS.
+
 ## [0.1.0-alpha.24] - 2026-10-04
 
 - `orag eval retrieval --corpus DIR --dataset FILE [--out FILE]`: indexes a corpus into a throwaway database and compares lexical, dense and hybrid retrieval (recall@5/10, MRR@10, label-based nDCG@10, p50/p95 latency); Markdown to stdout, JSON to a new --out file. It never touches ORAG_HOME's database, and with --dev-fake-models it reads no config.
