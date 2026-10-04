@@ -386,3 +386,106 @@ fn serve_without_installed_models_explains_how_to_fix() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("orag models import"), "{stderr}");
 }
+
+#[test]
+fn eval_retrieval_runs_on_seed_set() {
+    let home = tempfile::tempdir().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .args(["eval", "retrieval", "--dev-fake-models", "--corpus"])
+        .arg(root.join("corpus/seed"))
+        .arg("--dataset")
+        .arg(root.join("datasets/seed.jsonl"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("| hybrid |")
+    );
+}
+
+fn eval_seed(home: &Path, extra: &[&std::ffi::OsStr]) -> std::process::Output {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    orag()
+        .env("ORAG_HOME", home)
+        .args(["eval", "retrieval", "--dev-fake-models", "--corpus"])
+        .arg(root.join("corpus/seed"))
+        .arg("--dataset")
+        .arg(root.join("datasets/seed.jsonl"))
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn eval_with_fake_models_writes_json_and_leaves_orag_home_alone() {
+    let parent = tempfile::tempdir().unwrap();
+    let home = parent.path().join("home");
+    let report = parent.path().join("report.json");
+    let out = eval_seed(&home, &["--out".as_ref(), report.as_os_str()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+    assert_eq!(json["strategies"].as_array().unwrap().len(), 3);
+    assert_eq!(json["answerable"], 14);
+    assert!(!home.exists(), "eval must not create ORAG_HOME");
+}
+
+#[test]
+fn eval_refuses_to_overwrite_out_before_running() {
+    let home = tempfile::tempdir().unwrap();
+    let report = home.path().join("taken.json");
+    std::fs::write(&report, "keep").unwrap();
+    let out = eval_seed(home.path(), &["--out".as_ref(), report.as_os_str()]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("taken.json"));
+    assert!(out.stdout.is_empty(), "nothing may run first");
+    assert_eq!(std::fs::read_to_string(&report).unwrap(), "keep");
+}
+
+#[test]
+fn eval_errors_name_the_missing_path() {
+    let home = tempfile::tempdir().unwrap();
+    for (flag, missing) in [("--corpus", "/nope-corpus"), ("--dataset", "/nope.jsonl")] {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let corpus = root.join("corpus/seed");
+        let dataset = root.join("datasets/seed.jsonl");
+        let mut args: Vec<std::ffi::OsString> = vec![
+            "eval".into(),
+            "retrieval".into(),
+            "--dev-fake-models".into(),
+        ];
+        for (name, value) in [
+            ("--corpus", corpus.as_os_str()),
+            ("--dataset", dataset.as_os_str()),
+        ] {
+            args.push(name.into());
+            args.push(
+                if name == flag {
+                    missing.as_ref()
+                } else {
+                    value
+                }
+                .into(),
+            );
+        }
+        let out = orag()
+            .env("ORAG_HOME", home.path())
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(missing), "{flag}: {stderr}");
+    }
+}

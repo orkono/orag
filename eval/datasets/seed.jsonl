@@ -1,0 +1,16 @@
+{"id":"tr-001","lang":"tr","query":"İade süresi kaç gündür?","relevant":[{"document":"tr-kargo-politikasi.md","contains":"14 gün içinde iade"}],"answerable":true}
+{"id":"tr-002","lang":"tr","query":"istanbul ici teslimat ne kadar surer","relevant":[{"document":"tr-kargo-politikasi.md","contains":"İstanbul içi teslimat genellikle 1 iş günü"}],"answerable":true}
+{"id":"tr-003","lang":"tr","query":"500 TL üzeri siparişlerde kargo ücreti nedir?","relevant":[{"document":"tr-kargo-politikasi.md","contains":"500 TL ve üzeri | Ücretsiz"}],"answerable":true}
+{"id":"tr-004","lang":"tr","query":"ORX-E104 hatası ne anlama gelir?","relevant":[{"document":"tr-orx7-kurulum.md","contains":"ORX-E104 hatası, lisans anahtarının"}],"answerable":true}
+{"id":"tr-005","lang":"tr","query":"Varsayılan bağlantı zaman aşımı nedir?","relevant":[{"document":"tr-orx7-kurulum.md","contains":"zaman aşımı 30 saniyedir"}],"answerable":true}
+{"id":"tr-006","lang":"tr","query":"ORX-7 için kaç GB bellek gerekir?","relevant":[{"document":"tr-orx7-kurulum.md","contains":"en az 8 GB bellek"}],"answerable":true}
+{"id":"en-001","lang":"en","query":"How long must passwords be?","relevant":[{"document":"en-security-policy.md","contains":"at least 14 characters"}],"answerable":true}
+{"id":"en-002","lang":"en","query":"Within how many hours must incidents be reported?","relevant":[{"document":"en-security-policy.md","contains":"within 4 hours"}],"answerable":true}
+{"id":"en-003","lang":"en","query":"What does error E9 mean?","relevant":[{"document":"en-barista-manual.md","contains":"E9 indicates the grinder is blocked"}],"answerable":true}
+{"id":"en-004","lang":"en","query":"How often should I descale the coffee machine?","relevant":[{"document":"en-barista-manual.md","contains":"every 3 months"}],"answerable":true}
+{"id":"en-005","lang":"en","query":"How long are audit logs kept?","relevant":[{"document":"en-security-policy.md","contains":"retained for 400 days"}],"answerable":true}
+{"id":"x-001","lang":"en","query":"What is the return period for products?","relevant":[{"document":"tr-kargo-politikasi.md","contains":"14 gün içinde iade"}],"answerable":true}
+{"id":"x-002","lang":"tr","query":"Kahve makinesinin garanti süresi nedir?","relevant":[{"document":"en-barista-manual.md","contains":"24 months"}],"answerable":true}
+{"id":"x-003","lang":"en","query":"log files directory for ORX-7","relevant":[{"document":"tr-orx7-kurulum.md","contains":"/var/log/orx7/"}],"answerable":true}
+{"id":"u-001","lang":"en","query":"What is the CEO's phone number?","relevant":[],"answerable":false}
+{"id":"u-002","lang":"tr","query":"Şirketin kuruluş yılı nedir?","relevant":[],"answerable":false}

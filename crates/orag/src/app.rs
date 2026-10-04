@@ -138,22 +138,62 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
     })
 }
 
-#[cfg(feature = "llama")]
 fn load_models(config: &Config) -> anyhow::Result<(Arc<dyn Embedder>, Arc<dyn Generator>)> {
+    // Both models must be installed before either (slow) load starts.
+    #[cfg(feature = "llama")]
+    crate::infer::models::find_model(
+        &config.models_dir(),
+        &config.generation_model,
+        crate::infer::models::ModelRole::Generation,
+    )?;
+    let embedder = load_embedder(config)?;
+    let generator = load_generator(config)?;
+    Ok((embedder, generator))
+}
+
+/// The embedder `serve` runs; `orag eval retrieval` loads the same one.
+#[cfg(feature = "llama")]
+pub(crate) fn load_embedder(config: &Config) -> anyhow::Result<Arc<dyn Embedder>> {
     use crate::infer::llama::embedder::LlamaEmbedder;
+    use crate::infer::models::{ModelRole, find_model};
+    let installed = find_model(
+        &config.models_dir(),
+        &config.embedding_model,
+        ModelRole::Embedding,
+    )?;
+    tracing::info!(embedding = %installed.manifest.id, "loading embedding model");
+    Ok(Arc::new(
+        LlamaEmbedder::load(&installed).context("loading embedding model")?,
+    ))
+}
+
+#[cfg(feature = "llama")]
+fn load_generator(config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
     use crate::infer::llama::generator::LlamaGenerator;
     use crate::infer::models::{ModelRole, find_model};
-    let models = config.models_dir();
-    let embedding = find_model(&models, &config.embedding_model, ModelRole::Embedding)?;
-    let generation = find_model(&models, &config.generation_model, ModelRole::Generation)?;
-    tracing::info!(embedding = %embedding.manifest.id, generation = %generation.manifest.id, "loading models");
-    let embedder = LlamaEmbedder::load(&embedding).context("loading embedding model")?;
-    let generator = LlamaGenerator::load(&generation).context("loading generation model")?;
-    Ok((Arc::new(embedder), Arc::new(generator)))
+    let installed = find_model(
+        &config.models_dir(),
+        &config.generation_model,
+        ModelRole::Generation,
+    )?;
+    tracing::info!(generation = %installed.manifest.id, "loading generation model");
+    Ok(Arc::new(
+        LlamaGenerator::load(&installed).context("loading generation model")?,
+    ))
 }
 
 #[cfg(not(feature = "llama"))]
-fn load_models(_config: &Config) -> anyhow::Result<(Arc<dyn Embedder>, Arc<dyn Generator>)> {
+pub(crate) fn load_embedder(_config: &Config) -> anyhow::Result<Arc<dyn Embedder>> {
+    no_backend()
+}
+
+#[cfg(not(feature = "llama"))]
+fn load_generator(_config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
+    no_backend()
+}
+
+#[cfg(not(feature = "llama"))]
+fn no_backend<T>() -> anyhow::Result<T> {
     anyhow::bail!(
         "this build has no inference backend; rebuild with the `llama` feature or use --dev-fake-models"
     )
