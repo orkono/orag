@@ -52,6 +52,10 @@ pub enum EvalCommand {
         /// Exit non-zero (after printing) when hybrid recall@10 is below this (0-1).
         #[arg(long)]
         min_recall_at_10: Option<f64>,
+        /// Query ids (comma-separated) whose evidence must reach the answer
+        /// context with hybrid retrieval; any miss exits non-zero after printing.
+        #[arg(long, value_delimiter = ',')]
+        require_in_context: Vec<String>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -112,13 +116,17 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     dataset,
                     out,
                     min_recall_at_10,
+                    require_in_context,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
             &corpus,
             &dataset,
             out.as_deref(),
-            min_recall_at_10,
+            EvalGates {
+                min_recall_at_10,
+                require_in_context,
+            },
             dev_fake_models,
         ),
         Command::Eval {
@@ -210,17 +218,22 @@ fn run_eval_retrieval(
     corpus: &std::path::Path,
     dataset: &std::path::Path,
     out: Option<&std::path::Path>,
-    min_recall_at_10: Option<f64>,
+    gates: EvalGates,
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-    if let Some(floor) = min_recall_at_10
+    if let Some(floor) = gates.min_recall_at_10
         && !(0.0..=1.0).contains(&floor)
     {
         anyhow::bail!("--min-recall-at-10 must be between 0 and 1, got {floor}");
     }
     let queries = crate::eval::dataset::load_dataset(dataset)
         .with_context(|| format!("dataset {}", dataset.display()))?;
+    for id in &gates.require_in_context {
+        if !queries.iter().any(|q| q.id == *id && q.answerable) {
+            anyhow::bail!("--require-in-context: {id} is not an answerable query in the dataset");
+        }
+    }
     if let Some(path) = out
         && path.exists()
     {
@@ -247,21 +260,47 @@ fn run_eval_retrieval(
         file.write_all(json.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
     }
-    if let Some(floor) = min_recall_at_10 {
+    gates.check(&report)
+}
+
+/// Pass/fail conditions on the hybrid strategy, checked after the report is out.
+struct EvalGates {
+    min_recall_at_10: Option<f64>,
+    require_in_context: Vec<String>,
+}
+
+impl EvalGates {
+    fn check(&self, report: &crate::eval::retrieval::RetrievalReport) -> anyhow::Result<()> {
+        use anyhow::Context;
         let hybrid = report
             .strategies
             .iter()
             .find(|s| s.strategy == "hybrid")
             .context("the report has no hybrid strategy")?;
         // A mean of per-query fractions can land a hair under an exact floor.
-        if hybrid.recall_at_10 < floor - 1e-9 {
+        if let Some(floor) = self.min_recall_at_10
+            && hybrid.recall_at_10 < floor - 1e-9
+        {
             anyhow::bail!(
                 "hybrid recall@10 {:.3} is below {floor}",
                 hybrid.recall_at_10
             );
         }
+        let missed: Vec<&str> = self
+            .require_in_context
+            .iter()
+            .filter(|id| hybrid.missed_in_context.contains(id))
+            .map(String::as_str)
+            .collect();
+        if !missed.is_empty() {
+            anyhow::bail!(
+                "evidence for {} is not within the top {} hybrid candidates (the answer context)",
+                missed.join(", "),
+                report.context_chunks
+            );
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Runs the D-003 benchmark in a fresh directory (removed afterwards) and

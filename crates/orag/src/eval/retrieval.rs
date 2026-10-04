@@ -9,12 +9,12 @@ use serde::Serialize;
 
 use crate::domain::chunker::ChunkerConfig;
 use crate::error::{OragError, Result};
-use crate::eval::dataset::EvalQuery;
+use crate::eval::dataset::{EvalQuery, Relevant};
 use crate::eval::metrics::{label_ranks, mrr_at, ndcg_at, percentile, recall_at};
 use crate::infer::Embedder;
 use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
-use crate::retrieval::hybrid::{RetrievalConfig, Retriever, Strategy};
+use crate::retrieval::hybrid::{Candidate, RetrievalConfig, Retriever, Strategy};
 use crate::store::Store;
 use crate::store::documents::{DocumentStatus, NewDocument};
 use crate::store::search::SqliteVecIndex;
@@ -29,6 +29,13 @@ pub struct StrategyReport {
     pub recall_at_10: f64,
     pub mrr_at_10: f64,
     pub ndcg_at_10: f64,
+    /// Share of queries whose every label is within the first
+    /// `context_chunks` candidates: the most the answer prompt can hold
+    /// (D-005). An approximation of what the generator sees: the answer path
+    /// can still skip a candidate that does not fit its token budget.
+    pub in_context: f64,
+    /// Ids of the queries that miss it, so one subgroup cannot hide in a mean.
+    pub missed_in_context: Vec<String>,
     pub p50_ms: f64,
     pub p95_ms: f64,
 }
@@ -39,6 +46,8 @@ pub struct RetrievalReport {
     pub corpus_documents: usize,
     pub answerable: usize,
     pub unanswerable: usize,
+    /// At most this many chunks reach the answer prompt (D-005).
+    pub context_chunks: usize,
     pub strategies: Vec<StrategyReport>,
 }
 
@@ -46,17 +55,23 @@ impl RetrievalReport {
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
             "Embedding model: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
-             | strategy | recall@5 | recall@10 | MRR@10 | nDCG@10 | p50 ms | p95 ms |\n|---|---|---|---|---|---|---|\n",
-            self.embedding_model, self.corpus_documents, self.answerable, self.unanswerable
+             | strategy | recall@5 | recall@10 | MRR@10 | nDCG@10 | in context (top {}) | p50 ms | p95 ms |\n\
+             |---|---|---|---|---|---|---|---|\n",
+            self.embedding_model,
+            self.corpus_documents,
+            self.answerable,
+            self.unanswerable,
+            self.context_chunks
         );
         for s in &self.strategies {
             out.push_str(&format!(
-                "| {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.1} | {:.1} |\n",
+                "| {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.1} | {:.1} |\n",
                 s.strategy,
                 s.recall_at_5,
                 s.recall_at_10,
                 s.mrr_at_10,
                 s.ndcg_at_10,
+                s.in_context,
                 s.p50_ms,
                 s.p95_ms
             ));
@@ -97,6 +112,7 @@ pub fn run_retrieval_eval(
         corpus_documents,
         answerable: answerable.len(),
         unanswerable: dataset.len() - answerable.len(),
+        context_chunks: retriever.config.max_context_chunks,
         strategies,
     })
 }
@@ -225,31 +241,47 @@ fn check_labels(store: &Store, dataset: &[EvalQuery]) -> Result<()> {
     )))
 }
 
+/// For each label, the 1-based rank of the first candidate that satisfies it.
+pub fn candidate_ranks(candidates: &[Candidate], labels: &[Relevant]) -> Vec<Option<usize>> {
+    let ranked: Vec<(String, String)> = candidates
+        .iter()
+        .map(|c| {
+            (
+                c.chunk.filename.clone().unwrap_or_default(),
+                c.chunk.text.clone(),
+            )
+        })
+        .collect();
+    label_ranks(&ranked, labels)
+}
+
+/// Every label found within the first `limit` candidates.
+pub fn all_in_context(ranks: &[Option<usize>], limit: usize) -> bool {
+    ranks.iter().all(|rank| rank.is_some_and(|r| r <= limit))
+}
+
 fn evaluate_strategy(
     retriever: &Retriever,
     strategy: Strategy,
     queries: &[&EvalQuery],
 ) -> Result<StrategyReport> {
     let (mut r5, mut r10, mut mrr, mut ndcg, mut latencies) = (0.0, 0.0, 0.0, 0.0, Vec::new());
+    let context = retriever.config.max_context_chunks;
+    let mut missed_in_context = Vec::new();
     for query in queries {
         let started = Instant::now();
-        let outcome = retriever.retrieve(1, &query.query, strategy, EVAL_DEPTH)?;
+        // Deep enough for both the metrics and the context check.
+        let depth = EVAL_DEPTH.max(context);
+        let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
-        let ranked: Vec<(String, String)> = outcome
-            .candidates
-            .iter()
-            .map(|c| {
-                (
-                    c.chunk.filename.clone().unwrap_or_default(),
-                    c.chunk.text.clone(),
-                )
-            })
-            .collect();
-        let ranks = label_ranks(&ranked, &query.relevant);
+        let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
         r5 += recall_at(&ranks, 5);
         r10 += recall_at(&ranks, 10);
         mrr += mrr_at(&ranks, 10);
         ndcg += ndcg_at(&ranks, 10);
+        if !all_in_context(&ranks, context) {
+            missed_in_context.push(query.id.clone());
+        }
     }
     let n = queries.len().max(1) as f64;
     Ok(StrategyReport {
@@ -259,6 +291,8 @@ fn evaluate_strategy(
         recall_at_10: r10 / n,
         mrr_at_10: mrr / n,
         ndcg_at_10: ndcg / n,
+        in_context: (queries.len() - missed_in_context.len()) as f64 / n,
+        missed_in_context,
         p50_ms: percentile(&latencies, 50.0),
         p95_ms: percentile(&latencies, 95.0),
     })
@@ -371,5 +405,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.corpus_documents, 2);
+    }
+
+    #[test]
+    fn context_inclusion_needs_every_label_within_the_limit() {
+        assert!(all_in_context(&[Some(1), Some(8)], 8));
+        assert!(!all_in_context(&[Some(1), Some(9)], 8));
+        assert!(!all_in_context(&[Some(1), None], 8));
+    }
+
+    #[test]
+    fn seed_report_names_the_queries_missing_from_the_context() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            &root.join("corpus/seed"),
+            &dataset,
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            report.context_chunks,
+            RetrievalConfig::default().max_context_chunks
+        );
+        for s in &report.strategies {
+            let found = s.queries - s.missed_in_context.len();
+            assert!(
+                (s.in_context - found as f64 / s.queries as f64).abs() < 1e-9,
+                "{s:?}"
+            );
+            assert!(
+                s.missed_in_context
+                    .iter()
+                    .all(|id| dataset.iter().any(|q| q.id == *id && q.answerable))
+            );
+        }
+        // The toy embedder misses some queries lexically: they are listed by id.
+        assert!(!report.strategies[0].missed_in_context.is_empty());
+        assert!(report.to_markdown().contains("in context"));
     }
 }

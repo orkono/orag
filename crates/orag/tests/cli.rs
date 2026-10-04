@@ -565,3 +565,57 @@ fn eval_retrieval_fails_below_the_recall_floor_after_printing() {
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("between 0 and 1"));
 }
+
+#[test]
+fn eval_retrieval_requires_named_queries_in_the_context() {
+    let home = tempfile::tempdir().unwrap();
+    let report = home.path().join("r.json");
+    let first = eval_seed(home.path(), &["--out".as_ref(), report.as_os_str()]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+    let hybrid = &json["strategies"][2];
+    assert_eq!(hybrid["strategy"], "hybrid");
+    let missed: Vec<String> = serde_json::from_value(hybrid["missed_in_context"].clone()).unwrap();
+    let all_ids = [
+        "tr-001", "tr-002", "tr-003", "tr-004", "tr-005", "tr-006", "en-001", "en-002", "en-003",
+        "en-004", "en-005", "x-001", "x-002", "x-003",
+    ];
+    let found = all_ids
+        .iter()
+        .find(|id| !missed.iter().any(|m| m == *id))
+        .unwrap();
+    let ok = eval_seed(
+        home.path(),
+        &["--require-in-context".as_ref(), found.as_ref()],
+    );
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    // The failing path must always be exercised: if the toy embedder ever
+    // stops missing a seed question, pick another failing case here.
+    let miss = missed
+        .first()
+        .expect("the fake hybrid run must miss a seed question for this test");
+    let fail = eval_seed(
+        home.path(),
+        &["--require-in-context".as_ref(), miss.as_ref()],
+    );
+    assert!(!fail.status.success());
+    assert!(String::from_utf8_lossy(&fail.stderr).contains(miss.as_str()));
+    // Unknown and unanswerable ids are mistakes in the gate, refused before the run.
+    for bad in ["nope", "u-001"] {
+        let out = eval_seed(
+            home.path(),
+            &["--require-in-context".as_ref(), bad.as_ref()],
+        );
+        assert!(!out.status.success(), "{bad}");
+        assert!(out.stdout.is_empty(), "{bad}: refused before running");
+        assert!(String::from_utf8_lossy(&out.stderr).contains(bad), "{bad}");
+    }
+}

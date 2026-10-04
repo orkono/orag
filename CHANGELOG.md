@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.27] - 2026-10-04
+
+- Embedding release gate, after an external review: the bilingual check uses the sections the chunker emits; the plan's one-sentence probe (which the 0.6B model fails: English question 0.380 for the Turkish policy vs 0.393 for an unrelated English sentence) stays as a diagnostic that the gate runs separately and never fails on; a new dense check requires each cross-language seed question's evidence within rank 3 among topic-near distractors in both languages. The limitation is recorded under D-005.
+- `orag eval retrieval` reports `in context (top 8)` per strategy and the ids that miss it; `--require-in-context ID,...` fails when hybrid leaves any of them out. The release gate requires the three cross-language seed questions, so one subgroup cannot hide in the mean recall.
+- Checked on Metal and on CPU (Linux arm64 in Docker): all real-model tests pass; cosines differ by at most ~0.007 and one dense rank swaps, so no gate requires a top-1 rank.
+- `.github/workflows/vector-scale.yml`: manual job that runs the D-003 benchmark on GitHub's ubuntu-22.04 runner as the Linux reference; it refuses to run unless the runner is x86-64 with at least 15 GB, is limited to 60 minutes, and writes the machine and results to the job summary.
+- **Versions:** this fix takes alpha.27, so 23a/23b produce alpha.28/29 (Task 24 is still 0.1.0). This supersedes the alpha.23 entry's numbering.
+
 ## [0.1.0-alpha.26] - 2026-10-04
 
 - `scripts/fetch-model-pack.sh <preset> <dir>` builds offline packs for qwen3-embedding-0.6b-q8_0, qwen3.5-4b-q4_k_m and qwen3-4b-instruct-2507-q4_k_m from pinned Hugging Face revisions. Model and LICENSE are both verified by SHA-256 via a .part file that is deleted on mismatch, and the manifest is written last, so an unfinished pack has none.
