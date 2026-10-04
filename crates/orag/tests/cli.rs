@@ -534,3 +534,34 @@ fn eval_vector_scale_small_run_prints_a_result_and_rejects_bad_sizes() {
         assert!(stderr.contains("must be"), "{bad:?}: {stderr}");
     }
 }
+
+#[test]
+fn eval_retrieval_fails_below_the_recall_floor_after_printing() {
+    let home = tempfile::tempdir().unwrap();
+    let pass = eval_seed(
+        home.path(),
+        &["--min-recall-at-10".as_ref(), "0.5".as_ref()],
+    );
+    assert!(
+        pass.status.success(),
+        "{}",
+        String::from_utf8_lossy(&pass.stderr)
+    );
+    let fail = eval_seed(
+        home.path(),
+        &["--min-recall-at-10".as_ref(), "1.0".as_ref()],
+    );
+    assert!(!fail.status.success());
+    assert!(String::from_utf8_lossy(&fail.stdout).contains("| hybrid |"));
+    let stderr = String::from_utf8_lossy(&fail.stderr);
+    assert!(
+        stderr.contains("hybrid recall@10") && stderr.contains("below 1"),
+        "{stderr}"
+    );
+    let bad = eval_seed(
+        home.path(),
+        &["--min-recall-at-10".as_ref(), "1.5".as_ref()],
+    );
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("between 0 and 1"));
+}

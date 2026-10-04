@@ -37,8 +37,9 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: scripts/check-llama-build.sh
-      # The release profile (thin LTO) links differently from debug; on macOS it
-      # needs build.rs's clang runtime link. Checked here so a release never
-      # finds out first.
-      - if: runner.os == 'macOS'
-        run: scripts/check-llama-build.sh --release
+      - run: scripts/check-binary-deps.sh target/debug/orag --release-floor
+      # The release profile (thin LTO) links differently from debug (on macOS it
+      # needs build.rs's clang runtime link), and it is what ships: build it and
+      # check its dependencies on both images, so a release never finds out first.
+      - run: scripts/check-llama-build.sh --release
+      - run: scripts/check-binary-deps.sh target/release/orag --release-floor

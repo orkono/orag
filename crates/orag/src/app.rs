@@ -50,6 +50,9 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
     } else {
         load_models(&config)?
     };
+    // Only weak handles stay here: once serving ends, a live model means a
+    // detached blocking task (an embedding batch, a prefill) still uses it.
+    let models_in_use = ModelsInUse::watch(&embedder, &generator);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -76,7 +79,43 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
     // Never wait without bound for a blocking task: an unfinished job is
     // requeued on the next start, and the instance lock is released on exit.
     runtime.shutdown_timeout(TASK_STOP_LIMIT);
+    if models_in_use.any() {
+        tracing::warn!(
+            "a model is still in use by a task that did not stop; exiting without native teardown"
+        );
+        exit_without_native_teardown(if served.is_ok() { 0 } else { 1 });
+    }
     served
+}
+
+/// Weak handles to the loaded models: alive only while something still uses them.
+struct ModelsInUse(
+    std::sync::Weak<dyn Embedder>,
+    std::sync::Weak<dyn Generator>,
+);
+
+impl ModelsInUse {
+    fn watch(embedder: &Arc<dyn Embedder>, generator: &Arc<dyn Generator>) -> Self {
+        ModelsInUse(Arc::downgrade(embedder), Arc::downgrade(generator))
+    }
+
+    fn any(&self) -> bool {
+        self.0.strong_count() > 0 || self.1.strong_count() > 0
+    }
+}
+
+/// A llama.cpp context still alive at `exit` makes its static Metal teardown
+/// abort (SIGABRT). `_exit` skips static destructors; an unfinished job is
+/// requeued on the next start and SQLite's WAL survives an abrupt exit.
+fn exit_without_native_teardown(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    unsafe extern "C" {
+        fn _exit(status: i32) -> !;
+    }
+    // SAFETY: `_exit` is async-signal-safe, takes a plain int and never returns.
+    unsafe { _exit(code) }
 }
 
 fn acquire_instance_lock(home: &std::path::Path) -> anyhow::Result<std::fs::File> {
@@ -197,4 +236,21 @@ fn no_backend<T>() -> anyhow::Result<T> {
     anyhow::bail!(
         "this build has no inference backend; rebuild with the `llama` feature or use --dev-fake-models"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn models_in_use_sees_only_handles_held_elsewhere() {
+        let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new());
+        let generator: Arc<dyn Generator> = Arc::new(FakeGenerator::new("x"));
+        let watched = ModelsInUse::watch(&embedder, &generator);
+        let detached_task = Arc::clone(&generator);
+        drop((embedder, generator));
+        assert!(watched.any(), "a task still holds the generator");
+        drop(detached_task);
+        assert!(!watched.any());
+    }
 }
