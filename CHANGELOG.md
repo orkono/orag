@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.26] - 2026-10-04
+
+- `scripts/fetch-model-pack.sh <preset> <dir>` builds offline packs for qwen3-embedding-0.6b-q8_0, qwen3.5-4b-q4_k_m and qwen3-4b-instruct-2507-q4_k_m from pinned Hugging Face revisions. Model and LICENSE are both verified by SHA-256 via a .part file that is deleted on mismatch, and the manifest is written last, so an unfinished pack has none.
+- `scripts/release-model-check.sh` (release gate) builds the release binary, checks its dependencies, requires all 3 real-model tests to run and pass with the shipped generation model (an ORAG_TEST_GENERATION_MODEL override is ignored), and fails when seed hybrid recall@10 is below 0.9 (new `orag eval retrieval --min-recall-at-10`). It cleans up on failure and can be run again.
+- `scripts/check-binary-deps.sh <binary> [--release-floor]` allows only system libraries, plus a glibc/libstdc++ floor (Linux) or macOS 14 (minos); finding no GLIBC versions is an error. CI now checks the debug and the release binary on both images.
+- Fix: a process that loaded a real model aborted at exit on macOS (llama.cpp Metal `GGML_ASSERT([rsets->data count] == 0)`), because the embedder's and generator's worker threads were never joined. Dropping them now closes the queue and waits for the worker (a worker panic is logged), a generation stops at its next step however its caller ends, and if a task that did not stop in time still holds a model, `orag serve` exits with `_exit` instead of running llama.cpp's teardown.
+- Verified on Apple Silicon with the real packs: release gate passed (seed eval: dense recall@10 1.000, hybrid recall@10 1.000), both generation models answer in Turkish with citations and abstain when unsupported, and `orag serve` answered and exited cleanly. Qwen3.5-4B stays the default (no D-007 fallback needed).
+
 ## [0.1.0-alpha.25] - 2026-10-04
 
 - `orag eval vector-scale [--chunks 100000] [--dimensions 1024] [--queries 50] [--work-dir DIR]`: synthetic dense-search latency benchmark for the D-003 gate (warm p95 < 250 ms at 100k × 1024); exits non-zero when the gate fails and never touches ORAG_HOME.

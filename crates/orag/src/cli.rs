@@ -49,6 +49,9 @@ pub enum EvalCommand {
         /// Also write the report as JSON.
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+        /// Exit non-zero (after printing) when hybrid recall@10 is below this (0-1).
+        #[arg(long)]
+        min_recall_at_10: Option<f64>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -108,9 +111,16 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     corpus,
                     dataset,
                     out,
+                    min_recall_at_10,
                     dev_fake_models,
                 },
-        } => run_eval_retrieval(&corpus, &dataset, out.as_deref(), dev_fake_models),
+        } => run_eval_retrieval(
+            &corpus,
+            &dataset,
+            out.as_deref(),
+            min_recall_at_10,
+            dev_fake_models,
+        ),
         Command::Eval {
             command:
                 EvalCommand::VectorScale {
@@ -200,9 +210,15 @@ fn run_eval_retrieval(
     corpus: &std::path::Path,
     dataset: &std::path::Path,
     out: Option<&std::path::Path>,
+    min_recall_at_10: Option<f64>,
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
+    if let Some(floor) = min_recall_at_10
+        && !(0.0..=1.0).contains(&floor)
+    {
+        anyhow::bail!("--min-recall-at-10 must be between 0 and 1, got {floor}");
+    }
     let queries = crate::eval::dataset::load_dataset(dataset)
         .with_context(|| format!("dataset {}", dataset.display()))?;
     if let Some(path) = out
@@ -230,6 +246,20 @@ fn run_eval_retrieval(
             .with_context(|| format!("writing {}", path.display()))?;
         file.write_all(json.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
+    }
+    if let Some(floor) = min_recall_at_10 {
+        let hybrid = report
+            .strategies
+            .iter()
+            .find(|s| s.strategy == "hybrid")
+            .context("the report has no hybrid strategy")?;
+        // A mean of per-query fractions can land a hair under an exact floor.
+        if hybrid.recall_at_10 < floor - 1e-9 {
+            anyhow::bail!(
+                "hybrid recall@10 {:.3} is below {floor}",
+                hybrid.recall_at_10
+            );
+        }
     }
     Ok(())
 }

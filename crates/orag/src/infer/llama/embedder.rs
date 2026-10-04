@@ -11,6 +11,7 @@ use llama_cpp_2::model::LlamaModel;
 
 use crate::domain::space::SpaceDescriptor;
 use crate::error::{OragError, Result};
+use crate::infer::llama::WorkerThread;
 use crate::infer::llama::{ModelInfo, backend, load_model, model_error, tokenize};
 use crate::infer::models::{EmbeddingSpec, InstalledModel, Pooling};
 use crate::infer::tokens::{check_input_length, ensure_single_trailing_eos};
@@ -31,6 +32,9 @@ pub struct LlamaEmbedder {
     spec: EmbeddingSpec,
     model: Arc<LlamaModel>,
     jobs: SyncSender<EmbedJob>,
+    /// Declared after `jobs`: fields drop in order, so the queue closes
+    /// first and then the worker is joined.
+    _worker: WorkerThread,
 }
 
 impl LlamaEmbedder {
@@ -44,7 +48,7 @@ impl LlamaEmbedder {
         let (jobs, receiver) = mpsc::sync_channel::<EmbedJob>(QUEUE_DEPTH);
         let (ready_tx, ready_rx) = mpsc::channel();
         let (worker_model, worker_spec) = (Arc::clone(&model), spec.clone());
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("orag-embed".into())
             .spawn(move || embed_worker(&worker_model, &worker_spec, receiver, ready_tx))?;
         ready_rx
@@ -67,6 +71,7 @@ impl LlamaEmbedder {
             spec,
             model,
             jobs,
+            _worker: WorkerThread::new(worker),
         })
     }
 
@@ -196,4 +201,38 @@ fn embed_text(
     // `check_model` matched `n_embd_out`, the slice length, to the manifest at load.
     debug_assert_eq!(embedding.len(), spec.dimensions);
     l2_normalize(embedding)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infer::models::ModelRole;
+
+    #[test]
+    fn dropping_the_embedder_waits_for_its_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let gguf = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-fixtures/stories260K.gguf");
+        let Some(dimensions) = gguf
+            .exists()
+            .then(|| crate::infer::llama::model_info(&gguf).unwrap().n_embd_out)
+        else {
+            assert!(std::env::var_os("ORAG_REQUIRE_FIXTURES").is_none());
+            return;
+        };
+        let section = format!(
+            "[embedding]\ndimensions = {dimensions}\npooling = \"mean\"\nmax_tokens = 128\n"
+        );
+        let installed =
+            crate::infer::llama::fixture_model(dir.path(), ModelRole::Embedding, &section).unwrap();
+        let embedder = LlamaEmbedder::load(&installed).unwrap();
+        embedder.embed_query("Once upon a time").unwrap();
+        let model = Arc::clone(&embedder.model);
+        drop(embedder);
+        assert_eq!(
+            Arc::strong_count(&model),
+            1,
+            "the worker still holds the model"
+        );
+    }
 }

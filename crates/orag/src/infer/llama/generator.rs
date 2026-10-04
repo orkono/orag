@@ -18,7 +18,7 @@ use llama_cpp_2::token_type::LlamaTokenAttr;
 use llama_cpp_2::vocab::LlamaVocab;
 
 use crate::error::{OragError, Result};
-use crate::infer::llama::{backend, load_model, model_error, tokenize};
+use crate::infer::llama::{WorkerThread, backend, load_model, model_error, tokenize};
 use crate::infer::models::{GenerationSpec, InstalledModel, MIN_CONTEXT_TOKENS, PromptFormat};
 use crate::infer::prompt::{
     Segment, SpecialTexts, chatml_segments, concat, ends_inside_think, is_guarded_special,
@@ -52,6 +52,9 @@ pub struct LlamaGenerator {
     specials: SpecialTexts,
     /// The tokens those texts tokenize to: they may come only from markup.
     guarded: HashSet<LlamaToken>,
+    /// Declared after `jobs`: fields drop in order, so the queue closes
+    /// first and then the worker is joined.
+    _worker: WorkerThread,
 }
 
 impl LlamaGenerator {
@@ -74,7 +77,7 @@ impl LlamaGenerator {
             }
         };
         let (jobs, receiver) = mpsc::sync_channel::<GenJob>(4);
-        let generator = LlamaGenerator {
+        let mut generator = LlamaGenerator {
             model_id: manifest.id.clone(),
             spec,
             model,
@@ -82,15 +85,20 @@ impl LlamaGenerator {
             jobs,
             specials,
             guarded,
+            _worker: WorkerThread::default(),
         };
         // Before the worker allocates the KV cache: a bad template fails cheaply.
         generator.probe_template()?;
         let (ready_tx, ready_rx) = mpsc::channel();
         let (worker_model, context_tokens) =
             (Arc::clone(&generator.model), generator.spec.context_tokens);
-        std::thread::Builder::new()
-            .name("orag-generate".into())
-            .spawn(move || generation_worker(&worker_model, context_tokens, receiver, ready_tx))?;
+        generator._worker = WorkerThread::new(
+            std::thread::Builder::new()
+                .name("orag-generate".into())
+                .spawn(move || {
+                    generation_worker(&worker_model, context_tokens, receiver, ready_tx)
+                })?,
+        );
         ready_rx
             .recv()
             .map_err(|_| OragError::Model("generation worker exited during startup".into()))??;
@@ -253,6 +261,9 @@ impl Generator for LlamaGenerator {
         // Bounded: a slow consumer back-pressures the worker instead of growing memory.
         let (events, receiver) = mpsc::sync_channel(64);
         let cancel = Arc::new(AtomicBool::new(false));
+        // However this call ends (return, error or a panicking callback), the
+        // worker stops at its next step instead of finishing an abandoned job.
+        let _cancel_on_exit = CancelOnDrop(Arc::clone(&cancel));
         let stopped = || OragError::Model("generation worker stopped".into());
         self.jobs
             .send(GenJob {
@@ -291,6 +302,14 @@ impl Generator for LlamaGenerator {
             }
         }
         Err(stopped())
+    }
+}
+
+struct CancelOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
     }
 }
 
@@ -433,41 +452,16 @@ fn is_think_tag(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infer::models::{ModelRole, find_model, import_pack, sha256_file};
 
     /// The CI fixture as an installed generation model; `None` locally when
     /// it has not been fetched (CI sets ORAG_REQUIRE_FIXTURES).
     fn fixture_generator(dir: &std::path::Path) -> Option<LlamaGenerator> {
-        let gguf = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test-fixtures/stories260K.gguf");
-        if !gguf.exists() {
-            assert!(
-                std::env::var_os("ORAG_REQUIRE_FIXTURES").is_none(),
-                "missing {}",
-                gguf.display()
-            );
-            return None;
-        }
-        let pack = dir.join("pack");
-        std::fs::create_dir_all(&pack).unwrap();
-        std::fs::copy(&gguf, pack.join("m.gguf")).unwrap();
-        std::fs::write(pack.join("LICENSE"), "MIT").unwrap();
-        std::fs::write(
-            pack.join(crate::infer::models::MANIFEST_FILE),
-            format!(
-                "id = \"tiny\"\nrole = \"generation\"\nfile = \"m.gguf\"\nsha256 = \"{}\"\n\
-                 license = \"MIT\"\nlicense_file = \"LICENSE\"\nsource = \"s\"\nrevision = \"r\"\n\n\
-                 [generation]\ncontext_tokens = 512\nmax_output_tokens = 32\n",
-                sha256_file(&gguf).unwrap()
-            ),
-        )
-        .unwrap();
-        let models = dir.join("models");
-        import_pack(&pack, &models).unwrap();
-        Some(
-            LlamaGenerator::load(&find_model(&models, "tiny", ModelRole::Generation).unwrap())
-                .unwrap(),
-        )
+        let installed = crate::infer::llama::fixture_model(
+            dir,
+            crate::infer::models::ModelRole::Generation,
+            "[generation]\ncontext_tokens = 512\nmax_output_tokens = 32\n",
+        )?;
+        Some(LlamaGenerator::load(&installed).unwrap())
     }
 
     fn user(content: &str) -> Vec<ChatMessage> {
@@ -516,5 +510,22 @@ mod tests {
             generator.prompt_tokens(&segments),
             Err(OragError::Model(_))
         ));
+    }
+
+    #[test]
+    fn dropping_the_generator_waits_for_its_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let Some(generator) = fixture_generator(dir.path()) else {
+            return;
+        };
+        // The worker's context holds Metal resources; if it outlived the
+        // generator, process exit would abort in llama.cpp's static teardown.
+        let model = Arc::clone(&generator.model);
+        drop(generator);
+        assert_eq!(
+            Arc::strong_count(&model),
+            1,
+            "the worker still holds the model"
+        );
     }
 }
