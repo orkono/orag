@@ -118,6 +118,35 @@ impl Store {
 }
 
 impl Store {
+    /// Benchmark-only: inserts vectors with consecutive rowids starting at `first_rowid`,
+    /// without chunk rows. Never call on a user database.
+    pub(crate) fn bulk_insert_vectors(
+        &self,
+        space: &EmbeddingSpace,
+        collection_id: CollectionId,
+        first_rowid: i64,
+        vectors: &[Vec<f32>],
+    ) -> Result<()> {
+        self.write(|conn| {
+            let tx = conn.transaction()?;
+            {
+                let mut insert = tx.prepare(&format!(
+                    "INSERT INTO {} (rowid, collection_id, embedding) VALUES (?1, ?2, ?3)",
+                    vec_table(space.id)
+                ))?;
+                for (offset, vector) in vectors.iter().enumerate() {
+                    insert.execute(params![
+                        first_rowid + offset as i64,
+                        collection_id,
+                        f32_bytes(vector)
+                    ])?;
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        })
+    }
+
     /// Every chunk of `collection_id` as `(filename, text)`, in document and
     /// chunk order. For offline tools such as the evaluation harness.
     pub fn chunk_texts(

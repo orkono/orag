@@ -3,3 +3,4 @@
 pub mod dataset;
 pub mod metrics;
 pub mod retrieval;
+pub mod vector_scale;

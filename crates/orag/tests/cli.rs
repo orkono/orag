@@ -489,3 +489,48 @@ fn eval_errors_name_the_missing_path() {
         assert!(stderr.contains(missing), "{flag}: {stderr}");
     }
 }
+
+#[test]
+fn eval_vector_scale_small_run_prints_a_result_and_rejects_bad_sizes() {
+    let parent = tempfile::tempdir().unwrap();
+    let home = parent.path().join("home");
+    let work = parent.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let run = |args: &[&str]| {
+        orag()
+            .env("ORAG_HOME", &home)
+            .args(["eval", "vector-scale", "--dimensions", "16"])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let work_arg = work.to_str().unwrap();
+    let out = run(&["--chunks", "500", "--queries", "20", "--work-dir", work_arg]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("| 500 | 16 | 50 | 20 |") && stdout.contains("| PASS |"),
+        "{stdout}"
+    );
+    assert!(!home.exists(), "the benchmark must not create ORAG_HOME");
+    assert_eq!(
+        std::fs::read_dir(&work).unwrap().count(),
+        0,
+        "the work dir is removed"
+    );
+    // A failed gate is a non-zero exit with the reason, after the table.
+    let failed = run(&["--chunks", "500", "--target-p95-ms", "0"]);
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stdout).contains("| FAIL |"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("exceeds the 0 ms target"));
+    for bad in [["--chunks", "0"], ["--queries", "3"]] {
+        let out = run(&bad);
+        assert!(!out.status.success(), "{bad:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("must be"), "{bad:?}: {stderr}");
+    }
+}

@@ -52,6 +52,23 @@ pub enum EvalCommand {
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
+    /// Measure dense-search latency on synthetic vectors (D-003 gate).
+    VectorScale {
+        #[arg(long, default_value_t = 100_000)]
+        chunks: usize,
+        #[arg(long, default_value_t = 1024)]
+        dimensions: usize,
+        #[arg(long, default_value_t = 50)]
+        queries: usize,
+        /// Directory for the throwaway database (default: the system temp
+        /// dir). Use a directory on the disk ORAG_HOME lives on: /tmp can be
+        /// RAM-backed (tmpfs) on Linux.
+        #[arg(long)]
+        work_dir: Option<std::path::PathBuf>,
+        /// The p95 gate in milliseconds (tests only).
+        #[arg(long, hide = true, default_value_t = crate::eval::vector_scale::TARGET_P95_MS)]
+        target_p95_ms: f64,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -94,6 +111,26 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     dev_fake_models,
                 },
         } => run_eval_retrieval(&corpus, &dataset, out.as_deref(), dev_fake_models),
+        Command::Eval {
+            command:
+                EvalCommand::VectorScale {
+                    chunks,
+                    dimensions,
+                    queries,
+                    work_dir,
+                    target_p95_ms,
+                },
+        } => {
+            let cfg = crate::eval::vector_scale::VectorScaleConfig {
+                chunks,
+                dimensions,
+                queries,
+                k: 50,
+                seed: 0x5eed,
+                target_p95_ms,
+            };
+            run_eval_vector_scale(&cfg, work_dir.as_deref())
+        }
         Command::Backup { dest } => {
             // Read-only: no config is loaded, so a mistyped ORAG_HOME is not
             // created, and the live database is never migrated by this binary.
@@ -193,6 +230,36 @@ fn run_eval_retrieval(
             .with_context(|| format!("writing {}", path.display()))?;
         file.write_all(json.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Runs the D-003 benchmark in a fresh directory (removed afterwards) and
+/// exits non-zero when the gate fails.
+fn run_eval_vector_scale(
+    cfg: &crate::eval::vector_scale::VectorScaleConfig,
+    work_dir: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let builder = {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("orag-vector-scale-");
+        builder
+    };
+    let work = match work_dir {
+        Some(dir) => builder
+            .tempdir_in(dir)
+            .with_context(|| format!("work dir {}", dir.display()))?,
+        None => builder.tempdir()?,
+    };
+    let report = crate::eval::vector_scale::run_vector_scale(cfg, work.path())?;
+    print_stdout(report.to_markdown().trim_end())?;
+    if !report.passed {
+        anyhow::bail!(
+            "p95 {:.1} ms exceeds the {:.0} ms target",
+            report.p95_ms,
+            report.target_p95_ms
+        );
     }
     Ok(())
 }

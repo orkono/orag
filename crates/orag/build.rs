@@ -36,6 +36,7 @@ fn is_own_checkout(root: &Path) -> bool {
 }
 
 fn main() {
+    link_clang_runtime_on_macos();
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let root = manifest_dir.join("../..");
     // The checkout test reads the workspace manifest, so a change there reruns
@@ -67,6 +68,40 @@ fn main() {
             println!("cargo:warning=git_sha is \"unknown\": {err}");
             println!("cargo:rustc-env=ORAG_GIT_SHA=unknown");
         }
+    }
+}
+
+/// llama.cpp's Metal code uses `@available`, which compiles to calls to
+/// `__isPlatformVersionAtLeast` (the deployment target, 14.0, is older than the
+/// APIs it checks). Rust links with `-nodefaultlibs`, so clang's runtime is not
+/// linked; Rust's own builtins cover the symbol only without LTO, and the
+/// release profile's thin LTO drops it ("Undefined symbols ... ___isPlatformVersionAtLeast").
+/// Linking clang's runtime archive explicitly fixes both profiles: an archive
+/// only provides symbols that are still undefined.
+fn link_clang_runtime_on_macos() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
+        || std::env::var_os("CARGO_FEATURE_LLAMA").is_none()
+    {
+        return;
+    }
+    // The archive's path changes with the toolchain: rerun when it does.
+    println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
+    println!("cargo:rerun-if-env-changed=SDKROOT");
+    let found = Command::new("xcrun")
+        .args(["clang", "-print-file-name=libclang_rt.osx.a"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+        .filter(|path| path.is_absolute() && path.exists());
+    match found {
+        Some(runtime) => {
+            println!("cargo:rerun-if-changed={}", runtime.display());
+            println!("cargo:rustc-link-arg={}", runtime.display());
+        }
+        None => println!(
+            "cargo:warning=libclang_rt.osx.a not found via xcrun; a release (LTO) build may fail to link ___isPlatformVersionAtLeast"
+        ),
     }
 }
 
