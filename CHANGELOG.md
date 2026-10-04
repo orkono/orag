@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.24] - 2026-10-04
+
+- `orag eval retrieval --corpus DIR --dataset FILE [--out FILE]`: indexes a corpus into a throwaway database and compares lexical, dense and hybrid retrieval (recall@5/10, MRR@10, label-based nDCG@10, p50/p95 latency); Markdown to stdout, JSON to a new --out file. It never touches ORAG_HOME's database, and with --dev-fake-models it reads no config.
+- Bilingual seed corpus (4 documents) and dataset (16 questions: Turkish, English, cross-language, accentless, unanswerable) with eval/README.md for the 200-question target set.
+- Mistakes are errors, not zero scores: every label must match a chunk of its document (parsed text, no Markdown syntax), and an empty corpus, a failed or empty file, or two identical files stop the run with the file name; .md/.markdown/.txt are matched in any case. The dataset and --out are checked before the model loads.
+- eval loads the same embedder as serve (app::load_embedder); tempfile is now a runtime dependency.
+
 ## [0.1.0-alpha.23] - 2026-10-04
 
 - Cancellation tests wait for events instead of fixed times: they wait for the generation permit to come back (it is released after the last token is counted), and the abandoned JSON query is dropped mid-generation. A macOS CI runner had failed a follow-up query that waited for a whole slow answer; the follow-up now only checks that a new stream starts.

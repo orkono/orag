@@ -5,6 +5,7 @@ pub mod cli;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod eval;
 pub mod infer;
 pub mod ingest;
 pub mod retrieval;

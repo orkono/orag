@@ -31,6 +31,27 @@ pub enum Command {
     },
     /// Write a consistent copy of the database (safe while the server runs).
     Backup { dest: std::path::PathBuf },
+    /// Evaluation tools.
+    Eval {
+        #[command(subcommand)]
+        command: EvalCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EvalCommand {
+    /// Compare lexical, dense and hybrid retrieval on a labeled dataset.
+    Retrieval {
+        #[arg(long)]
+        corpus: std::path::PathBuf,
+        #[arg(long)]
+        dataset: std::path::PathBuf,
+        /// Also write the report as JSON.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        #[arg(long, hide = true)]
+        dev_fake_models: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -64,6 +85,15 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
         Command::Serve { dev_fake_models } => {
             crate::app::run_server(load_config()?, crate::app::ServeOptions { dev_fake_models })
         }
+        Command::Eval {
+            command:
+                EvalCommand::Retrieval {
+                    corpus,
+                    dataset,
+                    out,
+                    dev_fake_models,
+                },
+        } => run_eval_retrieval(&corpus, &dataset, out.as_deref(), dev_fake_models),
         Command::Backup { dest } => {
             // Read-only: no config is loaded, so a mistyped ORAG_HOME is not
             // created, and the live database is never migrated by this binary.
@@ -125,4 +155,44 @@ pub(crate) fn print_stdout(text: &str) -> anyhow::Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         result => Ok(result?),
     }
+}
+
+/// Cheap checks first (dataset, `--out`), then the model, then the run; the
+/// report is never written over an existing file.
+fn run_eval_retrieval(
+    corpus: &std::path::Path,
+    dataset: &std::path::Path,
+    out: Option<&std::path::Path>,
+    dev_fake_models: bool,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let queries = crate::eval::dataset::load_dataset(dataset)
+        .with_context(|| format!("dataset {}", dataset.display()))?;
+    if let Some(path) = out
+        && path.exists()
+    {
+        anyhow::bail!("{} already exists; choose a new --out file", path.display());
+    }
+    let embedder: std::sync::Arc<dyn crate::infer::Embedder> = if dev_fake_models {
+        // No config is loaded: fake models need none, and ORAG_HOME is not created.
+        std::sync::Arc::new(crate::infer::fake::FakeEmbedder::new())
+    } else {
+        crate::app::load_embedder(&load_config()?)?
+    };
+    // Exclusively created and removed on drop; never touches pre-existing paths.
+    let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
+    let report =
+        crate::eval::retrieval::run_retrieval_eval(embedder, corpus, &queries, work.path())?;
+    print_stdout(report.to_markdown().trim_end())?;
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report)?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .with_context(|| format!("writing {}", path.display()))?;
+        file.write_all(json.as_bytes())
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }

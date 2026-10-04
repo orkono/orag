@@ -117,6 +117,23 @@ impl Store {
     }
 }
 
+impl Store {
+    /// Every chunk of `collection_id` as `(filename, text)`, in document and
+    /// chunk order. For offline tools such as the evaluation harness.
+    pub fn chunk_texts(
+        &self,
+        collection_id: CollectionId,
+    ) -> Result<Vec<(Option<String>, String)>> {
+        let conn = self.read()?;
+        let mut stmt = conn.prepare(
+            "SELECT d.filename, c.text FROM chunks c JOIN documents d ON d.id = c.document_id \
+             WHERE c.collection_id = ?1 ORDER BY c.document_id, c.ordinal",
+        )?;
+        let rows = stmt.query_map([collection_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+}
+
 fn space_exists(conn: &rusqlite::Connection, space_id: i64) -> Result<bool> {
     Ok(conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM embedding_spaces WHERE id = ?1)",
