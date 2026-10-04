@@ -11,7 +11,10 @@ cd "$(dirname "$0")/.."
 unset ORAG_TEST_GENERATION_MODEL
 # Seed-set quality floor for hybrid retrieval with the real embedder.
 min_recall_at_10=0.9
-real_model_tests=3
+# The cross-language seed questions must each reach the answer context: a mean
+# can hide one subgroup (13/14 still clears 0.9).
+cross_language=x-001,x-002,x-003
+real_model_tests=4
 
 scripts/check-llama-build.sh --release
 
@@ -19,11 +22,15 @@ scripts/check-llama-build.sh --release
 log=$(mktemp)
 home=$(mktemp -d)
 trap 'rm -rf "$home" "$log"' EXIT
-cargo test --release --locked --test real_models -- --ignored --test-threads=1 2>&1 | tee "$log"
+cargo test --release --locked --test real_models -- --ignored --test-threads=1 \
+  --skip diagnostic 2>&1 | tee "$log"
 if ! grep -q "test result: ok. $real_model_tests passed" "$log"; then
   echo "expected $real_model_tests real-model tests to pass" >&2
   exit 1
 fi
+# Diagnostics report numbers for the record; they never decide the gate.
+cargo test --release --locked --test real_models diagnostic -- --ignored --nocapture \
+  2>&1 | grep -E "diagnostic" || echo "warning: diagnostics did not run" >&2
 
 # `cargo test` may relink the binary with dev-dependency features: rebuild the
 # shipped one, then check and measure exactly that binary.
@@ -37,5 +44,6 @@ report=target/release-seed-eval.json
 rm -f "$report"
 ORAG_HOME="$home" target/release/orag eval retrieval \
   --corpus eval/corpus/seed --dataset eval/datasets/seed.jsonl \
-  --out "$report" --min-recall-at-10 "$min_recall_at_10"
+  --out "$report" --min-recall-at-10 "$min_recall_at_10" \
+  --require-in-context "$cross_language"
 echo "release model check passed"

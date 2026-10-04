@@ -1,0 +1,59 @@
+name: vector-scale
+# The D-003 gate on the Linux reference class (Task 21): x86-64, 16 GB.
+# GitHub's standard ubuntu-22.04 runner for public repositories has 4 vCPUs and
+# 16 GB; exact k-NN in sqlite-vec runs on one core, so it stands in for the
+# 8-core reference. Manual only: it is a measurement, not a per-push check.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-22.04
+    # 100k + 300k inserts and searches take minutes; never the 6 h default.
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Reference class
+        # The numbers stand for the Linux reference only on x86-64 with 16 GB
+        # (a private repository or another image gets a smaller runner).
+        run: |
+          arch=$(uname -m)
+          mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+          echo "arch=$arch mem_kb=$mem_kb"
+          [ "$arch" = x86_64 ] || { echo "not x86-64: $arch" >&2; exit 1; }
+          [ "$mem_kb" -ge 15000000 ] || { echo "less than 15 GB RAM: $mem_kb kB" >&2; exit 1; }
+      - id: build
+        run: cargo build --release --locked
+      - name: Machine
+        run: |
+          {
+            echo "## Machine"
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Architecture'
+            free -g | head -2
+            df -h "$RUNNER_TEMP" | tail -1
+            target/release/orag --version
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # --work-dir on the runner's disk, not a tmpfs /tmp.
+      - name: 100k x 1024 (the gate)
+        id: gate
+        run: |
+          set -o pipefail
+          echo "## 100k (gate)" >> "$GITHUB_STEP_SUMMARY"
+          target/release/orag eval vector-scale --chunks 100000 --dimensions 1024 --queries 50 \
+            --work-dir "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: 300k x 1024 (informational)
+        # Also after a failed gate, but not after a cancel or a failed build.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          echo "## 300k (informational)" >> "$GITHUB_STEP_SUMMARY"
+          target/release/orag eval vector-scale --chunks 300000 --dimensions 1024 --queries 20 \
+            --work-dir "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY" || true

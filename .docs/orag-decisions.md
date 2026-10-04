@@ -110,6 +110,26 @@ tooling, not a cheap laptop router. Small decision/classifier models are
 reconsidered only after the evaluation harness shows a failure class that
 deterministic routing cannot fix.
 
+**Known limitation (measured 2026-10-04, Task 22).** On very short texts the
+0.6B embedder can rank by language before topic: for the English question
+"What is the return period for products?" a one-sentence Turkish returns
+policy scored 0.380 and an unrelated one-sentence English text 0.393. On the
+sections the chunker actually emits (heading + paragraph) the evidence ranks
+clearly first or second, also against topic-near same-language distractors,
+and every cross-language seed question reaches the answer context. Hybrid
+fusion cannot recover such a miss when the languages share no terms. So
+short FAQ-style documents in one language queried in another are the weak
+spot. v0.1 mitigations: headings stay in chunk text, the release gate
+requires each cross-language seed question in the answer context (not just a
+mean recall), and the one-sentence probe is kept as a non-blocking
+diagnostic. The same checks on CPU (Linux arm64 in Docker) and Metal
+(Apple Silicon) differ by at most ~0.007 in cosine, yet one dense rank swaps
+(x-002: first on Metal, second on CPU); that is why the gates require the
+answer context, never a top-1 rank. Later candidates, each to be judged on a broader short-text
+benchmark first: a larger embedding model, multilingual reranking, query
+translation. The query prefix stays as Qwen recommends (English instruction,
+no document prefix).
+
 **Revisit.** v0.4, using evaluation results.
 
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
