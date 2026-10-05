@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.31] - 2026-10-05
+
+- Split the 1 243-line `tests/api.rs` into one `api` test binary with modules (`support`, `system`, `documents`, `query`, `binary`, each with explicit imports). The same 43 tests and assertions; test ids now carry the module path (`query::query_returns_grounded_answer_json`), so `--exact` filters need it.
+- Linux reference measurement recorded in `.docs/benchmarks/vector-scale.md`: GitHub ubuntu-22.04 runner (x86-64, 16 GB), 0.1.0-alpha.29, 100k x 1024 p95 152.2 ms, PASS.
+
 ## [0.1.0-alpha.30] - 2026-10-05
 
 - `orag eval retrieval` ignores hidden corpus files (AppleDouble `._name` files macOS leaves on USB drives, dotfiles, also with non-UTF-8 names) and directories named like documents; a label that names a hidden file says so.

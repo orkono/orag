@@ -45,6 +45,27 @@ This machine is faster and has more memory than the planned macOS
 reference (Apple M-series, 16 GB). Owner decision (2026-10-05, recorded
 under D-003): for v0.1.0 this machine is the macOS reference.
 
+## Linux, x86-64 (GitHub-hosted runner)
+
+- Machine: GitHub `ubuntu-22.04` runner, x86-64, 4 vCPU, 16 GB RAM
+  (MemTotal 16 371 460 kB; reference-class check passed)
+- Date: 2026-10-05, workflow `vector-scale` run 37294628273
+- Version: `orag 0.1.0-alpha.29` (release build, `--work-dir "$RUNNER_TEMP"`)
+
+100k (the gate):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.1.0-alpha.29 | 100000 | 1024 | 50 | 50 | 17.5 | 151.4 | 152.2 | 158.5 | 250 | PASS |
+
+300k (informational, not a v1 promise):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.1.0-alpha.29 | 300000 | 1024 | 50 | 20 | 52.8 | 431.9 | 434.6 | 440.9 | 250 | FAIL |
+
+Gate: **PASS**. About 1.5x the M5 Max latency, still well below the target.
+
 ## Pending before Task 24
 
 The gate must pass on both references **with the version being released**
