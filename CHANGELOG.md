@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.30] - 2026-10-05
+
+- `orag eval retrieval` ignores hidden corpus files (AppleDouble `._name` files macOS leaves on USB drives, dotfiles, also with non-UTF-8 names) and directories named like documents; a label that names a hidden file says so.
+- Owner decision recorded under D-003: the v0.1.0 vector-scale gate runs on the development machine (macOS) and the `vector-scale` workflow runner (Linux), both on the release candidate; the 16 GB M-series laptop and an 8-core x86-64 box follow after v0.1.0, and release notes say where the promise was measured.
+
 ## [0.1.0-alpha.29] - 2026-10-05
 
 - DOCX and PDF uploads (multipart only; JSON text with a .docx/.pdf name or format is 400 "upload as multipart"). The signature is checked before anything is stored, on a blocking thread: a PDF must start with `%PDF-`; a DOCX must be a ZIP of at most 10 000 entries whose `[Content_Types].xml` (UTF-8 or UTF-16) declares a Word main part, so a renamed .xlsx/.pptx/.odt, also one that embeds a .docx, is refused. One detection rule set (extension first, then content type) for multipart and JSON; other document types stay 415.

@@ -120,6 +120,12 @@ pub fn run_retrieval_eval(
 /// File extensions indexed from a corpus directory (case-insensitive).
 const CORPUS_EXTENSIONS: [&str; 3] = ["md", "markdown", "txt"];
 
+/// Byte-based, so a dotfile whose name is not UTF-8 is still hidden.
+fn is_hidden(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.as_encoded_bytes().first() == Some(&b'.'))
+}
+
 /// Indexes every corpus file. Anything that would silently score 0 instead
 /// is an error: an empty corpus, an unreadable entry, a file that fails to
 /// index, or two files with identical bytes (stored as one document).
@@ -133,6 +139,11 @@ fn index_corpus(store: &Arc<Store>, embedder: Arc<dyn Embedder>, corpus: &Path) 
     let mut files = Vec::new();
     for entry in std::fs::read_dir(corpus).map_err(in_corpus)? {
         let path = entry.map_err(in_corpus)?.path();
+        // Dotfiles (AppleDouble `._name`, editor backups) and directories
+        // are never corpus.
+        if is_hidden(&path) || path.is_dir() {
+            continue;
+        }
         let extension = path
             .extension()
             .and_then(|e| e.to_str())
@@ -226,6 +237,11 @@ fn check_labels(store: &Store, dataset: &[EvalQuery]) -> Result<()> {
                 format!(
                     "{}: {:?} is not in the parsed text of {}",
                     query.id, label.contains, label.document
+                )
+            } else if label.document.starts_with('.') {
+                format!(
+                    "{}: {} is not a corpus document (hidden files are ignored)",
+                    query.id, label.document
                 )
             } else {
                 format!("{}: {} is not a corpus document", query.id, label.document)
@@ -405,6 +421,62 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.corpus_documents, 2);
+    }
+
+    #[test]
+    fn hidden_files_are_not_part_of_the_corpus() {
+        // macOS copies to FAT/exFAT media leave AppleDouble `._name` files
+        // (binary, not UTF-8) next to every document; dotfiles are never corpus.
+        let dir = corpus(&[("a.md", DOC), (".notes.md", DOC)]);
+        std::fs::write(dir.path().join("._a.md"), b"\x00\x05\x16\x07\xff\xfe").unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            dir.path(),
+            &[query("q", "a.md", "14 gün")],
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!(report.corpus_documents, 1);
+        let only_hidden = corpus(&[(".a.md", DOC)]);
+        let q = [query("q", ".a.md", "14 gün")];
+        assert!(eval_err(only_hidden.path(), &q).contains("no .md, .markdown or .txt"));
+        // A label naming a hidden file says why it is not a corpus document.
+        let labelled = corpus(&[("a.md", DOC), (".faq.md", DOC)]);
+        assert!(eval_err(labelled.path(), &q).contains("hidden files are ignored"));
+    }
+
+    #[test]
+    fn directories_named_like_documents_are_skipped() {
+        let dir = corpus(&[("a.md", DOC)]);
+        std::fs::create_dir(dir.path().join("drafts.md")).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            dir.path(),
+            &[query("q", "a.md", "14 gün")],
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!(report.corpus_documents, 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn hidden_files_with_non_utf8_names_are_skipped() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = corpus(&[("a.md", DOC)]);
+        let name = std::ffi::OsStr::from_bytes(b"._\xff.md");
+        std::fs::write(dir.path().join(name), b"\x00\x05").unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            dir.path(),
+            &[query("q", "a.md", "14 gün")],
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!(report.corpus_documents, 1);
     }
 
     #[test]
