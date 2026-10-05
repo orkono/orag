@@ -1,0 +1,53 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Read-only token: the workflow builds and uploads artifacts; it publishes nothing.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04: the oldest supported Linux, so libstdc++/glibc symbol versions stay
+        # compatible (Task 22). The macOS deployment target comes from .cargo/config.toml.
+        os: [macos-15, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: scripts/check-version.sh
+      # Builds the release binary and checks Metal (macOS) and no OpenMP.
+      - run: scripts/check-llama-build.sh --release
+      - run: scripts/check-binary-deps.sh target/release/orag --release-floor
+      # Only the binary that passed the checks above, in this run, is uploaded.
+      - name: Name the artifact
+        id: name
+        run: |
+          . scripts/version-lib.sh
+          target=$(rustc -vV | sed -n 's/^host: //p')
+          echo "artifact=orag-$(cargo_version)-${target}" >> "$GITHUB_OUTPUT"
+      # A tarball keeps the executable bit, which an artifact zip would drop.
+      - name: Package
+        run: |
+          dir="${{ steps.name.outputs.artifact }}"
+          mkdir -p "dist/$dir/docs"
+          cp target/release/orag "dist/$dir/orag"
+          cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "dist/$dir/"
+          cp docs/api.md "dist/$dir/docs/"
+          scripts/third-party-licenses.sh "dist/$dir/THIRD-PARTY-LICENSES.md"
+          tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+          tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag$' | grep -q '^-rwx'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: dist/${{ steps.name.outputs.artifact }}.tar.gz
+          if-no-files-found: error
