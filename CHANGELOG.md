@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.28] - 2026-10-05
+
+- DOCX parser (zip + roxmltree): headings from styles (with `w:basedOn` inheritance and Strict OOXML), paragraphs, list items (direct and style numbering, numId 0 = off), tables (one row per line, `|` escaped), text boxes once, tracked deletions skipped; the main part and styles are found through the package relationships. A broken styles part is a `styles_unreadable` warning, not a failure.
+- PDF parser (pdf_oxide =0.3.78, no `ort`): page text as paragraphs, words hyphenated at line ends joined (a one-letter prefix such as "e-fatura" keeps its hyphen), `ocr_required` for pages without a text layer, `extraction_failed` for unreadable pages; no pages is an error.
+- Hostile input is bounded before it can hurt the process: per-part decompressed size (also when the ZIP header lies), XML nesting depth checked by a non-recursive scan (deep XML used to overflow the stack and abort), XML node count, namespace declarations (thousands made parsing quadratic), PDF page count, extracted text and a time limit between pages. Part names in errors are quoted and shortened.
+- Nothing calls the parsers yet: DOCX/PDF uploads open in 23b together with isolated parsing, signature checks and the JSON rules. Test fixtures come from `scripts/make-fixtures.sh` (pandoc, cupsfilter).
+
 ## [0.1.0-alpha.27] - 2026-10-04
 
 - Embedding release gate, after an external review: the bilingual check uses the sections the chunker emits; the plan's one-sentence probe (which the 0.6B model fails: English question 0.380 for the Turkish policy vs 0.393 for an unrelated English sentence) stays as a diagnostic that the gate runs separately and never fails on; a new dense check requires each cross-language seed question's evidence within rank 3 among topic-near distractors in both languages. The limitation is recorded under D-005.
