@@ -1,8 +1,8 @@
-use std::process::Command;
+mod common;
 
-fn orag() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_orag"))
-}
+use std::path::Path;
+
+use common::*;
 
 #[test]
 fn version_flag_prints_crate_version() {
@@ -76,108 +76,6 @@ fn models_import_then_list() {
     );
 }
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
-use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
-
-/// Generous for a debug build on a loaded CI runner; a hang still fails.
-const PROCESS_LIMIT: Duration = Duration::from_secs(30);
-
-/// A running `orag serve`, killed on drop even when a test panics.
-struct Server {
-    child: Child,
-    stdout: mpsc::Receiver<String>,
-    stderr: PathBuf,
-}
-
-impl Server {
-    fn stderr(&self) -> String {
-        std::fs::read_to_string(&self.stderr).unwrap_or_default()
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-/// A home whose config.toml asks for an ephemeral loopback port.
-fn ephemeral_home() -> tempfile::TempDir {
-    let home = tempfile::tempdir().unwrap();
-    std::fs::write(home.path().join("config.toml"), "bind = \"127.0.0.1:0\"\n").unwrap();
-    home
-}
-
-/// Starts `orag serve` with stdout lines forwarded to a channel and stderr
-/// kept in a file next to the home, so a failure can show the reason.
-fn spawn_serve(home: &Path, args: &[&str]) -> Server {
-    let stderr = home.with_extension(format!("stderr-{}.log", std::process::id()));
-    let mut child = orag()
-        .env("ORAG_HOME", home)
-        .arg("serve")
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(std::fs::File::create(&stderr).unwrap())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    Server {
-        child,
-        stdout: rx,
-        stderr,
-    }
-}
-
-fn start_server(home: &Path) -> (Server, String) {
-    let server = spawn_serve(home, &["--dev-fake-models"]);
-    let line = server
-        .stdout
-        .recv_timeout(PROCESS_LIMIT)
-        .unwrap_or_else(|_| panic!("no listening line; stderr: {}", server.stderr()));
-    let addr = line
-        .strip_prefix("orag listening on http://")
-        .unwrap_or_else(|| panic!("unexpected: {line}"))
-        .to_string();
-    (server, addr)
-}
-
-/// Waits for the process to exit, or returns `None` after `limit`.
-fn wait_with_deadline(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
-    let deadline = Instant::now() + limit;
-    while Instant::now() < deadline {
-        if let Some(status) = child.try_wait().unwrap() {
-            return Some(status);
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    None
-}
-
-fn http_get(addr: &str, path: &str, host: &str) -> String {
-    let mut stream = TcpStream::connect(addr).unwrap();
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-    )
-    .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    response
-}
-
 #[test]
 fn serve_starts_on_ephemeral_port_without_credentials() {
     let home = ephemeral_home();
@@ -223,14 +121,6 @@ fn a_signal_shuts_down_cleanly_after_exactly_one_stdout_line() {
             server.stderr()
         );
     }
-}
-
-#[cfg(unix)]
-fn orag_kill(signal: &str, pid: &str) -> ExitStatus {
-    std::process::Command::new("kill")
-        .args([signal, pid])
-        .status()
-        .unwrap()
 }
 
 #[test]

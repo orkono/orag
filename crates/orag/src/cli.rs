@@ -31,6 +31,9 @@ pub enum Command {
     },
     /// Write a consistent copy of the database (safe while the server runs).
     Backup { dest: std::path::PathBuf },
+    /// Internal: parse one document from stdin in an isolated child process.
+    #[command(name = "__parse", hide = true)]
+    Parse { format: String },
     /// Evaluation tools.
     Eval {
         #[command(subcommand)]
@@ -149,6 +152,10 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             };
             run_eval_vector_scale(&cfg, work_dir.as_deref())
         }
+        Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
+            &format,
+            crate::ingest::parse::parse_in_process,
+        )?),
         Command::Backup { dest } => {
             // Read-only: no config is loaded, so a mistyped ORAG_HOME is not
             // created, and the live database is never migrated by this binary.

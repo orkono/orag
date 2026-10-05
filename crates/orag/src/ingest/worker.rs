@@ -14,7 +14,7 @@ use crate::domain::normalize::normalize_for_lexical;
 use crate::error::{OragError, Result};
 use crate::infer::Embedder;
 use crate::ingest::format::SourceFormat;
-use crate::ingest::parse::parse_document;
+use crate::ingest::parse::parse_document_until;
 use crate::store::Store;
 use crate::store::jobs::JobRecord;
 use crate::store::publish::{PreparedChunk, PublishOutcome};
@@ -65,7 +65,7 @@ fn index(
     // Fail fast when the collection needs a reindex, before any embedding work.
     ctx.store
         .query_space(job.collection_id, ctx.embedder.descriptor())?;
-    let parsed = parse_document(SourceFormat::from_name(&doc.format)?, &bytes)?;
+    let parsed = parse_document_until(SourceFormat::from_name(&doc.format)?, &bytes, stop)?;
     let chunker = effective_chunker(&ctx.chunker, ctx.embedder.as_ref())?;
     let drafts = chunk_document(&parsed, &chunker, &|text| ctx.embedder.count_tokens(text))?;
     let mut warnings = parsed.warnings;
@@ -197,6 +197,10 @@ fn run_once_until(ctx: &IngestContext, stop: &dyn Fn() -> bool) -> Result<bool> 
         Ok(Some(PublishOutcome::Discarded)) => {
             info!(job = job.id, "document deleted during indexing; discarded")
         }
+        Err(OragError::Interrupted) => info!(
+            job = job.id,
+            "indexing interrupted by shutdown; will resume after restart"
+        ),
         Err(err) => {
             warn!(job = job.id, error = %err, "ingest job failed");
             if !ctx.store.fail_job(&job, &user_message(&err))? {

@@ -1353,7 +1353,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "orag"
-version = "0.1.0-alpha.28"
+version = "0.1.0-alpha.29"
 dependencies = [
  "anyhow",
  "axum",
@@ -1361,6 +1361,7 @@ dependencies = [
  "hex",
  "html-escape",
  "http-body-util",
+ "libc",
  "llama-cpp-2",
  "office_oxide",
  "pdf_oxide",

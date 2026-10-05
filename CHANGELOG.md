@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0-alpha.29] - 2026-10-05
+
+- DOCX and PDF uploads (multipart only; JSON text with a .docx/.pdf name or format is 400 "upload as multipart"). The signature is checked before anything is stored, on a blocking thread: a PDF must start with `%PDF-`; a DOCX must be a ZIP of at most 10 000 entries whose `[Content_Types].xml` (UTF-8 or UTF-16) declares a Word main part, so a renamed .xlsx/.pptx/.odt, also one that embeds a .docx, is refused. One detection rule set (extension first, then content type) for multipart and JSON; other document types stay 415.
+- Under `orag serve` every DOCX/PDF is parsed in a child `orag __parse` process: own process group, killed as a group while still unreaped (no pid-reuse race), 120 s deadline, 64 MiB result cap, stderr drained and logged (2 KiB), a watchdog that `_exit`s an orphaned child; on Linux a 4 GiB address-space cap, `MALLOC_ARENA_MAX=2`, `oom_score_adj` 1000, and the child is `/proc/self/exe`, so an in-place upgrade cannot swap the parser. A crash or hang fails that one document, never the service.
+- Shutdown during a parse stops the child through the worker's own shutdown signal; the job stays running and resumes once after restart (tested end to end, including that shutdown is prompt). The child ignores SIGTERM/SIGINT/SIGHUP, so systemd's control-group kill or `pkill orag` cannot make a parse look like a crash. Failure attribution: crash signals blame the file, a parser panic is a rejected file, SIGKILL (OOM killer, operator) and error exits are host problems.
+- `orag serve` and parser children share one `_exit` helper; text and Markdown parsing no longer copy the document for line endings; the binary end-to-end tests are split into `tests/cli.rs` and `tests/isolation.rs` with shared helpers.
+
 ## [0.1.0-alpha.28] - 2026-10-05
 
 - DOCX parser (zip + roxmltree): headings from styles (with `w:basedOn` inheritance and Strict OOXML), paragraphs, list items (direct and style numbering, numId 0 = off), tables (one row per line, `|` escaped), text boxes once, tracked deletions skipped; the main part and styles are found through the package relationships. A broken styles part is a `styles_unreadable` warning, not a failure.
