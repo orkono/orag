@@ -2,6 +2,7 @@
 
 pub mod docx;
 pub mod format;
+pub mod isolate;
 pub mod parse;
 pub mod pdf;
 

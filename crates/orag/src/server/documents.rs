@@ -70,6 +70,8 @@ pub async fn upload(
     }
     let (store, engine) = (state.store.clone(), state.engine.clone());
     let enqueued = blocking(move || {
+        // On a blocking thread: a DOCX signature reads the ZIP directory.
+        document.format.check_signature(&document.bytes)?;
         // Re-checked after the body arrived (a separate read, not part of the
         // insert's transaction): the model or collection may have changed.
         store.query_space(collection_id, engine.retriever.embedder.descriptor())?;
@@ -141,11 +143,19 @@ async fn read_document(
 
 /// Format of JSON text content (D-010): see `SourceFormat::detect_text`.
 fn text_document(body: TextDocument) -> ApiResult<NewDocument> {
-    let declared = body
+    let declared = match body
         .format
         .as_deref()
         .map(SourceFormat::from_name)
-        .transpose()?;
+        .transpose()
+    {
+        Ok(declared) => declared,
+        Err(err) => {
+            // Filename rules come first (D-010): `a.pdf` is "use multipart" even with a bad `format`.
+            SourceFormat::detect_text(body.filename.as_deref(), None)?;
+            return Err(err.into());
+        }
+    };
     let format = SourceFormat::detect_text(body.filename.as_deref(), declared)?;
     Ok(NewDocument {
         filename: body.filename,

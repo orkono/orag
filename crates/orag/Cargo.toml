@@ -46,3 +46,6 @@ tower = { version = "0.5.3", features = ["util"] }
 [features]
 default = ["llama"]
 llama = ["dep:llama-cpp-2"]
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"

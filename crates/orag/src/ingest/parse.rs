@@ -33,12 +33,36 @@ pub fn decode_utf8(bytes: &[u8]) -> Result<&str> {
     Ok(text)
 }
 
+/// Parses a document; DOCX/PDF go through a child process when isolation is
+/// enabled (`orag serve`), otherwise in-process (tests, eval).
 pub fn parse_document(format: SourceFormat, bytes: &[u8]) -> Result<ParsedDocument> {
-    let text = decode_utf8(bytes)?;
-    Ok(match format {
-        SourceFormat::PlainText => parse_plain(text),
-        SourceFormat::Markdown => parse_markdown(text),
-    })
+    parse_document_until(format, bytes, &|| false)
+}
+
+/// `parse_document` that stops an isolated parse with `Interrupted` once
+/// `stop` turns true (the worker's shutdown signal).
+pub fn parse_document_until(
+    format: SourceFormat,
+    bytes: &[u8],
+    stop: &dyn Fn() -> bool,
+) -> Result<ParsedDocument> {
+    use crate::ingest::isolate::{PARSE_TIMEOUT, isolated_executable, parse_isolated_until};
+    match (format.is_binary(), isolated_executable()) {
+        (true, Some(executable)) => {
+            parse_isolated_until(executable, format, bytes, PARSE_TIMEOUT, stop)
+        }
+        _ => parse_in_process(format, bytes),
+    }
+}
+
+pub fn parse_in_process(format: SourceFormat, bytes: &[u8]) -> Result<ParsedDocument> {
+    match format {
+        // Both parsers handle CRLF and lone CR themselves: no extra copy here.
+        SourceFormat::PlainText => Ok(parse_plain(decode_utf8(bytes)?)),
+        SourceFormat::Markdown => Ok(parse_markdown(decode_utf8(bytes)?)),
+        SourceFormat::Docx => crate::ingest::docx::parse_docx(bytes),
+        SourceFormat::Pdf => crate::ingest::pdf::parse_pdf(bytes),
+    }
 }
 
 /// Collapses every run of whitespace to one space and trims; used by both

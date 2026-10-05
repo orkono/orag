@@ -18,6 +18,8 @@ pub enum OragError {
     InvalidInput(String),
     #[error("model error: {0}")]
     Model(String),
+    #[error("interrupted by shutdown; the job will be retried after restart")]
+    Interrupted,
     #[error(
         "database schema version {found} is newer than this build supports ({supported}); upgrade orag"
     )]

@@ -32,6 +32,9 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
     // Exclusive ownership of the data directory for the whole process lifetime:
     // job recovery and the worker must never run twice against one database.
     let _instance_lock = acquire_instance_lock(&config.home)?;
+    crate::ingest::isolate::enable(
+        crate::ingest::isolate::self_executable().context("locating the orag executable")?,
+    );
     // Bound before the (slow) model load, so a busy port is reported at once.
     let listener = std::net::TcpListener::bind(config.bind)
         .with_context(|| format!("binding {}", config.bind))?;
@@ -67,6 +70,8 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         ingest.check()?;
         // Registered before the listening line: a signal sent as soon as the
         // line appears is a graceful shutdown, not the default kill.
+        // A running parser child stops through the worker's own shutdown
+        // signal (AppState), which `serve` starts when this future completes.
         let shutdown = shutdown_signal()?;
         let worker = spawn_worker(ingest, state.ingest_wake.clone(), state.subscribe_shutdown());
         crate::cli::print_stdout(&format!("{LISTENING_PREFIX}http://{local_addr}"))?;
@@ -83,7 +88,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         tracing::warn!(
             "a model is still in use by a task that did not stop; exiting without native teardown"
         );
-        exit_without_native_teardown(if served.is_ok() { 0 } else { 1 });
+        crate::exit::exit_without_native_teardown(if served.is_ok() { 0 } else { 1 });
     }
     served
 }
@@ -102,20 +107,6 @@ impl ModelsInUse {
     fn any(&self) -> bool {
         self.0.strong_count() > 0 || self.1.strong_count() > 0
     }
-}
-
-/// A llama.cpp context still alive at `exit` makes its static Metal teardown
-/// abort (SIGABRT). `_exit` skips static destructors; an unfinished job is
-/// requeued on the next start and SQLite's WAL survives an abrupt exit.
-fn exit_without_native_teardown(code: i32) -> ! {
-    use std::io::Write;
-    let _ = std::io::stdout().flush();
-    let _ = std::io::stderr().flush();
-    unsafe extern "C" {
-        fn _exit(status: i32) -> !;
-    }
-    // SAFETY: `_exit` is async-signal-safe, takes a plain int and never returns.
-    unsafe { _exit(code) }
 }
 
 fn acquire_instance_lock(home: &std::path::Path) -> anyhow::Result<std::fs::File> {
