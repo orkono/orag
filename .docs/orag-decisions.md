@@ -82,6 +82,14 @@ search-only p95 < 250 ms at 1024 dims, f32. 300k is a stretch benchmark;
 millions are explicitly outside v1. Quantization or ANN is introduced only when
 measurement shows the target is missed.
 
+**v0.1.0 measurement (owner decision, 2026-10-05).** The release gate runs on
+the development machine (Apple M5 Max) as the macOS reference and on GitHub's
+ubuntu-22.04 runner (x86-64, 4 vCPU, 16 GB; exact k-NN uses one core) as the
+Linux reference. The 16 GB M-series laptop and an 8-core x86-64 box remain the
+promise's hardware; until they are measured, release notes state the promise
+as measured on those two machines. A failing later measurement takes the
+"Revisit" path and corrects the published promise in the next release.
+
 **Revisit if.** The `vector-scale` benchmark (plan Task 21) misses the target.
 
 ## D-004 — Backups use SQLite, never `cp`

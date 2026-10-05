@@ -41,19 +41,29 @@ Gate: **PASS** on this machine. The 300k run is above the target, as expected
 for exact search: latency grows linearly with the number of vectors
 (about 1 ms per 1 000 chunks at 1024 dimensions here).
 
-This machine is faster and has more memory than the macOS reference
-(Apple M-series, 16 GB). Exact k-NN is memory-bandwidth bound, so the
-reference laptop must be measured before v0.1.0 is released.
+This machine is faster and has more memory than the planned macOS
+reference (Apple M-series, 16 GB). Owner decision (2026-10-05, recorded
+under D-003): for v0.1.0 this machine is the macOS reference.
 
 ## Pending before Task 24
 
-The gate must pass on **both** reference platforms with the version being
-released. Still to record, with the same commands and a release build:
+The gate must pass on both references **with the version being released**
+(the alpha.25 rows above do not count):
 
-- Apple M-series laptop with 16 GB RAM (the macOS reference).
-- x86-64 Linux, 8 cores, 16 GB RAM (the Linux reference).
+- macOS: this machine (Apple M5 Max), rerun on the release candidate build.
+- Linux: the manual `vector-scale` workflow on GitHub's ubuntu-22.04 runner
+  (x86-64, 4 vCPU, 16 GB). It stands in for the 8-core box: exact k-NN
+  search uses one core.
 
-If the 100k run fails on either, do not change the target and do not start
+## Follow-up after v0.1.0
+
+- Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux
+  machine, the hardware the D-003 promise names. Until both are recorded,
+  release notes say the promise was measured on the two machines above. A
+  FAIL takes the "Revisit" path below and corrects the published promise in
+  the next release.
+
+If the 100k run fails on a reference, do not change the target and do not start
 Task 24. Add a "Gate failed" section with the numbers and take D-003's
 "Revisit" path, in order: (1) int8 quantization with f32 rescoring,
 (2) Matryoshka truncation to 512 dimensions, (3) ANN, each with its own plan.

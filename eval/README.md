@@ -45,6 +45,8 @@ the chunker changes.
 Files ending in `.md`, `.markdown` or `.txt` (any letter case) are indexed.
 An empty corpus, a file that fails to index, or two files with identical
 content (they would be stored as one document) stop the run with the file name.
+Hidden files (names starting with `.`, such as the AppleDouble `._name`
+files macOS leaves on USB drives) are ignored.
 
 ## Metrics
 
