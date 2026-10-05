@@ -1,7 +1,7 @@
 //! Minimal normalized document representation ("AST-lite") for v0.1.
 //! Richer nodes (pages, figures, formulas, spans) arrive with PDF in v0.2.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Block {
     Heading {
         level: u8,
@@ -26,7 +26,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ParsedDocument {
     pub title: Option<String>,
     pub blocks: Vec<Block>,

@@ -16,7 +16,12 @@ clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4.3"
 html-escape = "0.2.15"
 llama-cpp-2 = { version = "=0.1.158", default-features = false, optional = true }
+# Not used directly: pdf_oxide 0.3.78 does not compile with office_oxide >= 0.1.10
+# (upstream added a struct field in a patch release). Remove when pdf_oxide is bumped.
+office_oxide = "=0.1.9"
+pdf_oxide = "=0.3.78"
 pulldown-cmark = { version = "0.13.4", default-features = false }
+roxmltree = "0.21.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -31,6 +36,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "=0.1.25"
 unicode-segmentation = "1.13.3"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"

@@ -55,21 +55,28 @@ fn lines_any(text: &str) -> impl Iterator<Item = &str> {
 
 /// Paragraphs separated by blank lines.
 fn parse_plain(text: &str) -> ParsedDocument {
+    ParsedDocument {
+        title: None,
+        blocks: paragraph_blocks(text),
+        warnings: Vec::new(),
+    }
+}
+
+/// Blank-line separated paragraphs; lines are trimmed and joined with spaces.
+/// Shared by plain text and PDF page text. Any line ending counts (`lines_any`),
+/// so old Mac files with lone CRs split like the rest.
+pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut lines: Vec<&str> = Vec::new();
     for line in lines_any(text) {
         if line.trim().is_empty() {
             flush_paragraph(&mut lines, &mut blocks);
         } else {
-            lines.push(line);
+            lines.push(line.trim());
         }
     }
     flush_paragraph(&mut lines, &mut blocks);
-    ParsedDocument {
-        title: None,
-        blocks,
-        warnings: Vec::new(),
-    }
+    blocks
 }
 
 fn flush_paragraph(lines: &mut Vec<&str>, blocks: &mut Vec<Block>) {
