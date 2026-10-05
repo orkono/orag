@@ -66,15 +66,45 @@ under D-003): for v0.1.0 this machine is the macOS reference.
 
 Gate: **PASS**. About 1.5x the M5 Max latency, still well below the target.
 
-## Pending before Task 24
+## v0.1.0 release candidate
 
-The gate must pass on both references **with the version being released**
-(the alpha.25 rows above do not count):
+The Task 24 gate: both references rerun on the release candidate,
+`0.1.0-alpha.31` (release build), the version before the docs-only bump to
+`0.1.0`.
 
-- macOS: this machine (Apple M5 Max), rerun on the release candidate build.
-- Linux: the manual `vector-scale` workflow on GitHub's ubuntu-22.04 runner
-  (x86-64, 4 vCPU, 16 GB). It stands in for the 8-core box: exact k-NN
-  search uses one core.
+macOS reference (Apple M5 Max, 128 GB RAM, macOS 26.4; 2026-10-05):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.1.0-alpha.31 | 100000 | 1024 | 50 | 50 | 10.6 | 96.1 | 103.5 | 105.3 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, MemTotal 16 372 468 kB;
+2026-10-05, workflow `vector-scale` run 37306112316):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.1.0-alpha.31 | 100000 | 1024 | 50 | 50 | 28.1 | 224.5 | 225.3 | 225.5 | 250 | PASS |
+
+300k (informational): p95 661.7 ms, FAIL, as expected.
+
+Gate: **PASS** on both references. The Linux margin is thin: p95 225.3 ms
+against 250 ms, about 1.5x the 152.2 ms measured on alpha.29 earlier the same
+day. The search path did not change between the two runs (the only
+`Cargo.lock` difference is the version line), so the gap is runner hardware:
+GitHub-hosted runners do not guarantee one CPU model. On slower x86-64
+hardware the 100k promise is at risk; the follow-up measurement on an 8-core
+box (below) decides whether D-003's "Revisit" path (int8 quantization with f32
+rescoring first) is needed for v0.2. Both runs wrote the CPU model only to the
+job summary, which is not kept in the log; from v0.1.0 the workflow also
+prints it to the log.
+
+## Release gate (v0.1.0)
+
+Passed: both references measured the release candidate `0.1.0-alpha.31`
+(section above), and `scripts/check-benchmark-gate.sh 0.1.0-alpha.31` passes.
+The `0.1.0` bump after it changed only documentation and workflows. The
+GitHub runner (x86-64, 4 vCPU, 16 GB) is the Linux reference for v0.1.0 by
+owner decision (D-003); it does not replace the 8-core measurement below.
 
 ## Follow-up after v0.1.0
 
@@ -84,7 +114,7 @@ The gate must pass on both references **with the version being released**
   FAIL takes the "Revisit" path below and corrects the published promise in
   the next release.
 
-If the 100k run fails on a reference, do not change the target and do not start
-Task 24. Add a "Gate failed" section with the numbers and take D-003's
+If a 100k run fails on a reference, do not change the target and do not
+release. Add a "Gate failed" section with the numbers and take D-003's
 "Revisit" path, in order: (1) int8 quantization with f32 rescoring,
 (2) Matryoshka truncation to 512 dimensions, (3) ANN, each with its own plan.

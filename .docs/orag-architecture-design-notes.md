@@ -3,7 +3,9 @@
 > **Status:** Long-term vision. Binding decisions for the current release
 > live in `.docs/orag-decisions.md`; where the two disagree, the decision
 > record wins. Implementation plan:
-> `.docs/plans/2026-10-01-orag-v0.1-implementation-plan.md`.\
+> `.docs/plans/2026-10-01-orag-v0.1-implementation-plan.md`. Released in
+> v0.1.0: the HTTP API in `docs/api.md` (it supersedes section 15) and
+> measurements in `.docs/benchmarks/`.\
 > **Project:** ORAG\
 > **Repository:** `orkono/orag`\
 > **Primary goal:** A fast, accurate, local-first RAG engine distributed

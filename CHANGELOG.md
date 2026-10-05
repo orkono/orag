@@ -5,6 +5,15 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.1.0] - 2026-10-05
+
+- First usable release: offline RAG service for TXT, Markdown, DOCX and PDF with hybrid retrieval, grounded streamed answers with citations, evaluation harness
+- Documentation: `README.md` (requirements, configuration, offline model install, run, backups, upgrades, limits, evaluation, versioning) and `docs/api.md` (every route, error code, limit, config key, the SSE event contract and `reindex_required` recovery in v0.1), with responses captured from the dev server.
+- `.github/workflows/release.yml`: on `v*` tags or manual dispatch, builds macOS and Linux (ubuntu-22.04) release binaries, checks them (`check-llama-build.sh --release`, `check-binary-deps.sh --release-floor`) and uploads `orag-<version>-<target>.tar.gz` (the executable bit kept) with the licenses, `THIRD-PARTY-LICENSES.md` (`scripts/third-party-licenses.sh`: every crate built into the binary, without proc-macro crates, plus llama.cpp's vendored C/C++ libraries; a crate without a license file gets its authors and the standard text), README, CHANGELOG and API docs. It publishes nothing.
+- `scripts/check-benchmark-gate.sh`: the D-003 gate needs a PASS row at 100k x 1024 (k 50, 50 queries, 250 ms target) on both references for the release candidate, the version before the docs-only release bump (here 0.1.0-alpha.31; `scripts/check-benchmark-gate.sh 0.1.0-alpha.31`). Results: macOS (M5 Max) p95 103.5 ms, Linux (GitHub runner, x86-64, 16 GB) p95 225.3 ms; the Linux margin is thin and the 16 GB/8-core references follow after v0.1.0.
+- `.docs/benchmarks/v0.1-seed-eval.md`: the first D-007 data point (seed set, default models): hybrid recall@10 1.000, every label in the answer context; first token in about 0.2 s, then about 110–130 tokens/s decoding on an M5 Max. The seed set is too small to choose models; v0.2's 200-question set decides.
+- The `vector-scale` workflow also prints the runner's CPU and memory to the log.
+
 ## [0.1.0-alpha.31] - 2026-10-05
 
 - Split the 1 243-line `tests/api.rs` into one `api` test binary with modules (`support`, `system`, `documents`, `query`, `binary`, each with explicit imports). The same 43 tests and assertions; test ids now carry the module path (`query::query_returns_grounded_answer_json`), so `--exact` filters need it.

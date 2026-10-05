@@ -41,7 +41,7 @@ jobs:
             df -h "$RUNNER_TEMP" | tail -1
             target/release/orag --version
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"   # also in the log: `gh run view --log` can read it
       # --work-dir on the runner's disk, not a tmpfs /tmp.
       - name: 100k x 1024 (the gate)
         id: gate
