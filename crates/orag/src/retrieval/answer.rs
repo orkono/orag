@@ -192,7 +192,7 @@ impl AnswerEngine {
             FinishReason::Stop
         };
         let summary = AnswerSummary {
-            abstained: is_refusal(&answer),
+            abstained: abstained(&answer),
             answer: answer.trim().to_string(),
             citations: citations.valid,
             invalid_citations: citations.invalid,
@@ -250,6 +250,79 @@ fn is_refusal(answer: &str) -> bool {
     };
     let answer = core(answer);
     [REFUSAL_EN, REFUSAL_TR].iter().any(|r| core(r) == answer)
+}
+
+/// Phrases a model uses to say the sources do not answer, in lexical
+/// normalized form (`ı` folded to `i`).
+const NOT_FOUND_PHRASES: &[&str] = &[
+    "belirtilmemi",
+    "bulunmamaktadir",
+    "bulunmuyor",
+    "bulunamadi",
+    "yer almamaktadir",
+    "yer almiyor",
+    "içermemektedir",
+    "içermiyor",
+    "bilgi yok",
+    "değinilmemi",
+    "not mentioned",
+    "do not mention",
+    "does not mention",
+    "no information",
+    "not specified",
+    "not stated",
+    "do not contain",
+    "does not contain",
+    "could not find",
+];
+
+/// Words for the sources in a refusal ("kaynaklarda", "belgelerde", "the
+/// documents"), in normalized form: "bulunmamaktadır" alone can be a fact.
+const SOURCE_WORDS: &[&str] = &["kaynak", "belge", "metin", "source", "document", "context"];
+
+/// Abstained: the refusal sentence, or an answer whose first sentence says,
+/// in other words and without a citation, that the sources do not answer. The
+/// model often adds cited background after that ("only [1] mentions ..."); an
+/// answer that opens with a cited fact carries information instead.
+fn abstained(answer: &str) -> bool {
+    if is_refusal(answer) {
+        return true;
+    }
+    let first = normalize_for_lexical(first_sentence(answer));
+    // Any `[n]` in it counts as a citation, valid or not.
+    !first.contains('[')
+        && SOURCE_WORDS.iter().any(|word| first.contains(word))
+        && NOT_FOUND_PHRASES
+            .iter()
+            .any(|phrase| first.contains(phrase))
+}
+
+/// Text up to the first `.`, `!` or `?` followed by whitespace (or the end),
+/// or the first line break. A dot after a digit is an ordinal or a number
+/// (`3. madde`, `1.5`), not an end; a citation right after the end (`... .
+/// [1]`) still belongs to the sentence.
+fn first_sentence(text: &str) -> &str {
+    let text = text.trim_start();
+    let mut previous = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let ends = match c {
+            '\n' => true,
+            '.' if previous.is_some_and(|p: char| p.is_ascii_digit()) => false,
+            '.' | '!' | '?' => chars.peek().is_none_or(|(_, next)| next.is_whitespace()),
+            _ => false,
+        };
+        if ends {
+            let rest = text[i + c.len_utf8()..].trim_start_matches([' ', '\t']);
+            if rest.starts_with('[') {
+                let cited = rest.find(']').map_or(rest.len(), |end| end + 1);
+                return &text[..text.len() - rest.len() + cited];
+            }
+            return &text[..i];
+        }
+        previous = Some(c);
+    }
+    text
 }
 
 fn abstain(

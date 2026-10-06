@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.5] - 2026-10-06
+
+- `abstained` is also `true` when the model refuses in its own words: the first sentence says, without a citation, that the sources do not answer (`Verilen kaynaklarda ... belirtilmemiştir.`, `The sources do not mention ...`), even if cited background follows. Before, only the exact refusal sentence counted. On the answer sets: unanswerable questions flagged 4 of 4 (before 1 of 4), answerable ones 0 of 15. The answer text is unchanged.
+- The refusal check needs a word for the sources in that first sentence (`kaynak`, `belge`, `source`, `document`), so a negative fact (`Anayasada ölüm cezası bulunmamaktadır.`) is an answer; a dot after a digit (`3. madde`) ends no sentence, and a citation right after the period belongs to it.
+- `docs/api.md` response examples show the fingerprint of the fake models under encoding 2.
+
 ## [0.2.0-alpha.4] - 2026-10-06
 
 - Query terms of three or more characters are FTS5 prefix terms, so a Turkish suffix no longer hides a match: `resmi dil` finds `resmî dili`, `mirasa` finds `miras`. Query side only (`LexicalQuery`), no reindex. Hybrid answer context: new inflection set 0.833 → 0.900, constitution set 0.950 → 1.000, seed set unchanged at 1.000 (MRR@10 0.939 → 0.903). Details in `.docs/benchmarks/2026-10-06-lexical-query.md`.

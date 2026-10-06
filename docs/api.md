@@ -268,7 +268,7 @@ curl -s -H 'Content-Type: application/json' \
   {"number":2,"chunk_id":3,"document_id":3,"title":"İade","filename":"iade.md","heading_path":["İade"],"ordinal":0,"excerpt":"14 gün içinde iade.","rank_score":0.03225806451612903,"lexical_rank":2,"dense_rank":2},
   {"number":3,"chunk_id":1,"document_id":1,"title":"Kargo Politikası","filename":"sample.docx","heading_path":["Kargo Politikası","İade Koşulları"],"ordinal":0,"excerpt":"Ürünler 14 gün içinde iade edilebilir. …","rank_score":0.031746031746031744,"lexical_rank":3,"dense_rank":3}],
  "citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop",
- "trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"70777cf0d7009b54666ab2d56df5749478927fb932a35f8b58b98a31172c8a7f"},
+ "trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},
   "context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
@@ -283,9 +283,12 @@ numbers it cited that no source has. `trace` shows how the answer was made.
 | `length` | the output budget (`max_output_tokens` of the model pack) ran out before the answer ended; it is cut off |
 | `repetition` | the model wrote the same line three times in a row and generation was stopped; the answer is incomplete |
 
-`abstained` is `true` only when the answer is exactly the refusal sentence
-(`Bu bilgi belgelerde bulunamadı.` / `I could not find this in the
-documents.`); a refusal in other words keeps it `false`.
+`abstained` is `true` when the answer is the refusal sentence (`Bu bilgi
+belgelerde bulunamadı.` / `I could not find this in the documents.`), or when
+its first sentence says in other words, without a citation, that the sources
+do not answer (`Verilen kaynaklarda ... belirtilmemiştir.`, `The sources do not
+mention ...`). The model may add cited background after such a sentence; the
+answer text is returned unchanged.
 
 #### Streaming (`"stream": true`)
 
@@ -323,7 +326,7 @@ data: {"text":"is "}
 …
 
 event: done
-data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop","trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"70777cf0d7009b54666ab2d56df5749478927fb932a35f8b58b98a31172c8a7f"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
+data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop","trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
 Errors before streaming starts (unknown collection, invalid query,

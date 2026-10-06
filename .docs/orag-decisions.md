@@ -115,7 +115,11 @@ retriever found, even at rank 1: on the PDF of the Turkish constitution,
 `eval/datasets/anayasa-tr.jsonl` it raised hybrid recall@5 from 0.800 to 0.900
 and MRR@10 from 0.762 to 0.825; the seed set did not change.
 
-**Abstention.** Hard abstain only when both candidate lists are empty.
+**Abstention.** Hard abstain (no model call) only when both candidate lists
+are empty. The `abstained` flag also marks a model answer that is the refusal
+sentence or whose first sentence, uncited, says the sources do not answer
+(0.2.0-alpha.5: on the answer sets 4 of 4 unanswerable questions flagged,
+before 1 of 4; 0 of 15 answerable ones).
 Otherwise the generation prompt instructs the model to answer only from the
 numbered sources and to reply with a fixed refusal sentence when they are
 insufficient. If retrieval found chunks but none fits the

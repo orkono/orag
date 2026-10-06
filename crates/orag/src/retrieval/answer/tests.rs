@@ -158,6 +158,55 @@ fn refusal_from_the_model_is_flagged_as_abstention() {
 }
 
 #[test]
+fn a_refusal_in_other_words_without_citations_is_an_abstention() {
+    for reply in [
+        "Verilen kaynaklarda resmi dilin ne olduğu belirtilmemiştir.",
+        "Kaynaklarda Türkiye'nin nüfusu hakkında bilgi bulunmamaktadır. Bu bilgi belgelerde bulunamadı.",
+        "Bu konu belgelerde yer almamaktadır.",
+        "The sources do not mention the founding year.",
+        "There is no information about this in the documents.",
+        "Verilen kaynaklarda hapis cezasının süresi belirtilmemiştir. Kaynak [1] yalnızca bozma kararını anlatır.",
+        "Kaynaklarda asgari ücretin miktarı belirtilmemiştir.\n\nSadece tespit ilkeleri vardır [2].",
+    ] {
+        let (_dir, engine, _) = engine(FakeGenerator::new(reply), &[("k.md", DOC)]);
+        let s = summary(&collect(&engine, "Şirketin kuruluş yılı nedir?")).clone();
+        assert!(s.abstained, "{reply}");
+        assert_eq!(s.answer, reply, "the model's words are kept");
+    }
+}
+
+#[test]
+fn an_answer_that_opens_with_a_cited_fact_is_not_an_abstention() {
+    for reply in [
+        "İade süresi 14 gündür [1]; kargo ücreti belirtilmemiştir.",
+        "Kaynak [1] iade süresini verir, başka bilgi bulunmamaktadır.",
+        "14 gün [1]. Kargo ücreti ise belirtilmemiştir.",
+        "Süre 1.5 ay değil [1]; ücret bulunmamaktadır.",
+        "14 gün [1].",
+        // Ordinals end no sentence; a citation right after the period belongs to it.
+        "Kaynaklarda açıkça belirtilmemiş olsa da 3. madde uyarınca dil Türkçedir [1].",
+        "Kaynaklara göre ölüm cezası bulunmamaktadır. [1]",
+        // A negative fact without a word for the sources is an answer.
+        "Anayasada ölüm cezası bulunmamaktadır.",
+    ] {
+        let (_dir, engine, _) = engine(FakeGenerator::new(reply), &[("k.md", DOC)]);
+        assert!(
+            !summary(&collect(&engine, "İade süresi?")).abstained,
+            "{reply}"
+        );
+    }
+}
+
+#[test]
+fn an_uncited_answer_without_refusal_words_is_not_an_abstention() {
+    let (_dir, engine, _) = engine(
+        FakeGenerator::new("İade süresi 14 gündür."),
+        &[("k.md", DOC)],
+    );
+    assert!(!summary(&collect(&engine, "İade süresi?")).abstained);
+}
+
+#[test]
 fn invalid_citations_are_reported() {
     let (_dir, engine, _) = engine(FakeGenerator::new("Bkz [1] ve [7]."), &[("k.md", DOC)]);
     let s = summary(&collect(&engine, "iade")).clone();
