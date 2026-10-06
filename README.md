@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/orag-icon.svg" alt="ORAG icon: a sickle (orak)" width="128" height="128">
+</p>
+
 # ORAG
 
 ORAG is an offline, local-first RAG (retrieval-augmented generation) service in

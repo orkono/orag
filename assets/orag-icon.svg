@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="orag-title">
+  <title id="orag-title">ORAG icon: a sickle (orak)</title>
+  <defs>
+    <!-- Sickle blade: one circle minus an offset circle; the tip behind the collar is cut. -->
+    <mask id="orag-blade">
+      <rect width="256" height="256" fill="#000"/>
+      <circle cx="132" cy="116" r="82" fill="#fff"/>
+      <circle cx="116" cy="102" r="76" fill="#000"/>
+      <circle cx="60" cy="149" r="14" fill="#000"/>
+    </mask>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#f6efdc"/>
+  <g transform="translate(12,-4)">
+    <rect width="256" height="256" fill="#163b2e" mask="url(#orag-blade)"/>
+    <line x1="68" y1="173" x2="40" y2="222" stroke="#9a6532" stroke-width="20" stroke-linecap="round"/>
+    <line x1="74" y1="160" x2="66" y2="175" stroke="#c8901e" stroke-width="22"/>
+  </g>
+</svg>
