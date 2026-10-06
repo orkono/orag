@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.1] - 2026-10-06
+
+- Hybrid retrieval always puts the top hit of the lexical list and of the dense list first, before the rest in RRF order. Plain RRF dropped a chunk that only one retriever found, even at rank 1: on a PDF of the Turkish constitution, "Anayasaya göre resmî dili nedir?" had Article 3 at lexical #1 and dense #39 and the model answered that the sources did not say. Scores (`rank_score`) are unchanged, so they no longer always decrease along `sources`.
+- Lexical normalizer v2: a circumflex on a, i, u is dropped (`resmî`, `millî`, `kâğıt`, `Ûmit` match `resmi`, `milli`, `kağıt`, `Umit`); other letters keep it (`fête`).
+- New evaluation set `eval/datasets/anayasa-tr.jsonl` (20 answerable, 2 unanswerable Turkish questions) over `eval/corpus/anayasa/tr-anayasa.txt`, the text of the Turkish constitution. Hybrid, before → after: recall@5 0.800 → 0.900, recall@10 0.900 → 0.950, MRR@10 0.762 → 0.833, in answer context 0.900 → 0.950; the seed set is unchanged. Known miss: ana-001 (`resmi dil` vs `resmî dili`, no stemming).
+- The `reindex_required` message and the API error table name the embedding space (model, chunker or normalizer), not only the model.
+- **Upgrade note:** the normalizer version is part of the embedding-space fingerprint, so every collection indexed before this version answers `409 reindex_required`; pinning the previous model does not help. Re-upload the documents (see `docs/api.md`, `reindex_required`).
+
 ## [0.1.0] - 2026-10-05
 
 - First usable release: offline RAG service for TXT, Markdown, DOCX and PDF with hybrid retrieval, grounded streamed answers with citations, evaluation harness

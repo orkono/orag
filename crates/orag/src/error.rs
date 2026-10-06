@@ -9,7 +9,7 @@ pub enum OragError {
     #[error("conflict: {0}")]
     Conflict(String),
     #[error(
-        "collection {collection_id} was indexed with a different embedding model; reindex required"
+        "collection {collection_id} was indexed in a different embedding space (model, chunker or normalizer); reindex required"
     )]
     ReindexRequired { collection_id: i64 },
     #[error("unsupported format: {0}")]

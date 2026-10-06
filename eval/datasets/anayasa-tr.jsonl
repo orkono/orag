@@ -1,0 +1,22 @@
+{"id": "ana-001", "lang": "tr", "query": "Anayasaya göre resmi dil nedir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Dili Türkçedir"}], "answerable": true}
+{"id": "ana-002", "lang": "tr", "query": "Türkiye'nin başkenti neresidir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Başkenti Ankara"}], "answerable": true}
+{"id": "ana-003", "lang": "tr", "query": "TBMM kaç milletvekilinden oluşur?", "relevant": [{"document": "tr-anayasa.txt", "contains": "altıyüz milletvekilinden oluşur"}], "answerable": true}
+{"id": "ana-004", "lang": "tr", "query": "Cumhurbaşkanının görev süresi kaç yıldır?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Cumhurbaşkanının görev süresi beş yıldır"}], "answerable": true}
+{"id": "ana-005", "lang": "tr", "query": "milletvekili secilme yasi kac", "relevant": [{"document": "tr-anayasa.txt", "contains": "Onsekiz yaşını dolduran her Türk milletvekili seçilebilir"}], "answerable": true}
+{"id": "ana-006", "lang": "tr", "query": "Anayasa Mahkemesi kaç üyeden oluşur?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Anayasa Mahkemesi onbeş üyeden kurulur"}], "answerable": true}
+{"id": "ana-007", "lang": "tr", "query": "zorla calistirma yasak mi", "relevant": [{"document": "tr-anayasa.txt", "contains": "Hiç kimse zorla çalıştırılamaz"}], "answerable": true}
+{"id": "ana-008", "lang": "tr", "query": "Ölüm cezası verilebilir mi?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Ölüm cezası ve genel müsadere cezası verilemez"}], "answerable": true}
+{"id": "ana-009", "lang": "tr", "query": "Herkes mali gücüne göre vergi öder mi?", "relevant": [{"document": "tr-anayasa.txt", "contains": "malî gücüne göre, vergi ödemekle yükümlüdür"}], "answerable": true}
+{"id": "ana-010", "lang": "tr", "query": "İlköğretim zorunlu mudur?", "relevant": [{"document": "tr-anayasa.txt", "contains": "İlköğretim, kız ve erkek bütün vatandaşlar için zorunludur"}], "answerable": true}
+{"id": "ana-011", "lang": "tr", "query": "Yasama yetkisi kime aittir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Yasama yetkisi Türk Milleti adına Türkiye Büyük Millet Meclisinindir"}], "answerable": true}
+{"id": "ana-012", "lang": "tr", "query": "Yürütme yetkisini kim kullanır?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Yürütme yetkisi ve görevi, Cumhurbaşkanı tarafından"}], "answerable": true}
+{"id": "ana-013", "lang": "tr", "query": "Kimler Türk sayılır?", "relevant": [{"document": "tr-anayasa.txt", "contains": "vatandaşlık bağı ile bağlı olan herkes Türktür"}], "answerable": true}
+{"id": "ana-014", "lang": "tr", "query": "Sağlıklı bir çevrede yaşama hakkı var mı?", "relevant": [{"document": "tr-anayasa.txt", "contains": "sağlıklı ve dengeli bir çevrede yaşama hakkına sahiptir"}], "answerable": true}
+{"id": "ana-015", "lang": "tr", "query": "maddi ve manevi varlığını koruma hakkı", "relevant": [{"document": "tr-anayasa.txt", "contains": "maddî ve manevî varlığını koruma ve geliştirme hakkına sahiptir"}], "answerable": true}
+{"id": "ana-016", "lang": "tr", "query": "milli marsimiz nedir", "relevant": [{"document": "tr-anayasa.txt", "contains": "İstiklal Marşı"}], "answerable": true}
+{"id": "ana-017", "lang": "tr", "query": "Mülkiyet hakkı herkese tanınır mı?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Herkes, mülkiyet ve miras haklarına sahiptir"}], "answerable": true}
+{"id": "ana-018", "lang": "tr", "query": "Vatan hizmeti kimin ödevidir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Vatan hizmeti, her Türkün hakkı ve ödevidir"}], "answerable": true}
+{"id": "ana-019", "lang": "tr", "query": "Anayasaya göre resmî dili nedir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Dili Türkçedir"}], "answerable": true}
+{"id": "ana-020", "lang": "tr", "query": "Devletin dili nedir?", "relevant": [{"document": "tr-anayasa.txt", "contains": "Dili Türkçedir"}], "answerable": true}
+{"id": "ana-u01", "lang": "tr", "query": "Asgari ücret ne kadardır?", "relevant": [], "answerable": false}
+{"id": "ana-u02", "lang": "tr", "query": "Türkiye'nin nüfusu kaçtır?", "relevant": [], "answerable": false}

@@ -101,9 +101,19 @@ can omit WAL content and is documented as unsafe. Bundled SQLite must be
 ## D-005 — Retrieval in v1 is deterministic hybrid; no decision models
 
 **Decision.** Every query: FTS5 BM25 top 50 + dense top 50, both constrained to
-the collection **before** top-k → Reciprocal Rank Fusion (k = 60) → context
-filled in fused order up to the generator's token budget (max 8 chunks). No
-reranker, no query rewriting, no adaptive routing in v0.1.
+the collection **before** top-k → Reciprocal Rank Fusion (k = 60) → the top
+hit of each list (lexical #1, dense #1) moved to the front → context filled in
+that order up to the generator's token budget (max 8 chunks). No reranker, no
+query rewriting, no adaptive routing in v0.1.
+
+**Leader promotion (0.2.0-alpha.1).** Plain RRF dropped a chunk that only one
+retriever found, even at rank 1: on the PDF of the Turkish constitution,
+"Anayasaya göre resmî dili nedir?" had Article 3 at lexical #1 and dense #39
+(1/61 + 1/99 ≈ 0.0265), below the 8th context chunk (lexical #21, dense #6,
+≈ 0.0275), so the model said the sources did not answer. Promoting each list's
+#1 costs at most two context slots and keeps scores unchanged. On
+`eval/datasets/anayasa-tr.jsonl` it raised hybrid recall@5 from 0.800 to 0.900
+and MRR@10 from 0.762 to 0.825; the seed set did not change.
 
 **Abstention.** Hard abstain only when both candidate lists are empty.
 Otherwise the generation prompt instructs the model to answer only from the
@@ -149,7 +159,9 @@ characters (Default_Ignorable: soft hyphen, zero-width space, joiners, BOM,
 variation selectors; `unicode61` would split a word at them) → fold `İ`, `I`,
 `ı` to `i` (symmetric, so English and Turkish casing both match; the ı/i
 distinction is deliberately lost for recall) and drop a U+0307 dot directly
-after `i` → private-use characters (PDF glyph codes) become spaces → Unicode
+after `i` → drop a U+0302 circumflex after `a`, `i`, `u` (Turkish `resmî`,
+`millî`, `kâğıt` match the usual spellings; `ê`, `ô` keep it; normalizer v2,
+0.2.0-alpha.1) → private-use characters (PDF glyph codes) become spaces → Unicode
 lowercase, `ß` → `ss` → NFC (so `ı` + U+0301 and `í` are the same text).
 Tokenizer: `unicode61 remove_diacritics 0` — ç/ş/ğ/ö/ü are preserved. User
 queries are turned into quoted OR-terms, never passed to FTS5 as raw syntax: a
@@ -169,6 +181,13 @@ or trigram tokenizer is a later, evaluation-driven decision.
 
 **Deferred.** Stemming and an accent-folded secondary field are added only if
 the evaluation set (which includes accentless-typing queries) shows a gain.
+The circumflex fold passed that test: on `anayasa-tr.jsonl` hybrid answer
+context went from 0.900 to 0.950 (`milli marsimiz nedir` now finds `Millî
+marşı`), the seed set did not change. Its cost is precision, as with ı/i:
+`kâr`/`kar`, `hâlâ`/`hala`, `âlem`/`alem` become one term, and so do French
+`sûr`/`sur`, `dû`/`du` and `île` with Turkish `ile`; BM25's IDF damps the very
+common ones. Still open: inflected forms (`dil` does not find `dili`, ana-001)
+and accentless typing of ç/ş/ğ/ö/ü.
 Both spellings are never concatenated into one field (it distorts term
 frequencies).
 

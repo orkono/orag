@@ -61,6 +61,17 @@ pub fn reciprocal_rank_fusion(lexical: &[ChunkId], dense: &[ChunkId]) -> Vec<Fus
     hits
 }
 
+/// Moves each list's top hit (lexical #1, dense #1) to the front, keeping
+/// fused order within the promoted and the remaining hits. RRF alone can
+/// push a chunk that only one retriever finds, even at rank 1, below chunks
+/// that are mediocre in both lists, so it never reaches the answer context
+/// (measured on a PDF of the Turkish constitution, D-005). Scores are kept.
+pub fn promote_list_leaders(mut hits: Vec<FusedHit>) -> Vec<FusedHit> {
+    // Stable: `false` (leaders) sorts first, each group keeps fused order.
+    hits.sort_by_key(|hit| !(hit.lexical_rank == Some(1) || hit.dense_rank == Some(1)));
+    hits
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +107,32 @@ mod tests {
     #[test]
     fn empty_inputs_give_empty_output() {
         assert!(reciprocal_rank_fusion(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn each_list_leader_is_promoted_to_the_front() {
+        // 9 is lexical #1 but missing from the dense list; RRF ranks it below
+        // chunks that are mediocre in both lists.
+        let lexical = [9, 1, 2, 3];
+        let dense = [4, 1, 2, 3];
+        let fused = reciprocal_rank_fusion(&lexical, &dense);
+        assert_eq!(ids(&fused), vec![1, 2, 3, 4, 9]);
+        let promoted = promote_list_leaders(fused);
+        assert_eq!(ids(&promoted), vec![4, 9, 1, 2, 3]);
+        // Scores are untouched: only the order changes.
+        assert!((promoted[1].score - 1.0 / 61.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn promotion_keeps_order_when_the_leaders_already_lead() {
+        let fused = reciprocal_rank_fusion(&[1, 2, 3], &[1, 3, 2]);
+        assert_eq!(ids(&promote_list_leaders(fused.clone())), ids(&fused));
+    }
+
+    #[test]
+    fn promotion_handles_a_single_list_and_empty_input() {
+        let fused = reciprocal_rank_fusion(&[], &[5, 6]);
+        assert_eq!(ids(&promote_list_leaders(fused)), vec![5, 6]);
+        assert!(promote_list_leaders(Vec::new()).is_empty());
     }
 }

@@ -14,7 +14,8 @@ from offline packs (D-001, D-012).
 - Formats: TXT, Markdown, DOCX and PDF, up to 5 MB per document by default.
   Scanned PDFs are not OCRed; pages without a text layer are reported with the
   warning `ocr_required`.
-- Retrieval: BM25 + dense vectors fused with reciprocal rank fusion; answers
+- Retrieval: BM25 + dense vectors fused with reciprocal rank fusion, each
+  list's top hit offered to the answer context first; answers
   cite their sources as `[n]` and abstain when the documents do not support an
   answer. Answers can be streamed (SSE).
 - A desktop application arrives in v0.3; v0.1 is an HTTP API.

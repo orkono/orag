@@ -86,7 +86,7 @@ Every error, including unknown routes, has the same shape:
 | 405 | `method_not_allowed` | The route exists, the method does not (`Allow` header lists methods) |
 | 408 | `upload_timeout` | The upload body did not arrive within 60 s |
 | 409 | `conflict` | E.g. deleting the default collection |
-| 409 | `reindex_required` | The collection was indexed with a different embedding model (see below) |
+| 409 | `reindex_required` | The collection was indexed in a different embedding space: another embedding model, or a release that changed the chunker or normalizer (see below) |
 | 413 | `too_large` | Document over `max_document_mb`, or a request body over its limit |
 | 415 | `unsupported_format` | A document type ORAG does not support |
 | 415 | `unsupported_media_type` | A JSON route called without `Content-Type: application/json` |
@@ -250,7 +250,10 @@ them and cites them as `[n]`, where `n` is a source `number`. When the
 documents do not support an answer it abstains (`"abstained": true`).
 
 `rank_score` is a ranking signal (reciprocal rank fusion), **not** a
-confidence or a probability.
+confidence or a probability. Candidates are taken in fused order, except that
+the top hit of the lexical list and of the dense list are offered first (a
+chunk too long for the context budget is still skipped), so `rank_score` does
+not always decrease along `sources`.
 
 ```bash
 curl -s -H 'Content-Type: application/json' \

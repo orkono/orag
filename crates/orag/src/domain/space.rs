@@ -94,10 +94,10 @@ mod tests {
     fn fingerprint_matches_the_golden_value() {
         // Golden vector: persisted fingerprints must never change silently.
         // Reproducible without Rust:
-        // printf 'encoding=1:1\nmodel_id=1:m\nmodel_sha256=64:%s\npooling=4:last\nquery_prefix=3:Q: \ndocument_prefix=0:\ndimensions=1:4\nnormalized=4:true\nmax_tokens=3:512\nrequire_trailing_eos=4:true\nchunker_version=1:1\nnormalizer_version=1:1\n' "$(printf 'a%.0s' $(seq 64))" | shasum -a 256
+        // printf 'encoding=1:1\nmodel_id=1:m\nmodel_sha256=64:%s\npooling=4:last\nquery_prefix=3:Q: \ndocument_prefix=0:\ndimensions=1:4\nnormalized=4:true\nmax_tokens=3:512\nrequire_trailing_eos=4:true\nchunker_version=1:1\nnormalizer_version=1:2\n' "$(printf 'a%.0s' $(seq 64))" | shasum -a 256
         assert_eq!(
             descriptor().fingerprint(),
-            "1126366fade8f536ef5ab0f8fdb8a758a4fe6fb601831050f20e4f05ad18b650"
+            "d00dab2a989b011e42ab960875404bdf321c19d696cb5ba48bbc1fd63ea7c379"
         );
     }
 
