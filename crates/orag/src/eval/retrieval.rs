@@ -353,6 +353,29 @@ mod tests {
         assert!(report.to_markdown().contains("| hybrid |"));
     }
 
+    #[test]
+    fn anayasa_labels_match_and_lexical_finds_the_circumflex_case() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let dataset = load_dataset(&root.join("datasets/anayasa-tr.jsonl")).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        // Fails when a label no longer sits inside one chunk.
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            &root.join("corpus/anayasa"),
+            &dataset,
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!((report.answerable, report.unanswerable), (20, 2));
+        let lexical = &report.strategies[0];
+        // `milli marsimiz` finds `Millî marşı` only through the circumflex
+        // fold (D-006).
+        assert!(
+            !lexical.missed_in_context.iter().any(|m| m == "ana-016"),
+            "ana-016 missed lexically: {lexical:?}"
+        );
+    }
+
     fn corpus(files: &[(&str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         for (name, text) in files {

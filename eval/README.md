@@ -69,3 +69,24 @@ fusion decisions has about 200 questions and must cover:
 - answers in tables,
 - accentless typing (`istanbul ici`, `iade suresi`),
 - unanswerable questions (no evidence in the corpus).
+
+## Datasets
+
+| corpus | dataset | questions | purpose |
+|---|---|---|---|
+| `eval/corpus/seed` | `seed.jsonl` | 14 answerable, 2 unanswerable | harness check, release gate |
+| `eval/corpus/anayasa` | `anayasa-tr.jsonl` | 20 answerable, 2 unanswerable | Turkish recall on a long legal text: inflected forms (`resmi dil` vs `resmî dili`), the circumflex, accentless typing |
+
+```bash
+orag eval retrieval --corpus eval/corpus/anayasa --dataset eval/datasets/anayasa-tr.jsonl
+```
+
+`tr-anayasa.txt` is the text layer of the Constitution of the Republic of
+Türkiye as published by the Grand National Assembly
+(<https://cdn.tbmm.gov.tr/TbmmWeb/Anayasa/anayasa_2018.pdf>, downloaded
+2026-10-06), extracted page by page with pypdf and left unedited, page numbers
+and footnote marks included. Article 31 of Law No. 5846 (FSEK) allows statutes
+to be reproduced freely.
+
+`ana-001` (`resmi dil`) is a known miss: the evidence says `resmî dili`, and
+lexical search has no stemming, so `dil` does not find `dili` (D-006).

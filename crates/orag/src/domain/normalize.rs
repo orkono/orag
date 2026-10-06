@@ -10,7 +10,7 @@
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
-pub const NORMALIZER_VERSION: u32 = 1;
+pub const NORMALIZER_VERSION: u32 = 2;
 pub const MAX_QUERY_TERMS: usize = 32;
 /// Questions are short; only this much of a query is normalized. It also
 /// bounds the MATCH expression.
@@ -23,6 +23,9 @@ const MAX_QUERY_CHARS: usize = 4096;
 ///   be found as `bağlantı`;
 /// - fold `İ`/`I`/`ı` to `i` and drop a U+0307 dot among the marks after an `i`
 ///   (left by decomposed `i̇`); other letters keep their dot;
+/// - drop a U+0302 circumflex among the marks after `a`, `i` or `u`, so the
+///   Turkish `resmî`, `kâğıt`, `Ûmit` match the usual `resmi`, `kağıt`,
+///   `Umit`; other letters (`ê`, `ô`) keep it;
 /// - private-use characters (PDF glyph codes) become spaces, so they never glue
 ///   onto a word;
 /// - lowercase, with `ß`/`ẞ` folded to `ss` so `STRASSE` finds `straße`;
@@ -30,17 +33,19 @@ const MAX_QUERY_CHARS: usize = 4096;
 ///   ends up as the same character as its precomposed form (`í`).
 pub fn normalize_for_lexical(input: &str) -> String {
     let mut after_i = false;
+    let mut after_aiu = false;
     // Decomposed (NFKD) while folding, so `İ` is `I` + U+0307 and an accent on
     // `i` is a separate mark; the final NFC gives the same result as NFKC.
     input
         .nfkd()
         .filter(|&ch| !is_default_ignorable(ch))
         .filter(move |&ch| {
-            let keep = !(ch == '\u{0307}' && after_i);
+            let keep = !(ch == '\u{0307}' && after_i) && !(ch == '\u{0302}' && after_aiu);
             // Marks (e.g. an acute typed before the dot) keep the state, so the
-            // dot is dropped anywhere in the marks that follow the `i`.
+            // dot or circumflex is dropped anywhere in the marks after the letter.
             if !is_combining_mark(ch) {
                 after_i = matches!(ch, 'i' | 'ı' | 'I' | 'İ');
+                after_aiu = after_i || matches!(ch, 'a' | 'A' | 'u' | 'U');
             }
             keep
         })
@@ -170,6 +175,18 @@ mod tests {
     #[test]
     fn preserves_turkish_diacritics_other_than_i() {
         assert_eq!(normalize_for_lexical("ŞEKER Çay ĞÖÜ"), "şeker çay ğöü");
+    }
+
+    #[test]
+    fn folds_the_circumflex_on_a_i_u() {
+        assert_eq!(
+            normalize_for_lexical("Resmî Millî kâğıt ÛMİT"),
+            "resmi milli kağit umit"
+        );
+        assert_eq!(normalize_for_lexical("I\u{0302}"), "i");
+        assert_eq!(lexical_terms("maddî"), lexical_terms("maddi"));
+        // Other letters keep it.
+        assert_eq!(normalize_for_lexical("fête côte"), "fête côte");
     }
 
     #[test]

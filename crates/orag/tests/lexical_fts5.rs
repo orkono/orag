@@ -38,6 +38,8 @@ fn indexed_text_is_found_by_its_query_form() {
         ("情報検索システム", "情報検索システム"),
         ("bağ\u{00AD}lantı kuruldu", "bağlantı"),
         ("Straße", "STRASSE"),
+        ("resmî dili", "resmi"),
+        ("Millî marşı", "MİLLÎ"),
         ("norm_text değeri", r#"norm_text:foo" NEAR(bar*) -baz OR"#),
     ] {
         assert!(
@@ -54,6 +56,7 @@ fn different_words_do_not_match() {
         "ş is kept, so accentless typing is a different term"
     );
     assert!(!matches("istanbul", "ankara"));
+    assert!(!matches("fête", "fete"), "only a, i, u lose the circumflex");
 }
 
 #[test]

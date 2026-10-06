@@ -1,4 +1,4 @@
-//! Deterministic hybrid retrieval: BM25 + dense → RRF (D-005).
+//! Deterministic hybrid retrieval: BM25 + dense → RRF, each list's #1 first (D-005).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::domain::CollectionId;
 use crate::domain::normalize::fts_query;
-use crate::domain::rrf::{FusedHit, reciprocal_rank_fusion};
+use crate::domain::rrf::{FusedHit, promote_list_leaders, reciprocal_rank_fusion};
 use crate::error::{OragError, Result};
 use crate::infer::{Embedder, VectorIndex};
 use crate::store::Store;
@@ -113,7 +113,7 @@ impl Retriever {
         };
         trace.lexical_hits = lexical.len();
         trace.dense_hits = dense.len();
-        let fused = reciprocal_rank_fusion(&lexical, &dense);
+        let fused = promote_list_leaders(reciprocal_rank_fusion(&lexical, &dense));
         trace.fused_hits = fused.len();
         let top: Vec<FusedHit> = fused.into_iter().take(limit).collect();
         let candidates = self.hydrate(collection_id, top)?;
@@ -237,6 +237,35 @@ mod tests {
         assert_eq!(hybrid.trace.strategy, "hybrid");
         assert!(hybrid.trace.lexical_hits >= 1 && hybrid.trace.dense_hits >= 1);
         assert!(hybrid.trace.embedding_space.is_some());
+    }
+
+    #[test]
+    fn a_lexical_only_leader_reaches_a_small_context() {
+        // `xq7` is the rare term, so its chunk is lexical #1, but it falls
+        // outside the dense top k; the garanti chunks are in both lists and
+        // outscore it under plain RRF.
+        let embedder = FakeEmbedder::new()
+            .with_fixture("garanti", vec![0.0, 1.0])
+            .with_fixture("xq7", vec![1.0, 0.0]);
+        let (_dir, mut retriever) = indexed(
+            embedder,
+            &[
+                ("a.md", "# Kod\n\nxq7 kodu."),
+                ("b.md", "# Garanti 1\n\ngaranti ortak süre bir"),
+                ("c.md", "# Garanti 2\n\ngaranti ortak süre iki"),
+                ("d.md", "# Garanti 3\n\ngaranti ortak süre üç"),
+            ],
+        );
+        retriever.config.dense_k = 3;
+        let outcome = retriever
+            .retrieve(1, "xq7 garanti ortak", Strategy::Hybrid, 2)
+            .unwrap();
+        let kod = outcome
+            .candidates
+            .iter()
+            .find(|c| c.chunk.document_title.as_deref() == Some("Kod"))
+            .expect("the lexical #1 chunk is in the top 2");
+        assert_eq!((kod.hit.lexical_rank, kod.hit.dense_rank), (Some(1), None));
     }
 
     #[test]

@@ -64,6 +64,15 @@ mod tests {
     }
 
     #[test]
+    fn anayasa_dataset_loads_and_is_consistent() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/datasets/anayasa-tr.jsonl");
+        let queries = load_dataset(&path).unwrap();
+        assert_eq!(queries.len(), 22);
+        assert_eq!(queries.iter().filter(|q| !q.answerable).count(), 2);
+    }
+
+    #[test]
     fn inconsistent_rows_are_rejected_with_line_numbers() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("d.jsonl");
