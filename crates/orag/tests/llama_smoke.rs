@@ -178,7 +178,7 @@ fn max_tokens_beyond_the_trained_context_is_rejected() {
 use std::ops::ControlFlow;
 
 use orag::infer::llama::generator::LlamaGenerator;
-use orag::infer::{ChatMessage, GenerationRequest, Generator, Role};
+use orag::infer::{ChatMessage, GenerationRequest, Generator, Role, SamplerProfile};
 
 fn tiny_generator(dir: &Path, gguf: &Path) -> LlamaGenerator {
     let models = dir.join("models");
@@ -199,6 +199,7 @@ fn request(max: usize) -> GenerationRequest {
             content: "Once upon a time".into(),
         }],
         max_output_tokens: max,
+        sampler: SamplerProfile::Greedy,
     }
 }
 
@@ -218,6 +219,24 @@ fn generator_streams_bounded_output() {
     assert!(stats.completion_tokens <= 16);
     assert!(!text.is_empty());
     assert!(!stats.cancelled);
+    // `length` only when the budget, not an end-of-generation token, stopped it.
+    assert!(!stats.length_limited || stats.completion_tokens == 16);
+    for sampler in [
+        SamplerProfile::Dry,
+        SamplerProfile::Presence,
+        SamplerProfile::Qwen { seed: 3 },
+    ] {
+        let stats = generator
+            .generate(
+                &GenerationRequest {
+                    sampler,
+                    ..request(8)
+                },
+                &mut |_| ControlFlow::Continue(()),
+            )
+            .unwrap();
+        assert!(stats.completion_tokens <= 8, "{sampler:?}");
+    }
 }
 
 #[test]
@@ -249,6 +268,7 @@ fn generator_rejects_prompt_that_cannot_fit() {
             content: "word ".repeat(2000),
         }],
         max_output_tokens: 16,
+        sampler: SamplerProfile::Greedy,
     };
     assert!(
         generator

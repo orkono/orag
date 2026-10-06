@@ -118,7 +118,9 @@ pub fn run_retrieval_eval(
 }
 
 /// File extensions indexed from a corpus directory (case-insensitive).
-const CORPUS_EXTENSIONS: [&str; 3] = ["md", "markdown", "txt"];
+/// Every format ORAG ingests; PDF and DOCX go through the production parsers
+/// (in process here), so the corpus measures what `orag serve` indexes.
+const CORPUS_EXTENSIONS: [&str; 5] = ["md", "markdown", "txt", "pdf", "docx"];
 
 /// Byte-based, so a dotfile whose name is not UTF-8 is still hidden.
 fn is_hidden(path: &Path) -> bool {
@@ -129,7 +131,11 @@ fn is_hidden(path: &Path) -> bool {
 /// Indexes every corpus file. Anything that would silently score 0 instead
 /// is an error: an empty corpus, an unreadable entry, a file that fails to
 /// index, or two files with identical bytes (stored as one document).
-fn index_corpus(store: &Arc<Store>, embedder: Arc<dyn Embedder>, corpus: &Path) -> Result<usize> {
+pub(crate) fn index_corpus(
+    store: &Arc<Store>,
+    embedder: Arc<dyn Embedder>,
+    corpus: &Path,
+) -> Result<usize> {
     let in_corpus = |err: std::io::Error| {
         OragError::Io(std::io::Error::new(
             err.kind(),
@@ -155,7 +161,7 @@ fn index_corpus(store: &Arc<Store>, embedder: Arc<dyn Embedder>, corpus: &Path) 
     files.sort();
     if files.is_empty() {
         return Err(OragError::InvalidInput(format!(
-            "corpus {} has no .md, .markdown or .txt files",
+            "corpus {} has no .md, .markdown, .txt, .pdf or .docx files",
             corpus.display()
         )));
     }
@@ -427,7 +433,7 @@ mod tests {
     fn corpus_problems_are_errors_not_zero_scores() {
         let q = [query("q", "a.md", "14 gün")];
         let empty = corpus(&[]);
-        assert!(eval_err(empty.path(), &q).contains("no .md, .markdown or .txt"));
+        assert!(eval_err(empty.path(), &q).contains("no .md, .markdown, .txt, .pdf or .docx"));
         let twins = corpus(&[("a.md", DOC), ("b.md", DOC)]);
         let err = eval_err(twins.path(), &q);
         assert!(err.contains("a.md") && err.contains("b.md"), "{err}");
@@ -463,7 +469,9 @@ mod tests {
         assert_eq!(report.corpus_documents, 1);
         let only_hidden = corpus(&[(".a.md", DOC)]);
         let q = [query("q", ".a.md", "14 gün")];
-        assert!(eval_err(only_hidden.path(), &q).contains("no .md, .markdown or .txt"));
+        assert!(
+            eval_err(only_hidden.path(), &q).contains("no .md, .markdown, .txt, .pdf or .docx")
+        );
         // A label naming a hidden file says why it is not a corpus document.
         let labelled = corpus(&[("a.md", DOC), (".faq.md", DOC)]);
         assert!(eval_err(labelled.path(), &q).contains("hidden files are ignored"));

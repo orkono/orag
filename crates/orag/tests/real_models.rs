@@ -234,6 +234,7 @@ fn answer(question: &str) -> AnswerSummary {
     let engine = AnswerEngine {
         retriever,
         generator: Arc::new(generator()) as Arc<dyn Generator>,
+        sampler: orag::retrieval::answer::ANSWER_SAMPLER,
     };
     let mut summary = None;
     engine

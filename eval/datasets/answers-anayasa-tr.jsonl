@@ -1,0 +1,10 @@
+{"id": "a-01", "lang": "tr", "query": "Türkiye Büyük Millet Meclisi kaç milletvekilinden oluşur?", "expect": ["600|altıyüz|altı yüz"], "answerable": true}
+{"id": "a-02", "lang": "tr", "query": "Cumhurbaşkanının görev süresi kaç yıldır ve kaç kez seçilebilir?", "expect": ["beş yıl|5 yıl", "iki defa|iki kez|2 defa|2 kez|en fazla iki"], "answerable": true}
+{"id": "a-03", "lang": "tr", "query": "Milletvekili seçilebilmek için kaç yaşını doldurmak gerekir?", "expect": ["onsekiz|on sekiz|18"], "answerable": true}
+{"id": "a-04", "lang": "tr", "query": "Anayasa Mahkemesi kaç üyeden oluşur?", "expect": ["onbeş|on beş|15"], "answerable": true}
+{"id": "a-05", "lang": "tr", "query": "Cumhuriyetin nitelikleri nelerdir?", "expect": ["demokratik", "laik", "sosyal", "hukuk devleti"], "answerable": true}
+{"id": "a-06", "lang": "tr", "query": "Devletin dili, bayrağı, milli marşı ve başkenti nedir?", "expect": ["türkçe", "ay yıldızlı", "istiklal marşı", "ankara"], "answerable": true}
+{"id": "a-07", "lang": "tr", "query": "Anayasaya göre resmî dili nedir?", "expect": ["türkçe"], "answerable": true}
+{"id": "a-08", "lang": "tr", "query": "Yasama yetkisi kime aittir?", "expect": ["büyük millet meclisi|tbmm"], "answerable": true}
+{"id": "a-u1", "lang": "tr", "query": "Asgari ücret ne kadardır?", "expect": [], "answerable": false}
+{"id": "a-u2", "lang": "tr", "query": "Türkiye'nin nüfusu kaçtır?", "expect": [], "answerable": false}

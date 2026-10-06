@@ -1,0 +1,9 @@
+{"id": "c-01", "lang": "tr", "query": "Sanıklara hangi suçlar isnat edilmiş?", "expect": ["kasten yaralama", "öldürmeye teşebbüs"], "answerable": true}
+{"id": "c-02", "lang": "tr", "query": "Bozma gerekçeleri nelerdir?", "expect": ["230", "haksız tahrik", "53"], "answerable": true}
+{"id": "c-03", "lang": "tr", "query": "Karar hangi tarihte verildi?", "expect": ["02/02/2016|02.02.2016|2 şubat 2016"], "answerable": true}
+{"id": "c-04", "lang": "tr", "query": "Kararın sonucu nedir, onama mı bozma mı?", "expect": ["onan", "bozul"], "answerable": true}
+{"id": "c-05", "lang": "tr", "query": "Temyiz talebi reddedilen suçlar hangileridir?", "expect": ["mala zarar verme", "işyeri dokunulmazlığı"], "answerable": true}
+{"id": "c-06", "lang": "tr", "query": "Hangi mahkemenin kararı temyiz edilmiş?", "expect": ["6. Ağır Ceza|altıncı ağır ceza"], "answerable": true}
+{"id": "c-07", "lang": "tr", "query": "Hükmün açıklanmasının geri bırakılmasına dair kararlar neden incelenmedi?", "expect": ["itiraz"], "answerable": true}
+{"id": "c-u1", "lang": "tr", "query": "Sanıklara kaç yıl hapis cezası verildi?", "expect": [], "answerable": false}
+{"id": "c-u2", "lang": "tr", "query": "Sanık avukatlarının adları nelerdir?", "expect": [], "answerable": false}

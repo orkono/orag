@@ -83,6 +83,7 @@ impl AppState {
             engine: Arc::new(AnswerEngine {
                 retriever,
                 generator,
+                sampler: crate::retrieval::answer::ANSWER_SAMPLER,
             }),
             ingest_wake: Arc::new(Notify::new()),
             generation: Arc::new(Semaphore::new(1)),

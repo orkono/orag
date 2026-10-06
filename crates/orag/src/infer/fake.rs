@@ -235,6 +235,10 @@ impl Generator for FakeGenerator {
                 break;
             }
         }
+        stats.length_limited = !stats.cancelled
+            && output_budget > 0
+            && stats.completion_tokens == output_budget
+            && self.reply.split_inclusive(' ').nth(output_budget).is_some();
         Ok(stats)
     }
 }
@@ -242,7 +246,7 @@ impl Generator for FakeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infer::Role;
+    use crate::infer::{Role, SamplerProfile};
     use std::ops::ControlFlow;
 
     fn cosine(a: &[f32], b: &[f32]) -> f32 {
@@ -280,6 +284,7 @@ mod tests {
                 content: "q".into(),
             }],
             max_output_tokens: 10,
+            sampler: SamplerProfile::Greedy,
         };
         let stats = g
             .generate(&req, &mut |piece| {
@@ -299,6 +304,7 @@ mod tests {
         let req = GenerationRequest {
             messages: vec![],
             max_output_tokens: 10,
+            sampler: SamplerProfile::Greedy,
         };
         let mut seen = 0;
         let stats = g
@@ -321,6 +327,7 @@ mod tests {
         let req = GenerationRequest {
             messages: vec![],
             max_output_tokens: 2,
+            sampler: SamplerProfile::Greedy,
         };
         let mut out = String::new();
         let stats = g
@@ -361,6 +368,7 @@ mod tests {
         let req = GenerationRequest {
             messages: vec![long],
             max_output_tokens: 256,
+            sampler: SamplerProfile::Greedy,
         };
         assert!(
             g.generate(&req, &mut |_| ControlFlow::Continue(()))
@@ -374,6 +382,7 @@ mod tests {
         let req = GenerationRequest {
             messages: vec![],
             max_output_tokens: 256,
+            sampler: SamplerProfile::Greedy,
         };
         let stats = g
             .generate(&req, &mut |_| ControlFlow::Continue(()))

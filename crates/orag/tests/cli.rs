@@ -301,6 +301,41 @@ fn eval_retrieval_runs_on_seed_set() {
     );
 }
 
+#[test]
+fn eval_answers_compares_samplers_and_rejects_unknown_ones() {
+    let home = tempfile::tempdir().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let run = |sampler: &str| {
+        orag()
+            .env("ORAG_HOME", home.path())
+            .args(["eval", "answers", "--dev-fake-models", "--corpus"])
+            .arg(root.join("corpus/ceza"))
+            .arg("--dataset")
+            .arg(root.join("datasets/answers-ceza-tr.jsonl"))
+            .args(["--sampler", sampler])
+            .output()
+            .unwrap()
+    };
+    let out = run("greedy,qwen:7");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("| greedy |") && stdout.contains("| qwen:7 |"),
+        "{stdout}"
+    );
+    let bad = run("beam");
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("unknown sampler"));
+    assert!(
+        !home.path().join("orag.db").exists(),
+        "eval must not touch ORAG_HOME"
+    );
+}
+
 fn eval_seed(home: &Path, extra: &[&std::ffi::OsStr]) -> std::process::Output {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
     orag()

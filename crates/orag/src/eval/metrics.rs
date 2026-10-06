@@ -2,7 +2,7 @@
 
 use crate::eval::dataset::Relevant;
 
-fn squash(text: &str) -> String {
+pub(crate) fn squash(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

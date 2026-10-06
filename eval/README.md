@@ -42,7 +42,8 @@ the chunker changes.
 
 ## Corpus
 
-Files ending in `.md`, `.markdown` or `.txt` (any letter case) are indexed.
+Files ending in `.md`, `.markdown`, `.txt`, `.pdf` or `.docx` (any letter case)
+are indexed; PDF and DOCX go through the same parsers as `orag serve`.
 An empty corpus, a file that fails to index, or two files with identical
 content (they would be stored as one document) stop the run with the file name.
 Hidden files (names starting with `.`, such as the AppleDouble `._name`
@@ -90,3 +91,47 @@ to be reproduced freely.
 
 `ana-001` (`resmi dil`) is a known miss: the evidence says `resmî dili`, and
 lexical search has no stemming, so `dil` does not find `dili` (D-006).
+
+## Answer evaluation
+
+`orag eval answers` runs the whole answer path (retrieval, prompt, generation
+with the installed models) and scores what a user sees. It compares sampler
+profiles side by side and never touches `$ORAG_HOME/orag.db`.
+
+```bash
+orag eval answers --corpus eval/corpus/ceza --dataset eval/datasets/answers-ceza-tr.jsonl \
+  --sampler greedy,dry,presence,qwen:1 --out answers.json
+```
+
+Probe format (JSONL): `id`, `lang`, `query`, `answerable`, and for answerable
+probes `expect`: texts a complete answer contains, compared after lexical
+normalization (case, `İ`/`ı` and the circumflex do not matter). `|` separates
+alternatives (`600|altıyüz`).
+
+| column | meaning |
+|---|---|
+| coverage | mean share of `expect` texts found, over answerable probes |
+| complete | answerable probes with every `expect` text found |
+| refused answerable | answerable probes answered with the refusal sentence |
+| refused unanswerable | unanswerable probes answered with the refusal sentence (wanted) |
+| length stops | answers cut by `max_output_tokens` (`finish_reason: length`) |
+| repetition stops | answers stopped by the repeated-line guard (`finish_reason: repetition`) |
+| distinct lines | mean share of unique non-empty lines per answer |
+
+Refusals count only when the answer is exactly the refusal sentence; a
+paraphrased refusal is not counted (see `abstained` in `docs/api.md`).
+
+| corpus | dataset | probes |
+|---|---|---|
+| `eval/corpus/ceza` | `answers-ceza-tr.jsonl` | 7 answerable (3 lists), 2 unanswerable |
+| `eval/corpus/anayasa-pdf` | `answers-anayasa-tr.jsonl` | 8 answerable (2 lists), 2 unanswerable |
+
+Answer corpora are PDFs, parsed by the production parser (`pdf_oxide`): the
+copy loop this set was built for appeared only with that text, not with pypdf
+text of the same files. `tr-yargitay-1cd-2016-347.pdf` is a browser print of an
+anonymized decision of the Court of Cassation, 1st Criminal Chamber
+(2015/3839 E., 2016/347 K., 02/02/2016); `anayasa-pdf/tr-anayasa.pdf` is the
+TBMM PDF the retrieval corpus was extracted from.
+Article 31 of Law No. 5846 (FSEK) allows court decisions to be reproduced
+freely. Anonymization removed the names, so one phrase repeats many times:
+the text that made the 4B model loop.

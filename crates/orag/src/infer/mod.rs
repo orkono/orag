@@ -53,10 +53,53 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+/// How the next token is chosen. Penalties see generated tokens only: the
+/// prompt is never accepted into the sampler, so copying source terms is free.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SamplerProfile {
+    /// Argmax; deterministic.
+    #[default]
+    Greedy,
+    /// DRY (penalizes extending an n-gram already generated), then argmax;
+    /// deterministic.
+    Dry,
+    /// Presence penalty 1.5 over the last 256 tokens, then argmax; deterministic.
+    Presence,
+    /// Qwen's non-thinking preset: presence penalty 1.5, top-k 20, top-p 0.8,
+    /// temperature 0.7, seeded.
+    Qwen { seed: u32 },
+}
+
+impl SamplerProfile {
+    pub fn name(self) -> String {
+        match self {
+            SamplerProfile::Greedy => "greedy".into(),
+            SamplerProfile::Dry => "dry".into(),
+            SamplerProfile::Presence => "presence".into(),
+            SamplerProfile::Qwen { seed } => format!("qwen:{seed}"),
+        }
+    }
+
+    /// Parses `greedy`, `dry`, `presence`, `qwen` (seed 1) or `qwen:<seed>`.
+    pub fn parse(text: &str) -> Option<SamplerProfile> {
+        match text {
+            "greedy" => Some(SamplerProfile::Greedy),
+            "dry" => Some(SamplerProfile::Dry),
+            "presence" => Some(SamplerProfile::Presence),
+            "qwen" => Some(SamplerProfile::Qwen { seed: 1 }),
+            _ => text
+                .strip_prefix("qwen:")
+                .and_then(|seed| seed.parse().ok())
+                .map(|seed| SamplerProfile::Qwen { seed }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerationRequest {
     pub messages: Vec<ChatMessage>,
     pub max_output_tokens: usize,
+    pub sampler: SamplerProfile,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -64,6 +107,9 @@ pub struct GenerationStats {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub cancelled: bool,
+    /// Generation stopped because the output budget was spent, not at an
+    /// end-of-generation token.
+    pub length_limited: bool,
 }
 
 pub trait Generator: Send + Sync {
@@ -118,6 +164,25 @@ pub fn l2_normalize(v: &[f32]) -> Result<Vec<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sampler_profiles_parse_by_name() {
+        for profile in [
+            SamplerProfile::Greedy,
+            SamplerProfile::Dry,
+            SamplerProfile::Presence,
+            SamplerProfile::Qwen { seed: 7 },
+        ] {
+            assert_eq!(SamplerProfile::parse(&profile.name()), Some(profile));
+        }
+        assert_eq!(
+            SamplerProfile::parse("qwen"),
+            Some(SamplerProfile::Qwen { seed: 1 })
+        );
+        for bad in ["", "Greedy", "qwen:", "qwen:x", "beam"] {
+            assert_eq!(SamplerProfile::parse(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn large_components_do_not_overflow() {
