@@ -295,3 +295,33 @@ fn generator_rejects_a_context_far_beyond_its_training() {
             .unwrap();
     assert!(err.to_string().contains("trained context"), "{err}");
 }
+
+#[test]
+fn a_reused_sampler_gives_the_same_answer_again() {
+    let Some(gguf) = fixture() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let generator = tiny_generator(dir.path(), &gguf);
+    let run = |sampler: SamplerProfile| {
+        let mut text = String::new();
+        generator
+            .generate(
+                &GenerationRequest {
+                    sampler,
+                    ..request(24)
+                },
+                &mut |piece| {
+                    text.push_str(piece);
+                    ControlFlow::Continue(())
+                },
+            )
+            .unwrap();
+        text
+    };
+    // The worker keeps one sampler per profile; `reset` must clear its
+    // history (and reseed `dist`) so answers stay reproducible.
+    for sampler in [SamplerProfile::Dry, SamplerProfile::Qwen { seed: 5 }] {
+        let first = run(sampler);
+        let _ = run(SamplerProfile::Greedy);
+        assert_eq!(run(sampler), first, "{sampler:?}");
+    }
+}

@@ -5,6 +5,7 @@
 pub mod collections;
 pub mod documents;
 pub mod jobs;
+pub mod lexical;
 pub mod migrations;
 pub mod publish;
 pub mod search;
@@ -48,11 +49,19 @@ impl Store {
         let mut writer = open_connection(&path, false).map_err(in_database)?;
         check_ownership(&writer).map_err(in_database)?;
         let schema_version = migrations::migrate(&mut writer, &path).map_err(in_database)?;
-        Ok(Store {
-            path,
+        let store = Store {
+            path: path.clone(),
             writer: Mutex::new(writer),
             schema_version,
-        })
+        };
+        if let Some(chunks) = store.ensure_lexical_index().map_err(in_database)? {
+            tracing::info!(
+                chunks,
+                version = crate::domain::normalize::LEXICAL_VERSION,
+                "lexical index built"
+            );
+        }
+        Ok(store)
     }
 
     pub fn path(&self) -> &Path {

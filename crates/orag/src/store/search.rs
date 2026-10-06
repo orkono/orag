@@ -80,7 +80,7 @@ impl Store {
         let mut stmt = conn.prepare(
             "SELECT c.id FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid \
              WHERE chunks_fts MATCH ?1 AND c.collection_id = ?2 \
-             ORDER BY bm25(chunks_fts) LIMIT ?3",
+             ORDER BY bm25(chunks_fts), c.id LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![fts_query, collection_id, limit as i64], |r| {
             r.get(0)

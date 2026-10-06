@@ -55,7 +55,7 @@ pub struct ChatMessage {
 
 /// How the next token is chosen. Penalties see generated tokens only: the
 /// prompt is never accepted into the sampler, so copying source terms is free.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum SamplerProfile {
     /// Argmax; deterministic.
     #[default]

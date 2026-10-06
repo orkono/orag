@@ -86,7 +86,7 @@ Every error, including unknown routes, has the same shape:
 | 405 | `method_not_allowed` | The route exists, the method does not (`Allow` header lists methods) |
 | 408 | `upload_timeout` | The upload body did not arrive within 60 s |
 | 409 | `conflict` | E.g. deleting the default collection |
-| 409 | `reindex_required` | The collection was indexed in a different embedding space: another embedding model, or a release that changed the chunker or normalizer (see below) |
+| 409 | `reindex_required` | The collection was indexed in a different embedding space: another embedding model, or a release that changed the chunker (see below) |
 | 413 | `too_large` | Document over `max_document_mb`, or a request body over its limit |
 | 415 | `unsupported_format` | A document type ORAG does not support |
 | 415 | `unsupported_media_type` | A JSON route called without `Content-Type: application/json` |
@@ -108,8 +108,9 @@ v0.2. In v0.1:
    id in `config.toml` and restart. This works only if nothing else in the
    embedding space changed: the space fingerprint covers the model id and file
    checksum, pooling, query and document prefixes, dimensions, normalization,
-   token limit, the trailing-EOS rule, the chunker and normalizer versions and
-   the fingerprint encoding (D-009). A release that changes any of them says
+   token limit, the trailing-EOS rule, the chunker version and the fingerprint
+   encoding (D-009). A change of the lexical search (normalizer, indexed text)
+   is not part of it: ORAG rebuilds the full-text index at startup instead. A release that changes any of them says
    so in an **Upgrade note** in `CHANGELOG.md`; then pinning is not enough.
 2. **Otherwise re-upload.** A collection with no documents follows the
    current embedding model again. Either delete every document in the

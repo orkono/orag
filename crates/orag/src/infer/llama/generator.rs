@@ -1,6 +1,6 @@
 //! Text generation on a dedicated worker thread with streaming and cancellation.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -337,8 +337,15 @@ fn generation_worker(
         }
     };
     let _ = ready.send(Ok(()));
+    // Built once per profile: DRY scans the whole vocabulary when it is made.
+    // `reset` clears a sampler's history (and reseeds `dist`) between answers.
+    let mut samplers: HashMap<SamplerProfile, LlamaSampler> = HashMap::new();
     for job in jobs {
-        let event = match run_generation(model, &mut ctx, &job) {
+        let sampler = samplers
+            .entry(job.sampler)
+            .or_insert_with(|| build_sampler(model, job.sampler));
+        sampler.reset();
+        let event = match run_generation(model, &mut ctx, &job, sampler) {
             Ok(stats) => GenEvent::Done(stats),
             Err(err) => GenEvent::Failed(err),
         };
@@ -350,6 +357,7 @@ fn run_generation(
     model: &LlamaModel,
     ctx: &mut LlamaContext<'_>,
     job: &GenJob,
+    sampler: &mut LlamaSampler,
 ) -> Result<GenerationStats> {
     ctx.clear_kv_cache();
     let total = job.prompt.len();
@@ -364,7 +372,6 @@ fn run_generation(
         }
         ctx.decode(&mut batch).map_err(model_error)?;
     }
-    let mut sampler = build_sampler(model, job.sampler);
     let mut utf8 = Utf8Accumulator::default();
     let mut stats = GenerationStats {
         prompt_tokens: total,
@@ -392,16 +399,21 @@ fn run_generation(
                 break;
             }
         }
+        let spent = stats.completion_tokens == job.max_output;
+        if spent && job.cancel.load(Ordering::SeqCst) {
+            break; // cancelled on the last token: not cut, and no decode needed
+        }
         batch.clear();
         batch
             .add(token, position as i32, &[0], true)
             .map_err(model_error)?;
         position += 1;
         ctx.decode(&mut batch).map_err(model_error)?;
-        if stats.completion_tokens == job.max_output {
-            // The budget is spent. One more sample tells an answer cut here
-            // from one that would have ended at this point anyway.
-            let next = sampler.sample(ctx, batch.n_tokens() - 1);
+        if spent {
+            // The most likely next token tells an answer cut here from one that
+            // would have ended anyway (argmax, so a random sampler cannot make
+            // it a coin toss).
+            let next = LlamaSampler::greedy().sample(ctx, batch.n_tokens() - 1);
             stats.length_limited = !model.vocab().is_eog(next);
             break;
         }

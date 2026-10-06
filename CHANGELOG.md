@@ -5,6 +5,16 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.3] - 2026-10-06
+
+- The full-text (lexical) index is versioned separately from the embedding space. Schema 2 adds a `meta` table that records the lexical version; when it differs, `Store::open` rebuilds the FTS index from the stored chunks in one transaction (logged as `lexical index built`). A lexical change (normalizer, indexed text) no longer causes `409 reindex_required` or re-embedding.
+- Embedding-space fingerprint encoding 2 no longer hashes the normalizer version. Spaces stored with an encoding-1 fingerprint of the same model and chunker (0.1.x, 0.2.0-alpha.1/2) are still accepted, so their vectors keep serving; fingerprints are not rewritten.
+- Each chunk's FTS text is now the full heading path plus the body, both stored in `chunks` (before: the embedder's trimmed breadcrumb, which is not stored and could not be rebuilt). Lexical version 3.
+- Lexical ranking breaks BM25 ties by chunk id, so the promoted lexical leader is deterministic.
+- Fixes to 0.2.0-alpha.2 from its review: `orag eval answers` defaults to the served sampler (`dry`), not `greedy`; expected texts match on word boundaries (`600` is not found in `1600`); a probe set without answerable probes is an error; the samplers are built once per profile and reset between answers (DRY scans the vocabulary when built); the `length` check after the budget uses argmax and is skipped for a cancelled answer; the answer-engine tests moved to `retrieval/answer/tests.rs`.
+- The startup lexical rebuild waits for another process's write lock like a migration (up to 300 s) instead of failing after the 5 s busy timeout.
+- **Upgrade note:** schema 2 is applied at first start (with the usual automatic backup); the FTS index is then rebuilt once. Collections that 0.2.0-alpha.1/2 answered with `409 reindex_required` after the normalizer change serve again without re-uploading; checked on a copy of a 372-chunk database from 0.2.0-alpha.1. Older binaries refuse schema 2.
+
 ## [0.2.0-alpha.2] - 2026-10-06
 
 - Answers end with a `finish_reason` (`stop`, `length`, `repetition`) in the JSON response and the SSE `done` event, so a client can tell a cut answer from a complete one; `docs/api.md` also states that `abstained` needs the exact refusal sentence.

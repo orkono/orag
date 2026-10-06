@@ -130,7 +130,10 @@ ends an answer that writes the same line (list numbers and markers ignored)
 three times in a row; `finish_reason` (`stop`, `length`, `repetition`) tells clients
 whether an answer is complete. Chosen with `orag eval answers` over the
 production PDF parser (`.docs/benchmarks/2026-10-06-answer-sampler.md`);
-Qwen's sampling preset varied by seed and gave no gain. The leader-promotion
+Qwen's sampling preset varied by seed and gave no gain. Known limit of the
+guard: list numbers are ignored, so three lines in a row that differ only by
+a leading number that is content (`1. Ceza Dairesi`, `2. Ceza Dairesi`, ...)
+with the same rest are taken for a loop. The leader-promotion
 MRR above (0.825) is promotion alone; with the circumflex fold it is 0.833.
 
 **Decision models.** Jev is excluded: only hosted access was verified, no
@@ -182,13 +185,23 @@ tokenizer, so the query side never mirrors SQLite's character tables. Only the
 first 4096 characters of a query are used (a term cut there is dropped), at
 most 32 terms. The Unicode tables behind the normalizer (`unicode-normalization`,
 pinned with `=`, and the toolchain's std) are part of it: bumping them bumps
-`NORMALIZER_VERSION`. `tests/lexical_fts5.rs` checks the contract against a
+`LEXICAL_VERSION`. `tests/lexical_fts5.rs` checks the contract against a
 real FTS5 table.
 
 **Known limit.** `unicode61` does not segment scripts written without spaces
 (CJK, Thai): a run is one token, so lexical search only finds the whole run,
 not a word inside it. Dense retrieval still covers these texts; a segmenting
 or trigram tokenizer is a later, evaluation-driven decision.
+
+**Lexical version (0.2.0-alpha.3).** The FTS index is derived data. Each
+chunk's FTS text is `chunker::lexical_text`: the full heading path and the body,
+both stored in `chunks` (not the embedder's trimmed breadcrumb, which is not
+stored). `LEXICAL_VERSION` covers that text and this normalizer; the database
+records the version it was built with (`meta.lexical_version`, schema 2), and
+`Store::open` rebuilds the index from `chunks` in one transaction when it
+differs: no 409, no re-embedding. Versions: 1 (0.1.x), 2 (circumflex fold), 3
+(full heading path). A current index is checked without the write lock. Lexical
+ties order by chunk id, so leader promotion (D-005) is deterministic.
 
 **Deferred.** Stemming and an accent-folded secondary field are added only if
 the evaluation set (which includes accentless-typing queries) shows a gain.
@@ -254,7 +267,7 @@ beyond job status.
 **Decision.** Each collection is bound to one embedding space whose
 fingerprint is SHA-256 over: model id, model file SHA-256, pooling, query prefix,
 document prefix, dimension, normalization flag, maximum input tokens,
-trailing-EOS rule, chunker version, normalizer version and the encoding version. Vectors from different spaces are never mixed. If the
+trailing-EOS rule, chunker version and the encoding version. Vectors from different spaces are never mixed. If the
 configured embedder's fingerprint differs from a collection's space, queries
 and ingestion into that collection fail with `409 reindex_required`;
 uploads are checked before they are accepted (and again by the worker).
@@ -262,6 +275,18 @@ Re-indexing (build new space, switch atomically) is v0.2 scope.
 The fingerprint uses a hand-written, length-prefixed, fixed-order encoding
 with a golden test, so no dependency feature (such as serde_json
 `preserve_order`) can silently change it.
+
+**Encoding 2 (0.2.0-alpha.3).** Encoding 1 also hashed the lexical normalizer
+version, which never reaches the embedder, so the circumflex fold of
+0.2.0-alpha.1 sent every collection to `409 reindex_required` although its
+vectors were valid. Encoding 2 drops it; the lexical index has its own version
+(D-006). A space stored with an encoding-1 fingerprint is still accepted when
+that fingerprint is exactly this descriptor and chunker with normalizer 1 or 2
+(`SpaceDescriptor::accepts`), checked on query and ingestion. Stored
+fingerprints are not rewritten: two rows of the same model could otherwise
+collide on `UNIQUE`. A new collection binds a new encoding-2 space; existing
+spaces and vector tables stay as they are, so one model can then have two
+space rows and vec0 tables (compatible vectors, never mixed).
 
 ## D-010 — Supported formats: TXT, Markdown, DOCX, PDF (owner decision, 2026-10-01)
 

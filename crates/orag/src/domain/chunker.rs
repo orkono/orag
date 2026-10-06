@@ -73,6 +73,13 @@ pub fn compose_embedding_text(breadcrumb: &str, body: &str) -> String {
     }
 }
 
+/// Text the FTS index holds for a chunk, rebuildable from what is stored: the
+/// full heading path (not the embedder's trimmed breadcrumb) and the body.
+/// Changing it is a lexical change (`LEXICAL_VERSION`).
+pub fn lexical_text(heading_path: &[String], body: &str) -> String {
+    compose_embedding_text(&heading_path.join(" > "), body)
+}
+
 impl ChunkDraft {
     /// Text given to the embedder; `token_count` measures exactly this string.
     /// The stored/cited text is `self.text`.
