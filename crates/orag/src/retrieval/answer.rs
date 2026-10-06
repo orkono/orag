@@ -10,12 +10,16 @@ use crate::domain::CollectionId;
 use crate::domain::citations::extract_citations;
 use crate::domain::normalize::{lexical_terms, normalize_for_lexical};
 use crate::error::{OragError, Result};
-use crate::infer::{ChatMessage, GenerationRequest, Generator, Role};
+use crate::infer::{ChatMessage, GenerationRequest, Generator, Role, SamplerProfile};
 use crate::retrieval::hybrid::{Candidate, RetrievalTrace, Retriever, Strategy};
+use crate::retrieval::repetition::LineRepeatGuard;
 
 pub const REFUSAL_EN: &str = "I could not find this in the documents.";
 pub const REFUSAL_TR: &str = "Bu bilgi belgelerde bulunamadı.";
 pub const MAX_QUESTION_CHARS: usize = 2000;
+/// Sampler of the served answers, chosen with `orag eval answers` (D-005):
+/// deterministic like greedy, but it stops the copy loops greedy fell into.
+pub const ANSWER_SAMPLER: SamplerProfile = SamplerProfile::Dry;
 const EXCERPT_CHARS: usize = 280;
 /// Compared with `lexical_terms` output (ı folded to i). Short words shared
 /// with other languages ("mi", "mu", "ne") are left out.
@@ -62,7 +66,20 @@ pub struct AnswerSummary {
     pub citations: Vec<usize>,
     pub invalid_citations: Vec<usize>,
     pub abstained: bool,
+    pub finish_reason: FinishReason,
     pub trace: QueryTrace,
+}
+
+/// Why the answer ended. `length` and `repetition` mean it is incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FinishReason {
+    /// The model ended the answer (or ORAG abstained without calling it).
+    Stop,
+    /// The output budget (`max_output_tokens`) ran out.
+    Length,
+    /// The same line kept coming back; generation was stopped (`MAX_LINE_REPEATS`).
+    Repetition,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +92,7 @@ pub enum AnswerEvent {
 pub struct AnswerEngine {
     pub retriever: Retriever,
     pub generator: Arc<dyn Generator>,
+    pub sampler: SamplerProfile,
 }
 
 impl AnswerEngine {
@@ -136,20 +154,28 @@ impl AnswerEngine {
         let request = GenerationRequest {
             messages: build_messages(question, refusal, context),
             max_output_tokens: self.generator.max_output_tokens(),
+            sampler: self.sampler,
         };
         let started = Instant::now();
         let mut answer = String::new();
         let mut stopped = false;
+        let mut guard = LineRepeatGuard::default();
+        let mut looped = false;
         let stats = self
             .generator
             .generate(&request, &mut |piece| {
                 answer.push_str(piece);
                 let flow = emit(AnswerEvent::Token(piece.to_string()));
                 stopped |= flow.is_break();
+                if flow.is_continue() && guard.push(piece) {
+                    looped = true;
+                    return ControlFlow::Break(());
+                }
                 flow
             })
             .map_err(generator_failure)?;
-        if stopped || stats.cancelled {
+        // The guard's own Break also reports `cancelled`; only the consumer's is final.
+        if stopped || (stats.cancelled && !looped) {
             // The consumer stopped the answer (disconnect, shutdown): a Break is final,
             // so no Done follows, whatever the generator reports.
             return Ok(());
@@ -158,11 +184,19 @@ impl AnswerEngine {
         trace.completion_tokens = stats.completion_tokens;
         trace.generation_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let citations = extract_citations(&answer, context.len());
+        let finish_reason = if looped {
+            FinishReason::Repetition
+        } else if stats.length_limited {
+            FinishReason::Length
+        } else {
+            FinishReason::Stop
+        };
         let summary = AnswerSummary {
             abstained: is_refusal(&answer),
             answer: answer.trim().to_string(),
             citations: citations.valid,
             invalid_citations: citations.invalid,
+            finish_reason,
             trace,
         };
         let _ = emit(AnswerEvent::Done(Box::new(summary)));
@@ -233,6 +267,7 @@ fn abstain(
         citations: Vec::new(),
         invalid_citations: Vec::new(),
         abstained: true,
+        finish_reason: FinishReason::Stop,
         trace,
     };
     let _ = emit(AnswerEvent::Done(Box::new(summary)));
@@ -370,6 +405,7 @@ mod tests {
 
     use super::*;
     use crate::infer::fake::{FakeEmbedder, FakeGenerator};
+    use crate::retrieval::repetition::MAX_LINE_REPEATS;
     use crate::retrieval::testing::indexed;
 
     const DOC: &str = "# Kargo ve İade\n\n## İade\n\nÜrünler 14 gün içinde iade edilebilir.";
@@ -385,6 +421,7 @@ mod tests {
             AnswerEngine {
                 retriever,
                 generator: generator.clone(),
+                sampler: SamplerProfile::Greedy,
             },
             generator,
         )
@@ -434,6 +471,55 @@ mod tests {
         assert_eq!(s.trace.retrieval.strategy, "hybrid");
         assert_eq!(s.trace.context_chunks, 1);
         assert_eq!(s.trace.generator, "fake-generator");
+    }
+
+    #[test]
+    fn a_normal_answer_finishes_with_stop() {
+        let (_dir, engine, _) = engine(FakeGenerator::new("14 gün [1]."), &[("k.md", DOC)]);
+        let events = collect(&engine, "İade süresi kaç gün?");
+        assert_eq!(summary(&events).finish_reason, FinishReason::Stop);
+    }
+
+    #[test]
+    fn an_answer_cut_by_the_output_budget_finishes_with_length() {
+        let (_dir, engine, _) = engine(
+            FakeGenerator::new("bir iki üç dört beş altı yedi").with_context(4096, 3),
+            &[("k.md", DOC)],
+        );
+        let events = collect(&engine, "İade süresi kaç gün?");
+        let s = summary(&events);
+        assert_eq!(s.finish_reason, FinishReason::Length);
+        assert_eq!(s.answer, "bir iki üç");
+    }
+
+    #[test]
+    fn a_looping_answer_is_stopped_and_still_summarized() {
+        let line = "* Ürünler 14 gün içinde iade edilir [1]\n";
+        let reply = format!("İade kuralları:\n{}", line.repeat(20));
+        let (_dir, engine, generator) = engine(FakeGenerator::new(&reply), &[("k.md", DOC)]);
+        let events = collect(&engine, "İade süresi kaç gün?");
+        let s = summary(&events);
+        assert_eq!(s.finish_reason, FinishReason::Repetition);
+        assert_eq!(s.answer.matches("iade edilir").count(), MAX_LINE_REPEATS);
+        assert_eq!(s.citations, vec![1]);
+        assert!(generator.emitted_tokens() < reply.split_inclusive(' ').count());
+    }
+
+    #[test]
+    fn the_engine_passes_its_sampler_to_the_generator() {
+        let (dir, retriever) = indexed(FakeEmbedder::new(), &[("k.md", DOC)]);
+        let generator = Arc::new(FakeGenerator::new("14 gün [1]."));
+        let engine = AnswerEngine {
+            retriever,
+            generator: generator.clone(),
+            sampler: SamplerProfile::Dry,
+        };
+        collect(&engine, "İade süresi kaç gün?");
+        assert_eq!(
+            generator.last_request().unwrap().sampler,
+            SamplerProfile::Dry
+        );
+        drop(dir);
     }
 
     #[test]
@@ -751,6 +837,7 @@ mod tests {
         let engine = AnswerEngine {
             retriever,
             generator: Arc::new(Undercounting(FakeGenerator::new("x").with_context(40, 20))),
+            sampler: SamplerProfile::Greedy,
         };
         let err = engine
             .answer(1, "iade", &mut |_| ControlFlow::Continue(()))

@@ -198,7 +198,7 @@ pub(crate) fn load_embedder(config: &Config) -> anyhow::Result<Arc<dyn Embedder>
 }
 
 #[cfg(feature = "llama")]
-fn load_generator(config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
+pub(crate) fn load_generator(config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
     use crate::infer::llama::generator::LlamaGenerator;
     use crate::infer::models::{ModelRole, find_model};
     let installed = find_model(
@@ -218,7 +218,7 @@ pub(crate) fn load_embedder(_config: &Config) -> anyhow::Result<Arc<dyn Embedder
 }
 
 #[cfg(not(feature = "llama"))]
-fn load_generator(_config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
+pub(crate) fn load_generator(_config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
     no_backend()
 }
 

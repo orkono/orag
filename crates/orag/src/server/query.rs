@@ -19,7 +19,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::retrieval::answer::{
-    AnswerEvent, AnswerSummary, QueryTrace, SourceRef, validate_question,
+    AnswerEvent, AnswerSummary, FinishReason, QueryTrace, SourceRef, validate_question,
 };
 use crate::server::errors::{ApiError, ApiPath, ApiResult};
 use crate::server::{AppState, blocking};
@@ -58,6 +58,7 @@ pub struct QueryResponse {
     pub citations: Vec<usize>,
     pub invalid_citations: Vec<usize>,
     pub abstained: bool,
+    pub finish_reason: FinishReason,
     pub trace: QueryTrace,
 }
 
@@ -145,6 +146,7 @@ async fn collect_answer(
             citations: summary.citations,
             invalid_citations: summary.invalid_citations,
             abstained: summary.abstained,
+            finish_reason: summary.finish_reason,
             trace: summary.trace,
         }))
     })

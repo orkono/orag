@@ -2,6 +2,7 @@
 
 pub mod answer;
 pub mod hybrid;
+pub mod repetition;
 
 #[cfg(test)]
 pub(crate) mod testing {

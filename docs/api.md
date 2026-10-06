@@ -266,13 +266,25 @@ curl -s -H 'Content-Type: application/json' \
   {"number":1,"chunk_id":2,"document_id":2,"title":"sample-tr.pdf","filename":"sample-tr.pdf","heading_path":[],"ordinal":0,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. Iğdır,\n\nşık, çay, öğün.","rank_score":0.03278688524590164,"lexical_rank":1,"dense_rank":1},
   {"number":2,"chunk_id":3,"document_id":3,"title":"İade","filename":"iade.md","heading_path":["İade"],"ordinal":0,"excerpt":"14 gün içinde iade.","rank_score":0.03225806451612903,"lexical_rank":2,"dense_rank":2},
   {"number":3,"chunk_id":1,"document_id":1,"title":"Kargo Politikası","filename":"sample.docx","heading_path":["Kargo Politikası","İade Koşulları"],"ordinal":0,"excerpt":"Ürünler 14 gün içinde iade edilebilir. …","rank_score":0.031746031746031744,"lexical_rank":3,"dense_rank":3}],
- "citations":[1],"invalid_citations":[],"abstained":false,
+ "citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop",
  "trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"70777cf0d7009b54666ab2d56df5749478927fb932a35f8b58b98a31172c8a7f"},
   "context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
 `citations` are the source numbers the answer cites; `invalid_citations` are
 numbers it cited that no source has. `trace` shows how the answer was made.
+
+`finish_reason` says why the answer ended:
+
+| value | meaning |
+|---|---|
+| `stop` | the model finished the answer (or ORAG abstained without asking it) |
+| `length` | the output budget (`max_output_tokens` of the model pack) ran out before the answer ended; it is cut off |
+| `repetition` | the model wrote the same line three times in a row and generation was stopped; the answer is incomplete |
+
+`abstained` is `true` only when the answer is exactly the refusal sentence
+(`Bu bilgi belgelerde bulunamadı.` / `I could not find this in the
+documents.`); a refusal in other words keeps it `false`.
 
 #### Streaming (`"stream": true`)
 
@@ -281,8 +293,8 @@ The response is `text/event-stream`. Events, in order:
 1. `sources` (once): `{"sources":[...]}`, the same objects as above;
 2. `token` (zero or more): `{"text":"..."}`;
 3. `done` (once): the answer without the sources, which already came in the
-   `sources` event: `answer`, `citations`, `invalid_citations`, `abstained`
-   and `trace`, as in the non-streaming response.
+   `sources` event: `answer`, `citations`, `invalid_citations`, `abstained`,
+   `finish_reason` and `trace`, as in the non-streaming response.
 
 If something fails, the stream ends with one `error` event instead of `done`.
 Its data has the same shape as an error response:
@@ -310,7 +322,7 @@ data: {"text":"is "}
 …
 
 event: done
-data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"abstained":false,"trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"70777cf0d7009b54666ab2d56df5749478927fb932a35f8b58b98a31172c8a7f"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
+data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop","trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"70777cf0d7009b54666ab2d56df5749478927fb932a35f8b58b98a31172c8a7f"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
 Errors before streaming starts (unknown collection, invalid query,

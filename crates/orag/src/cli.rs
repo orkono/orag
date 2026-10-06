@@ -79,6 +79,23 @@ pub enum EvalCommand {
         #[arg(long, hide = true, default_value_t = crate::eval::vector_scale::TARGET_P95_MS)]
         target_p95_ms: f64,
     },
+    /// Answer labeled questions end to end and score what users see
+    /// (expected facts, refusals, loops, cut answers) per sampler.
+    Answers {
+        #[arg(long)]
+        corpus: std::path::PathBuf,
+        #[arg(long)]
+        dataset: std::path::PathBuf,
+        /// Also write the report, with every answer, as JSON.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Sampler profiles to compare (comma-separated): greedy, dry,
+        /// presence, qwen, qwen:<seed>.
+        #[arg(long, value_delimiter = ',', default_value = "greedy")]
+        sampler: Vec<String>,
+        #[arg(long, hide = true)]
+        dev_fake_models: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -152,6 +169,16 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             };
             run_eval_vector_scale(&cfg, work_dir.as_deref())
         }
+        Command::Eval {
+            command:
+                EvalCommand::Answers {
+                    corpus,
+                    dataset,
+                    out,
+                    sampler,
+                    dev_fake_models,
+                },
+        } => run_eval_answers(&corpus, &dataset, out.as_deref(), &sampler, dev_fake_models),
         Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
             &format,
             crate::ingest::parse::parse_in_process,
@@ -308,6 +335,67 @@ impl EvalGates {
         }
         Ok(())
     }
+}
+
+fn run_eval_answers(
+    corpus: &std::path::Path,
+    dataset: &std::path::Path,
+    out: Option<&std::path::Path>,
+    samplers: &[String],
+    dev_fake_models: bool,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let profiles = samplers
+        .iter()
+        .map(|name| {
+            crate::infer::SamplerProfile::parse(name).with_context(|| {
+                format!("unknown sampler {name:?} (greedy, dry, presence, qwen, qwen:<seed>)")
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let probes = crate::eval::answers::load_probes(dataset)
+        .with_context(|| format!("dataset {}", dataset.display()))?;
+    if let Some(path) = out
+        && path.exists()
+    {
+        anyhow::bail!("{} already exists; choose a new --out file", path.display());
+    }
+    let (embedder, generator): (
+        std::sync::Arc<dyn crate::infer::Embedder>,
+        std::sync::Arc<dyn crate::infer::Generator>,
+    ) = if dev_fake_models {
+        (
+            std::sync::Arc::new(crate::infer::fake::FakeEmbedder::new()),
+            std::sync::Arc::new(crate::infer::fake::FakeGenerator::new("fake answer")),
+        )
+    } else {
+        let config = load_config()?;
+        (
+            crate::app::load_embedder(&config)?,
+            crate::app::load_generator(&config)?,
+        )
+    };
+    let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
+    let report = crate::eval::answers::run_answer_eval(
+        embedder,
+        generator,
+        corpus,
+        &probes,
+        &profiles,
+        work.path(),
+    )?;
+    print_stdout(report.to_markdown().trim_end())?;
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report)?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .with_context(|| format!("writing {}", path.display()))?;
+        file.write_all(json.as_bytes())
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Runs the D-003 benchmark in a fresh directory (removed afterwards) and

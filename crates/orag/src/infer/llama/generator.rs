@@ -25,13 +25,16 @@ use crate::infer::prompt::{
     native_segments, transcript_segments,
 };
 use crate::infer::stream::{ThinkFilter, Utf8Accumulator};
-use crate::infer::{ChatMessage, GenerationRequest, GenerationStats, Generator, Role};
+use crate::infer::{
+    ChatMessage, GenerationRequest, GenerationStats, Generator, Role, SamplerProfile,
+};
 
 const PROMPT_BATCH: usize = 512;
 
 struct GenJob {
     prompt: Vec<LlamaToken>,
     max_output: usize,
+    sampler: SamplerProfile,
     events: SyncSender<GenEvent>,
     cancel: Arc<AtomicBool>,
 }
@@ -269,6 +272,7 @@ impl Generator for LlamaGenerator {
             .send(GenJob {
                 prompt,
                 max_output,
+                sampler: request.sampler,
                 events,
                 cancel: Arc::clone(&cancel),
             })
@@ -360,7 +364,7 @@ fn run_generation(
         }
         ctx.decode(&mut batch).map_err(model_error)?;
     }
-    let mut sampler = LlamaSampler::greedy();
+    let mut sampler = build_sampler(model, job.sampler);
     let mut utf8 = Utf8Accumulator::default();
     let mut stats = GenerationStats {
         prompt_tokens: total,
@@ -388,22 +392,67 @@ fn run_generation(
                 break;
             }
         }
-        if stats.completion_tokens == job.max_output {
-            // The budget is spent: decoding this token would only compute unused logits.
-            break;
-        }
         batch.clear();
         batch
             .add(token, position as i32, &[0], true)
             .map_err(model_error)?;
         position += 1;
         ctx.decode(&mut batch).map_err(model_error)?;
+        if stats.completion_tokens == job.max_output {
+            // The budget is spent. One more sample tells an answer cut here
+            // from one that would have ended at this point anyway.
+            let next = sampler.sample(ctx, batch.n_tokens() - 1);
+            stats.length_limited = !model.vocab().is_eog(next);
+            break;
+        }
     }
     let tail = utf8.finish();
     if !tail.is_empty() {
         let _ = job.events.send(GenEvent::Piece(tail));
     }
     Ok(stats)
+}
+
+/// DRY settings are llama.cpp's documented defaults; the breakers keep a
+/// repeated line break or list marker from counting as a repeated phrase.
+const DRY_MULTIPLIER: f32 = 0.8;
+const DRY_BASE: f32 = 1.75;
+const DRY_ALLOWED_LENGTH: i32 = 2;
+const DRY_BREAKERS: [&str; 4] = ["\n", ":", "\"", "*"];
+/// Qwen3.5 non-thinking preset (model card, "Best Practices").
+const PENALTY_LAST_N: i32 = 256;
+const PRESENCE_PENALTY: f32 = 1.5;
+const QWEN_TOP_K: i32 = 20;
+const QWEN_TOP_P: f32 = 0.8;
+const QWEN_TEMPERATURE: f32 = 0.7;
+
+fn build_sampler(model: &LlamaModel, profile: SamplerProfile) -> LlamaSampler {
+    let presence =
+        || LlamaSampler::penalties(model.n_vocab(), PENALTY_LAST_N, 1.0, 0.0, PRESENCE_PENALTY);
+    match profile {
+        SamplerProfile::Greedy => LlamaSampler::greedy(),
+        SamplerProfile::Dry => LlamaSampler::chain_simple([
+            LlamaSampler::dry(
+                model,
+                DRY_MULTIPLIER,
+                DRY_BASE,
+                DRY_ALLOWED_LENGTH,
+                PENALTY_LAST_N,
+                DRY_BREAKERS,
+            ),
+            LlamaSampler::greedy(),
+        ]),
+        SamplerProfile::Presence => {
+            LlamaSampler::chain_simple([presence(), LlamaSampler::greedy()])
+        }
+        SamplerProfile::Qwen { seed } => LlamaSampler::chain_simple([
+            presence(),
+            LlamaSampler::top_k(QWEN_TOP_K),
+            LlamaSampler::top_p(QWEN_TOP_P, 1),
+            LlamaSampler::temp(QWEN_TEMPERATURE),
+            LlamaSampler::dist(seed),
+        ]),
+    }
 }
 
 /// llama.cpp can stretch a model's trained context with RoPE scaling (YaRN

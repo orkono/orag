@@ -122,6 +122,17 @@ insufficient. If retrieval found chunks but none fits the
 generator's context window, that is a capacity error, not "not found". No cosine-threshold rejection (a strong lexical match can have a
 weak dense score, so thresholding defeats hybrid retrieval).
 
+**Generation (0.2.0-alpha.2).** Answers are sampled with DRY (multiplier 0.8,
+base 1.75, allowed length 2, last 256 tokens) in front of argmax:
+deterministic, and it stops the copy loops greedy decoding fell into on
+repetitive source text (an anonymized court decision). A repeated-line guard
+ends an answer that writes the same line (list numbers and markers ignored)
+three times in a row; `finish_reason` (`stop`, `length`, `repetition`) tells clients
+whether an answer is complete. Chosen with `orag eval answers` over the
+production PDF parser (`.docs/benchmarks/2026-10-06-answer-sampler.md`);
+Qwen's sampling preset varied by seed and gave no gain. The leader-promotion
+MRR above (0.825) is promotion alone; with the circumflex fold it is 0.833.
+
 **Decision models.** Jev is excluded: only hosted access was verified, no
 downloadable weights. Nimble is deferred: it is 9B with Python MLX/PyTorch
 tooling, not a cheap laptop router. Small decision/classifier models are

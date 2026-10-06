@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.2] - 2026-10-06
+
+- Answers end with a `finish_reason` (`stop`, `length`, `repetition`) in the JSON response and the SSE `done` event, so a client can tell a cut answer from a complete one; `docs/api.md` also states that `abstained` needs the exact refusal sentence.
+- Repeated-line guard: an answer that writes the same line (list numbers and markers ignored, at least 12 characters) three times in a row is stopped with `finish_reason: repetition`. On an anonymized court decision the 4B model used to repeat one bullet until the 1024-token cap. A line that recurs between other lines (the same finding under several defendants, a table separator) never trips it. `length` is reported only when the answer would have gone on.
+- Answers are sampled with DRY in front of argmax instead of plain greedy: still deterministic, no copy loops. Chosen with the new answer evaluation: on the court decision greedy covered 0.857 of the expected facts and looped once, DRY 1.000 without loops; on the constitution all profiles covered 1.000 (`.docs/benchmarks/2026-10-06-answer-sampler.md`).
+- `orag eval answers --corpus DIR --dataset FILE --sampler greedy,dry,presence,qwen[:seed]`: runs the full answer path per sampler profile and reports expected-fact coverage, refusals, length and repetition stops, distinct-line ratio and latency. New probe sets `eval/datasets/answers-ceza-tr.jsonl` and `answers-anayasa-tr.jsonl` over PDF corpora (`eval/corpus/ceza`, `eval/corpus/anayasa-pdf`).
+- `orag eval retrieval` and `orag eval answers` also index PDF and DOCX corpus files, through the production parsers: the loop above only appeared with `pdf_oxide` text, not with pypdf text of the same file.
+
 ## [0.2.0-alpha.1] - 2026-10-06
 
 - Hybrid retrieval always puts the top hit of the lexical list and of the dense list first, before the rest in RRF order. Plain RRF dropped a chunk that only one retriever found, even at rank 1: on a PDF of the Turkish constitution, "Anayasaya göre resmî dili nedir?" had Article 3 at lexical #1 and dense #39 and the model answered that the sources did not say. Scores (`rank_score`) are unchanged, so they no longer always decrease along `sources`.
