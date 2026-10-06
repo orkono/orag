@@ -119,8 +119,8 @@ alternatives (`600|altıyüz`).
 | repetition stops | answers stopped by the repeated-line guard (`finish_reason: repetition`) |
 | distinct lines | mean share of unique non-empty lines per answer |
 
-Refusals count only when the answer is exactly the refusal sentence; a
-paraphrased refusal is not counted (see `abstained` in `docs/api.md`).
+Refusals are counted from `abstained` (see `docs/api.md`): the refusal
+sentence, or an uncited first sentence that says the sources do not answer.
 
 | corpus | dataset | probes |
 |---|---|---|
