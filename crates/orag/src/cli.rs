@@ -90,8 +90,8 @@ pub enum EvalCommand {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
         /// Sampler profiles to compare (comma-separated): greedy, dry,
-        /// presence, qwen, qwen:<seed>.
-        #[arg(long, value_delimiter = ',', default_value = "greedy")]
+        /// presence, qwen, qwen:<seed>. Default: the one answers are served with.
+        #[arg(long, value_delimiter = ',')]
         sampler: Vec<String>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
@@ -285,14 +285,7 @@ fn run_eval_retrieval(
         crate::eval::retrieval::run_retrieval_eval(embedder, corpus, &queries, work.path())?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
-        let json = serde_json::to_string_pretty(&report)?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .with_context(|| format!("writing {}", path.display()))?;
-        file.write_all(json.as_bytes())
-            .with_context(|| format!("writing {}", path.display()))?;
+        write_new_json(path, &report)?;
     }
     gates.check(&report)
 }
@@ -345,14 +338,18 @@ fn run_eval_answers(
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-    let profiles = samplers
-        .iter()
-        .map(|name| {
-            crate::infer::SamplerProfile::parse(name).with_context(|| {
-                format!("unknown sampler {name:?} (greedy, dry, presence, qwen, qwen:<seed>)")
+    let profiles = if samplers.is_empty() {
+        vec![crate::retrieval::answer::ANSWER_SAMPLER]
+    } else {
+        samplers
+            .iter()
+            .map(|name| {
+                crate::infer::SamplerProfile::parse(name).with_context(|| {
+                    format!("unknown sampler {name:?} (greedy, dry, presence, qwen, qwen:<seed>)")
+                })
             })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
     let probes = crate::eval::answers::load_probes(dataset)
         .with_context(|| format!("dataset {}", dataset.display()))?;
     if let Some(path) = out
@@ -386,15 +383,22 @@ fn run_eval_answers(
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
-        let json = serde_json::to_string_pretty(&report)?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .with_context(|| format!("writing {}", path.display()))?;
-        file.write_all(json.as_bytes())
-            .with_context(|| format!("writing {}", path.display()))?;
+        write_new_json(path, &report)?;
     }
+    Ok(())
+}
+
+/// Writes `report` as pretty JSON to a file that must not exist yet.
+fn write_new_json(path: &std::path::Path, report: &impl serde::Serialize) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let json = serde_json::to_string_pretty(report)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("writing {}", path.display()))?;
+    file.write_all(json.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 

@@ -86,7 +86,7 @@ impl Store {
             let bound = collection_space_id(&tx, collection_id)?;
             if let Some(space_id) = bound {
                 let space = load_space(&tx, space_id)?;
-                if space.fingerprint == fingerprint {
+                if desc.accepts(&space.fingerprint) {
                     tx.commit()?;
                     return Ok(space);
                 }
@@ -137,7 +137,7 @@ impl Store {
             return Ok(None);
         };
         let space = load_space(&conn, space_id)?;
-        if space.fingerprint != desc.fingerprint() {
+        if !desc.accepts(&space.fingerprint) {
             // Empty: nothing to search, and ingest will rebind it.
             if !has_chunks(&conn, collection_id)? {
                 return Ok(None);
@@ -145,5 +145,50 @@ impl Store {
             return Err(OragError::ReindexRequired { collection_id });
         }
         Ok(Some(space))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::error::OragError;
+    use crate::infer::Embedder;
+    use crate::infer::fake::FakeEmbedder;
+    use crate::retrieval::testing::indexed;
+
+    #[test]
+    fn a_space_stored_with_a_legacy_fingerprint_keeps_serving() {
+        let (_dir, retriever) = indexed(FakeEmbedder::new(), &[("a.md", "# A\n\nalpha")]);
+        let store = &retriever.store;
+        let desc = FakeEmbedder::new().descriptor().clone();
+        let set_stored = |fingerprint: &str| {
+            store
+                .write(|conn| {
+                    conn.execute(
+                        "UPDATE embedding_spaces SET fingerprint = ?1",
+                        [fingerprint],
+                    )?;
+                    Ok(())
+                })
+                .unwrap();
+        };
+        let bound = store.query_space(1, &desc).unwrap().unwrap();
+        for normalizer in [1, 2] {
+            set_stored(&desc.legacy_fingerprint(normalizer));
+            let space = store
+                .query_space(1, &desc)
+                .unwrap()
+                .expect("legacy space is served");
+            assert_eq!(space.id, bound.id);
+            assert_eq!(store.bind_space(1, &desc).unwrap().id, bound.id);
+        }
+        set_stored(&"0".repeat(64));
+        assert!(matches!(
+            store.query_space(1, &desc),
+            Err(OragError::ReindexRequired { collection_id: 1 })
+        ));
+        assert!(matches!(
+            store.bind_space(1, &desc),
+            Err(OragError::ReindexRequired { collection_id: 1 })
+        ));
     }
 }

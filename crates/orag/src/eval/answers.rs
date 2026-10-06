@@ -67,6 +67,13 @@ pub fn load_probes(path: &Path) -> Result<Vec<AnswerProbe>> {
         }
         probes.push(probe);
     }
+    // An empty set would print an all-zero report that reads like a regression.
+    if !probes.iter().any(|p| p.answerable) {
+        return Err(OragError::InvalidInput(format!(
+            "{} has no answerable probes",
+            path.display()
+        )));
+    }
     Ok(probes)
 }
 
@@ -233,7 +240,10 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe) -> Result<ProbeResult> 
     let found = probe
         .expect
         .iter()
-        .filter(|text| text.split('|').any(|alt| answer.contains(&normalized(alt))))
+        .filter(|text| {
+            text.split('|')
+                .any(|alt| contains_term(&answer, &normalized(alt)))
+        })
         .count();
     Ok(ProbeResult {
         id: probe.id.clone(),
@@ -252,6 +262,20 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe) -> Result<ProbeResult> 
 /// leave double spaces, e.g. from private-use PDF glyphs).
 fn normalized(text: &str) -> String {
     squash(&normalize_for_lexical(text))
+}
+
+/// Whether `needle` occurs in `haystack` starting at a word boundary, so `600`
+/// is not found in `1600` nor `laik` in `alaika`. The end is open, since
+/// Turkish adds suffixes (`türkçe` in `türkçedir`, `onan` in `onanmasına`),
+/// except after a digit: `600` is not found in `6000`.
+fn contains_term(haystack: &str, needle: &str) -> bool {
+    let is_word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let ends_in_digit = needle.chars().next_back().is_some_and(|c| c.is_ascii_digit());
+    haystack.match_indices(needle).any(|(start, _)| {
+        let before = haystack[..start].chars().next_back();
+        let after = haystack[start + needle.len()..].chars().next();
+        !is_word(before) && !(ends_in_digit && after.is_some_and(|c| c.is_ascii_digit()))
+    })
 }
 
 /// Unique non-empty lines over non-empty lines, compared like the repetition
@@ -318,6 +342,38 @@ mod tests {
             let err = load_probes(&path).unwrap_err().to_string();
             assert!(err.contains("must not be empty"), "{expect}: {err}");
         }
+    }
+
+    #[test]
+    fn expected_texts_match_whole_words_only() {
+        assert!(contains_term("tbmm 600 milletvekili", "600"));
+        assert!(contains_term("600.", "600"));
+        assert!(!contains_term("1600 tl", "600"));
+        assert!(!contains_term("6000 gün", "600"));
+        assert!(contains_term("1600 ve 600", "600"));
+        assert!(contains_term("hukuk devleti [1]", "hukuk devleti"));
+        assert!(!contains_term("alaika", "laik"));
+        assert!(contains_term("dili türkçedir", "türkçe"));
+        assert!(contains_term("onanmasina", "onan"));
+        assert!(contains_term("600'dür", "600"));
+    }
+
+    #[test]
+    fn a_set_without_answerable_probes_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = write(dir.path(), "e.jsonl", "\n");
+        assert!(
+            load_probes(&empty)
+                .unwrap_err()
+                .to_string()
+                .contains("no answerable probes")
+        );
+        let only = write(
+            dir.path(),
+            "u.jsonl",
+            "{\"id\":\"b\",\"lang\":\"tr\",\"query\":\"q\",\"answerable\":false}\n",
+        );
+        assert!(load_probes(&only).is_err());
     }
 
     #[test]

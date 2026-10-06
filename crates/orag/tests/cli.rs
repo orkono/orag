@@ -327,6 +327,19 @@ fn eval_answers_compares_samplers_and_rejects_unknown_ones() {
         stdout.contains("| greedy |") && stdout.contains("| qwen:7 |"),
         "{stdout}"
     );
+    let default = orag()
+        .env("ORAG_HOME", home.path())
+        .args(["eval", "answers", "--dev-fake-models", "--corpus"])
+        .arg(root.join("corpus/ceza"))
+        .arg("--dataset")
+        .arg(root.join("datasets/answers-ceza-tr.jsonl"))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(default.stdout).unwrap();
+    assert!(
+        stdout.contains("| dry |"),
+        "defaults to the served sampler: {stdout}"
+    );
     let bad = run("beam");
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("unknown sampler"));

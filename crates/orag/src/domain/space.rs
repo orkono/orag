@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::domain::chunker::CHUNKER_VERSION;
-use crate::domain::normalize::NORMALIZER_VERSION;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceDescriptor {
@@ -22,15 +21,40 @@ pub struct SpaceDescriptor {
 }
 
 /// Version of the encoding below; change it only together with a reindex path.
-const FINGERPRINT_ENCODING: u32 = 1;
+/// Encoding 2 (0.2.0-alpha.3) dropped the normalizer version: lexical text never
+/// reaches the embedder, so it has its own version and a startup FTS rebuild
+/// (`store::lexical`) instead of a reindex.
+const FINGERPRINT_ENCODING: u32 = 2;
+/// Normalizer versions that encoding 1 hashed; spaces written then still hold
+/// valid vectors.
+const LEGACY_NORMALIZER_VERSIONS: [u32; 2] = [1, 2];
 
 impl SpaceDescriptor {
     /// SHA-256 over a hand-written, fixed-order encoding of the descriptor
-    /// plus chunker and normalizer versions. Each field is
+    /// plus the chunker version. Each field is
     /// `name=<byte length>:<value>\n`, so no value can imitate another field,
     /// and no dependency feature (e.g. serde_json `preserve_order`) can change it.
     /// `model_sha256` comes from a validated pack manifest (64 lowercase hex).
     pub fn fingerprint(&self) -> String {
+        self.encode(FINGERPRINT_ENCODING, None)
+    }
+
+    /// Whether a stored fingerprint names this space: the current one, or an
+    /// encoding-1 fingerprint of the same descriptor and chunker (D-009).
+    pub fn accepts(&self, stored: &str) -> bool {
+        stored == self.fingerprint()
+            || LEGACY_NORMALIZER_VERSIONS
+                .iter()
+                .any(|&normalizer| stored == self.encode(1, Some(normalizer)))
+    }
+
+    /// An encoding-1 fingerprint, as releases before 0.2.0-alpha.3 stored it.
+    #[cfg(test)]
+    pub(crate) fn legacy_fingerprint(&self, normalizer_version: u32) -> String {
+        self.encode(1, Some(normalizer_version))
+    }
+
+    fn encode(&self, encoding: u32, normalizer_version: Option<u32>) -> String {
         // Exhaustive destructuring: a new field does not compile until it is encoded here.
         let SpaceDescriptor {
             model_id,
@@ -49,7 +73,7 @@ impl SpaceDescriptor {
             hasher.update(value.as_bytes());
             hasher.update(b"\n");
         };
-        field("encoding", &FINGERPRINT_ENCODING.to_string());
+        field("encoding", &encoding.to_string());
         field("model_id", model_id);
         field("model_sha256", model_sha256);
         field("pooling", pooling);
@@ -60,7 +84,9 @@ impl SpaceDescriptor {
         field("max_tokens", &max_tokens.to_string());
         field("require_trailing_eos", &require_trailing_eos.to_string());
         field("chunker_version", &CHUNKER_VERSION.to_string());
-        field("normalizer_version", &NORMALIZER_VERSION.to_string());
+        if let Some(version) = normalizer_version {
+            field("normalizer_version", &version.to_string());
+        }
         hex::encode(hasher.finalize())
     }
 }
@@ -94,11 +120,34 @@ mod tests {
     fn fingerprint_matches_the_golden_value() {
         // Golden vector: persisted fingerprints must never change silently.
         // Reproducible without Rust:
-        // printf 'encoding=1:1\nmodel_id=1:m\nmodel_sha256=64:%s\npooling=4:last\nquery_prefix=3:Q: \ndocument_prefix=0:\ndimensions=1:4\nnormalized=4:true\nmax_tokens=3:512\nrequire_trailing_eos=4:true\nchunker_version=1:1\nnormalizer_version=1:2\n' "$(printf 'a%.0s' $(seq 64))" | shasum -a 256
+        // printf 'encoding=1:2\nmodel_id=1:m\nmodel_sha256=64:%s\npooling=4:last\nquery_prefix=3:Q: \ndocument_prefix=0:\ndimensions=1:4\nnormalized=4:true\nmax_tokens=3:512\nrequire_trailing_eos=4:true\nchunker_version=1:1\n' "$(printf 'a%.0s' $(seq 64))" | shasum -a 256
         assert_eq!(
             descriptor().fingerprint(),
-            "d00dab2a989b011e42ab960875404bdf321c19d696cb5ba48bbc1fd63ea7c379"
+            "37c52ca70f826e186f68a9c8f58054038b0ebe5baad3b058e22944d743f7c545"
         );
+    }
+
+    #[test]
+    fn fingerprints_written_before_the_lexical_split_are_accepted() {
+        // Encoding 1 also hashed the normalizer version, which never changed
+        // the vectors: 0.1.x wrote normalizer 1, 0.2.0-alpha.1 normalizer 2.
+        // Same printf as above with `encoding=1:1` and a trailing
+        // `normalizer_version=1:1\n` or `normalizer_version=1:2\n`.
+        let desc = descriptor();
+        for stored in [
+            "1126366fade8f536ef5ab0f8fdb8a758a4fe6fb601831050f20e4f05ad18b650",
+            "d00dab2a989b011e42ab960875404bdf321c19d696cb5ba48bbc1fd63ea7c379",
+            desc.fingerprint().as_str(),
+        ] {
+            assert!(desc.accepts(stored), "{stored}");
+        }
+        // Another model's legacy fingerprint is still a different space.
+        let other = SpaceDescriptor {
+            model_id: "x".into(),
+            ..descriptor()
+        };
+        assert!(!other.accepts("1126366fade8f536ef5ab0f8fdb8a758a4fe6fb601831050f20e4f05ad18b650"));
+        assert!(!desc.accepts(&other.fingerprint()));
     }
 
     #[test]

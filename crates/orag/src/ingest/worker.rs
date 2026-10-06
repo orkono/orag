@@ -9,7 +9,7 @@ use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::domain::chunker::{ChunkDraft, ChunkerConfig, chunk_document};
+use crate::domain::chunker::{ChunkDraft, ChunkerConfig, chunk_document, lexical_text};
 use crate::domain::normalize::normalize_for_lexical;
 use crate::error::{OragError, Result};
 use crate::infer::Embedder;
@@ -138,10 +138,10 @@ fn prepare_chunks(
                 batch.len()
             )));
         }
-        for ((draft, text), embedding) in batch.into_iter().zip(&texts).zip(vectors) {
+        for (draft, embedding) in batch.into_iter().zip(vectors) {
             prepared.push(PreparedChunk {
+                norm_text: normalize_for_lexical(&lexical_text(&draft.heading_path, &draft.text)),
                 draft,
-                norm_text: normalize_for_lexical(text),
                 embedding,
             });
         }

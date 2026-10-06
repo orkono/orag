@@ -9,7 +9,10 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 use crate::error::{OragError, Result};
 
-pub const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_initial.sql")];
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_initial.sql"),
+    include_str!("migrations/0002_meta.sql"),
+];
 pub const SUPPORTED_SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 
 pub fn migrate(conn: &mut Connection, db_path: &Path) -> Result<u32> {
@@ -120,7 +123,7 @@ fn run_steps(
 
 /// `BEGIN IMMEDIATE`, retried while another process holds the write lock
 /// (a long migration or backup) for up to `MIGRATION_WAIT`.
-fn begin_immediate(conn: &Connection) -> Result<Transaction<'_>> {
+pub(crate) fn begin_immediate(conn: &Connection) -> Result<Transaction<'_>> {
     Ok(super::retry_busy(MIGRATION_WAIT, || {
         Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
     })?)

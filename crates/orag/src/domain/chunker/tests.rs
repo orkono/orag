@@ -626,3 +626,13 @@ fn merging_counts_the_join_once_with_special_tokens() {
         "{under_heading:?}"
     );
 }
+
+#[test]
+fn lexical_text_is_the_full_heading_path_and_the_body() {
+    let path = vec!["Kargo".to_string(), "İade Koşulları".to_string()];
+    assert_eq!(
+        lexical_text(&path, "14 gün."),
+        "Kargo > İade Koşulları\n\n14 gün."
+    );
+    assert_eq!(lexical_text(&[], "14 gün."), "14 gün.");
+}

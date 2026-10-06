@@ -1,16 +1,19 @@
 //! Lexical normalization shared by indexing and querying (D-006).
 //!
 //! The same function must be applied to indexed text and to queries; changing
-//! it requires bumping `NORMALIZER_VERSION`, which changes the embedding-space
-//! fingerprint and forces a reindex. Its output also depends on Unicode tables
-//! (`unicode-normalization`, pinned with `=`, and std's case and category
-//! tables, fixed by `rust-toolchain.toml`): bumping either is a normalizer
-//! change too.
+//! it requires bumping `LEXICAL_VERSION`, which rebuilds the FTS index from the
+//! stored chunks at the next start (`store::lexical`); vectors are untouched.
+//! Its output also depends on Unicode tables (`unicode-normalization`, pinned
+//! with `=`, and std's case and category tables, fixed by
+//! `rust-toolchain.toml`): bumping either is a normalizer change too.
 
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
-pub const NORMALIZER_VERSION: u32 = 2;
+/// Version of what the FTS index holds: this normalizer and the indexed text
+/// (`chunker::lexical_text`). 1: 0.1.x; 2: circumflex fold; 3: full heading
+/// path instead of the embedder's trimmed breadcrumb.
+pub const LEXICAL_VERSION: u32 = 3;
 pub const MAX_QUERY_TERMS: usize = 32;
 /// Questions are short; only this much of a query is normalized. It also
 /// bounds the MATCH expression.
@@ -329,13 +332,13 @@ mod tests {
         // The normalizer's output depends on these tables (std case and
         // category data, unicode-normalization, the ignorable list above). A
         // toolchain or crate bump that changes them changes indexed text:
-        // bump NORMALIZER_VERSION, re-check `is_default_ignorable`, then
+        // bump LEXICAL_VERSION, re-check `is_default_ignorable`, then
         // update this test.
-        assert_eq!(char::UNICODE_VERSION, (17, 0, 0), "bump NORMALIZER_VERSION");
+        assert_eq!(char::UNICODE_VERSION, (17, 0, 0), "bump LEXICAL_VERSION");
         assert_eq!(
             unicode_normalization::UNICODE_VERSION,
             (17, 0, 0),
-            "bump NORMALIZER_VERSION"
+            "bump LEXICAL_VERSION"
         );
     }
 
