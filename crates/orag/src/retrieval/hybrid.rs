@@ -7,7 +7,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::domain::CollectionId;
-use crate::domain::normalize::fts_query;
+use crate::domain::lexical_query::LexicalQuery;
 use crate::domain::rrf::{FusedHit, promote_list_leaders, reciprocal_rank_fusion};
 use crate::error::{OragError, Result};
 use crate::infer::{Embedder, VectorIndex};
@@ -36,7 +36,14 @@ pub struct RetrievalConfig {
     pub lexical_k: usize,
     pub dense_k: usize,
     pub max_context_chunks: usize,
+    pub lexical_query: LexicalQuery,
 }
+
+/// How questions are matched lexically (D-006), chosen with `orag eval retrieval`:
+/// terms of 3+ characters also match suffixed words (`dil` finds `dili`).
+pub const LEXICAL_QUERY: LexicalQuery = LexicalQuery {
+    prefix_min_chars: Some(3),
+};
 
 impl Default for RetrievalConfig {
     fn default() -> Self {
@@ -44,6 +51,7 @@ impl Default for RetrievalConfig {
             lexical_k: 50,
             dense_k: 50,
             max_context_chunks: 8,
+            lexical_query: LEXICAL_QUERY,
         }
     }
 }
@@ -126,11 +134,13 @@ impl Retriever {
         query: &str,
         trace: &mut RetrievalTrace,
     ) -> Result<Vec<i64>> {
-        timed(&mut trace.lexical_ms, || match fts_query(query) {
-            Some(q) => self
-                .store
-                .lexical_search(collection_id, &q, self.config.lexical_k),
-            None => Ok(Vec::new()),
+        timed(&mut trace.lexical_ms, || {
+            match self.config.lexical_query.fts_query(query) {
+                Some(q) => self
+                    .store
+                    .lexical_search(collection_id, &q, self.config.lexical_k),
+                None => Ok(Vec::new()),
+            }
         })
     }
 

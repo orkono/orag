@@ -203,6 +203,14 @@ differs: no 409, no re-embedding. Versions: 1 (0.1.x), 2 (circumflex fold), 3
 (full heading path). A current index is checked without the write lock. Lexical
 ties order by chunk id, so leader promotion (D-005) is deterministic.
 
+**Prefix terms (0.2.0-alpha.4).** Query terms of 3+ characters are FTS5
+prefix terms (`"dil"*` finds `dili`), query side only (`LexicalQuery`, no
+reindex). On the new inflection set hybrid answer context went from 0.833 to
+0.900, on the constitution set from 0.950 to 1.000 (`resmi dil` is found);
+seed stays at 1.000 with MRR@10 0.939 → 0.903
+(`.docs/benchmarks/2026-10-06-lexical-query.md`). Dropping Turkish question
+words from the query changed nothing and was not adopted.
+
 **Deferred.** Stemming and an accent-folded secondary field are added only if
 the evaluation set (which includes accentless-typing queries) shows a gain.
 The circumflex fold passed that test: on `anayasa-tr.jsonl` hybrid answer
@@ -210,7 +218,7 @@ context went from 0.900 to 0.950 (`milli marsimiz nedir` now finds `Millî
 marşı`), the seed set did not change. Its cost is precision, as with ı/i:
 `kâr`/`kar`, `hâlâ`/`hala`, `âlem`/`alem` become one term, and so do French
 `sûr`/`sur`, `dû`/`du` and `île` with Turkish `ile`; BM25's IDF damps the very
-common ones. Still open: inflected forms (`dil` does not find `dili`, ana-001)
+common ones. Still open: consonant changes (`amaç`/`amacı`), number words
 and accentless typing of ç/ş/ğ/ö/ü.
 Both spellings are never concatenated into one field (it distorts term
 frequencies).

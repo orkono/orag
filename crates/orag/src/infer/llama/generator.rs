@@ -337,14 +337,22 @@ fn generation_worker(
         }
     };
     let _ = ready.send(Ok(()));
-    // Built once per profile: DRY scans the whole vocabulary when it is made.
-    // `reset` clears a sampler's history (and reseeds `dist`) between answers.
+    // Deterministic profiles are built once (DRY scans the whole vocabulary
+    // when it is made) and `reset` between answers. Seeded ones are built per
+    // job: one per seed would otherwise stay alive for the whole process.
     let mut samplers: HashMap<SamplerProfile, LlamaSampler> = HashMap::new();
     for job in jobs {
-        let sampler = samplers
-            .entry(job.sampler)
-            .or_insert_with(|| build_sampler(model, job.sampler));
-        sampler.reset();
+        let mut seeded;
+        let sampler = if matches!(job.sampler, SamplerProfile::Qwen { .. }) {
+            seeded = build_sampler(model, job.sampler);
+            &mut seeded
+        } else {
+            let cached = samplers
+                .entry(job.sampler)
+                .or_insert_with(|| build_sampler(model, job.sampler));
+            cached.reset();
+            cached
+        };
         let event = match run_generation(model, &mut ctx, &job, sampler) {
             Ok(stats) => GenEvent::Done(stats),
             Err(err) => GenEvent::Failed(err),
@@ -410,11 +418,7 @@ fn run_generation(
         position += 1;
         ctx.decode(&mut batch).map_err(model_error)?;
         if spent {
-            // The most likely next token tells an answer cut here from one that
-            // would have ended anyway (argmax, so a random sampler cannot make
-            // it a coin toss).
-            let next = LlamaSampler::greedy().sample(ctx, batch.n_tokens() - 1);
-            stats.length_limited = !model.vocab().is_eog(next);
+            stats.length_limited = would_go_on(model, ctx, &batch);
             break;
         }
     }
@@ -423,6 +427,14 @@ fn run_generation(
         let _ = job.events.send(GenEvent::Piece(tail));
     }
     Ok(stats)
+}
+
+/// Whether the answer would have gone on after the budget: the most likely
+/// next token is not end-of-generation (argmax, so a random sampler cannot
+/// make it a coin toss).
+fn would_go_on(model: &LlamaModel, ctx: &LlamaContext<'_>, batch: &LlamaBatch) -> bool {
+    let next = LlamaSampler::greedy().sample(ctx, batch.n_tokens() - 1);
+    !model.vocab().is_eog(next)
 }
 
 /// DRY settings are llama.cpp's documented defaults; the breakers keep a

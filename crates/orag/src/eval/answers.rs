@@ -268,13 +268,20 @@ fn normalized(text: &str) -> String {
 /// is not found in `1600` nor `laik` in `alaika`. The end is open, since
 /// Turkish adds suffixes (`türkçe` in `türkçedir`, `onan` in `onanmasına`),
 /// except after a digit: `600` is not found in `6000`.
+/// A dot between digits (`1.600`, `01.02.2016`) belongs to the number.
 fn contains_term(haystack: &str, needle: &str) -> bool {
     let is_word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
-    let ends_in_digit = needle.chars().next_back().is_some_and(|c| c.is_ascii_digit());
+    let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
+    let starts_in_digit = digit(needle.chars().next());
+    let ends_in_digit = digit(needle.chars().next_back());
     haystack.match_indices(needle).any(|(start, _)| {
-        let before = haystack[..start].chars().next_back();
-        let after = haystack[start + needle.len()..].chars().next();
-        !is_word(before) && !(ends_in_digit && after.is_some_and(|c| c.is_ascii_digit()))
+        let mut before = haystack[..start].chars().rev();
+        let mut after = haystack[start + needle.len()..].chars();
+        let (b1, b2) = (before.next(), before.next());
+        let (a1, a2) = (after.next(), after.next());
+        let number_goes_on_before = starts_in_digit && b1 == Some('.') && digit(b2);
+        let number_goes_on_after = ends_in_digit && (digit(a1) || (a1 == Some('.') && digit(a2)));
+        !is_word(b1) && !number_goes_on_before && !number_goes_on_after
     })
 }
 
@@ -356,6 +363,10 @@ mod tests {
         assert!(contains_term("dili türkçedir", "türkçe"));
         assert!(contains_term("onanmasina", "onan"));
         assert!(contains_term("600'dür", "600"));
+        assert!(!contains_term("1.600 tl", "600"));
+        assert!(!contains_term("600.000 kişi", "600"));
+        assert!(contains_term("sayısı 600.", "600"));
+        assert!(contains_term("tarih 02.02.2016 idi", "02.02.2016"));
     }
 
     #[test]

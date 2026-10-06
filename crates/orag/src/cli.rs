@@ -59,6 +59,10 @@ pub enum EvalCommand {
         /// context with hybrid retrieval; any miss exits non-zero after printing.
         #[arg(long, value_delimiter = ',')]
         require_in_context: Vec<String>,
+        /// Lexical query mode to evaluate instead of the served one
+        /// (`exact` or `prefix:<n>`; experiments).
+        #[arg(long, hide = true)]
+        lexical_query: Option<String>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -137,6 +141,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     out,
                     min_recall_at_10,
                     require_in_context,
+                    lexical_query,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -147,6 +152,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 min_recall_at_10,
                 require_in_context,
             },
+            lexical_query.as_deref(),
             dev_fake_models,
         ),
         Command::Eval {
@@ -253,9 +259,15 @@ fn run_eval_retrieval(
     dataset: &std::path::Path,
     out: Option<&std::path::Path>,
     gates: EvalGates,
+    lexical_query: Option<&str>,
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
+    let mut config = crate::retrieval::hybrid::RetrievalConfig::default();
+    if let Some(mode) = lexical_query {
+        config.lexical_query = crate::domain::lexical_query::LexicalQuery::parse(mode)
+            .with_context(|| format!("unknown lexical query {mode:?} (exact or prefix:<n>)"))?;
+    }
     if let Some(floor) = gates.min_recall_at_10
         && !(0.0..=1.0).contains(&floor)
     {
@@ -281,8 +293,13 @@ fn run_eval_retrieval(
     };
     // Exclusively created and removed on drop; never touches pre-existing paths.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
-    let report =
-        crate::eval::retrieval::run_retrieval_eval(embedder, corpus, &queries, work.path())?;
+    let report = crate::eval::retrieval::run_retrieval_eval_with(
+        embedder,
+        corpus,
+        &queries,
+        work.path(),
+        config,
+    )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
         write_new_json(path, &report)?;
@@ -338,18 +355,7 @@ fn run_eval_answers(
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-    let profiles = if samplers.is_empty() {
-        vec![crate::retrieval::answer::ANSWER_SAMPLER]
-    } else {
-        samplers
-            .iter()
-            .map(|name| {
-                crate::infer::SamplerProfile::parse(name).with_context(|| {
-                    format!("unknown sampler {name:?} (greedy, dry, presence, qwen, qwen:<seed>)")
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
+    let profiles = parse_samplers(samplers)?;
     let probes = crate::eval::answers::load_probes(dataset)
         .with_context(|| format!("dataset {}", dataset.display()))?;
     if let Some(path) = out
@@ -357,21 +363,7 @@ fn run_eval_answers(
     {
         anyhow::bail!("{} already exists; choose a new --out file", path.display());
     }
-    let (embedder, generator): (
-        std::sync::Arc<dyn crate::infer::Embedder>,
-        std::sync::Arc<dyn crate::infer::Generator>,
-    ) = if dev_fake_models {
-        (
-            std::sync::Arc::new(crate::infer::fake::FakeEmbedder::new()),
-            std::sync::Arc::new(crate::infer::fake::FakeGenerator::new("fake answer")),
-        )
-    } else {
-        let config = load_config()?;
-        (
-            crate::app::load_embedder(&config)?,
-            crate::app::load_generator(&config)?,
-        )
-    };
+    let (embedder, generator) = load_answer_models(dev_fake_models)?;
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
     let report = crate::eval::answers::run_answer_eval(
         embedder,
@@ -386,6 +378,42 @@ fn run_eval_answers(
         write_new_json(path, &report)?;
     }
     Ok(())
+}
+
+/// The named profiles, or the served one when none is named.
+fn parse_samplers(names: &[String]) -> anyhow::Result<Vec<crate::infer::SamplerProfile>> {
+    use anyhow::Context;
+    if names.is_empty() {
+        return Ok(vec![crate::retrieval::answer::ANSWER_SAMPLER]);
+    }
+    names
+        .iter()
+        .map(|name| {
+            crate::infer::SamplerProfile::parse(name).with_context(|| {
+                format!("unknown sampler {name:?} (greedy, dry, presence, qwen, qwen:<seed>)")
+            })
+        })
+        .collect()
+}
+
+type AnswerModels = (
+    std::sync::Arc<dyn crate::infer::Embedder>,
+    std::sync::Arc<dyn crate::infer::Generator>,
+);
+
+/// The installed models, or fakes that need no config and no ORAG_HOME.
+fn load_answer_models(dev_fake_models: bool) -> anyhow::Result<AnswerModels> {
+    if dev_fake_models {
+        return Ok((
+            std::sync::Arc::new(crate::infer::fake::FakeEmbedder::new()),
+            std::sync::Arc::new(crate::infer::fake::FakeGenerator::new("fake answer")),
+        ));
+    }
+    let config = load_config()?;
+    Ok((
+        crate::app::load_embedder(&config)?,
+        crate::app::load_generator(&config)?,
+    ))
 }
 
 /// Writes `report` as pretty JSON to a file that must not exist yet.

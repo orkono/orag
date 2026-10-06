@@ -155,12 +155,7 @@ pub fn lexical_terms(input: &str) -> Vec<String> {
 /// letters, numbers and marks (never `"`), so no user input can reach FTS5
 /// syntax.
 pub fn fts_query(input: &str) -> Option<String> {
-    let terms = lexical_terms(input);
-    if terms.is_empty() {
-        return None;
-    }
-    let quoted: Vec<String> = terms.iter().map(|term| format!("\"{term}\"")).collect();
-    Some(quoted.join(" OR "))
+    crate::domain::lexical_query::LexicalQuery::EXACT.fts_query(input)
 }
 
 #[cfg(test)]

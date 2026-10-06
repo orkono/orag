@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.4] - 2026-10-06
+
+- Query terms of three or more characters are FTS5 prefix terms, so a Turkish suffix no longer hides a match: `resmi dil` finds `resmî dili`, `mirasa` finds `miras`. Query side only (`LexicalQuery`), no reindex. Hybrid answer context: new inflection set 0.833 → 0.900, constitution set 0.950 → 1.000, seed set unchanged at 1.000 (MRR@10 0.939 → 0.903). Details in `.docs/benchmarks/2026-10-06-lexical-query.md`.
+- Numbers are never prefix terms (`104` must not find `1040`); only terms with a letter are.
+- Fixes from the review: the repeated-line guard strips one list marker followed by a space, so dotted dates and thousands (`01.02.2016 …`, `1.000 TL …`) no longer make three lines look alike; `orag eval answers` treats a dot between digits as part of the number (`600` is not found in `1.600`); an FTS index built by a newer release is refused instead of rebuilt down; seeded samplers are built per answer instead of cached per seed; `normalize::fts_query` delegates to `LexicalQuery::EXACT`.
+- New retrieval set `eval/datasets/anayasa-cekim-tr.jsonl`: 30 questions asked in word forms the constitution text does not use.
+- `orag eval retrieval` reports the lexical query mode and takes a hidden `--lexical-query exact|prefix:<n>` for experiments. Leaving Turkish question words out of the query was measured too: no change, not adopted.
+
 ## [0.2.0-alpha.3] - 2026-10-06
 
 - The full-text (lexical) index is versioned separately from the embedding space. Schema 2 adds a `meta` table that records the lexical version; when it differs, `Store::open` rebuilds the FTS index from the stored chunks in one transaction (logged as `lexical index built`). A lexical change (normalizer, indexed text) no longer causes `409 reindex_required` or re-embedding.

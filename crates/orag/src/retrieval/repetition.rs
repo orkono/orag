@@ -48,22 +48,25 @@ impl LineRepeatGuard {
     }
 }
 
-/// The line without leading list markers (`1.`, `2)`, `*`, `-`, `•`) and
-/// with whitespace collapsed: a loop often numbers each copy.
+/// The line without its list marker (`1.`, `2)`, then `*`, `-`, `•`; each
+/// followed by a space) and with whitespace collapsed: a loop often numbers
+/// each copy. A number without a space after its dot is content, so dotted
+/// dates and thousands (`01.02.2016`, `1.000 TL`) stay.
 pub fn line_key(line: &str) -> String {
     let mut rest = line.trim_start();
-    loop {
-        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        let after_number = &rest[digits..];
-        let stripped =
-            if digits > 0 && (after_number.starts_with('.') || after_number.starts_with(')')) {
-                &after_number[1..]
-            } else if let Some(tail) = rest.strip_prefix(['*', '-', '•']) {
-                tail
-            } else {
-                break;
-            };
-        rest = stripped.trim_start();
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    if digits > 0
+        && let Some(tail) = rest[digits..]
+            .strip_prefix(['.', ')'])
+            .filter(|tail| tail.starts_with(char::is_whitespace))
+    {
+        rest = tail.trim_start();
+    }
+    while let Some(tail) = rest
+        .strip_prefix(['*', '-', '•'])
+        .filter(|tail| tail.starts_with(char::is_whitespace))
+    {
+        rest = tail.trim_start();
     }
     rest.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -144,6 +147,23 @@ mod tests {
     #[test]
     fn line_keys_drop_markers_and_spacing() {
         assert_eq!(line_key("  12.  *  a   b "), "a b");
+        assert_eq!(line_key("3) - a"), "a");
         assert_eq!(line_key("02/02/2016 tarihinde"), "02/02/2016 tarihinde");
+        // Dotted dates and thousands are content, not list numbers.
+        assert_eq!(line_key("01.02.2016 tarihli"), "01.02.2016 tarihli");
+        assert_eq!(line_key("1.000 TL ceza"), "1.000 TL ceza");
+        assert_eq!(line_key("2. 1.000 TL ceza"), "1.000 TL ceza");
+    }
+
+    #[test]
+    fn dated_or_priced_lines_are_not_a_loop() {
+        let mut guard = LineRepeatGuard::default();
+        for day in ["01", "08", "15", "22"] {
+            assert!(!guard.push(&format!("{day}.02.2016 tarihli duruşmaya katılmadı [1]\n")));
+        }
+        let mut guard = LineRepeatGuard::default();
+        for n in 1..=4 {
+            assert!(!guard.push(&format!("{n}.000 TL adli para cezası verildi [2]\n")));
+        }
     }
 }

@@ -28,6 +28,15 @@ fn stored_version(conn: &Connection) -> Result<Option<u32>> {
         .transpose()
 }
 
+/// An index from a newer release is not rebuilt down: two binaries would
+/// otherwise keep rebuilding each other's index.
+fn newer_index(version: u32) -> OragError {
+    OragError::InvalidInput(format!(
+        "the full-text index was built by a newer orag (lexical version {version}, this \
+         release knows {LEXICAL_VERSION}); use that release or newer"
+    ))
+}
+
 impl Store {
     /// The lexical version the FTS index was built with; `None` before the
     /// first build.
@@ -44,15 +53,21 @@ impl Store {
     /// version is re-read under the write lock, so two processes never both
     /// rebuild.
     pub(crate) fn ensure_lexical_index(&self) -> Result<Option<usize>> {
-        if self.lexical_version()? == Some(LEXICAL_VERSION) {
-            return Ok(None);
+        match self.lexical_version()? {
+            Some(version) if version == LEXICAL_VERSION => return Ok(None),
+            Some(version) if version > LEXICAL_VERSION => return Err(newer_index(version)),
+            _ => {}
         }
         self.write(|conn| {
             // Waits like a migration: another process may be rebuilding a large index.
             let tx = crate::store::migrations::begin_immediate(conn)?;
-            if stored_version(&tx)? == Some(LEXICAL_VERSION) {
-                tx.commit()?;
-                return Ok(None);
+            match stored_version(&tx)? {
+                Some(version) if version == LEXICAL_VERSION => {
+                    tx.commit()?;
+                    return Ok(None);
+                }
+                Some(version) if version > LEXICAL_VERSION => return Err(newer_index(version)),
+                _ => {}
             }
             // Contentless FTS5 has no 'rebuild': clear it, then insert every chunk.
             tx.execute(
@@ -146,6 +161,18 @@ mod tests {
             // The full heading path is indexed, also the top heading.
             assert_eq!(hits(&store, "garanti süre"), 1, "{old:?}");
         }
+    }
+
+    #[test]
+    fn an_index_from_a_newer_release_is_refused_not_rebuilt() {
+        let (dir, retriever) = indexed(FakeEmbedder::new(), &[("g.md", DOC)]);
+        let newer = (LEXICAL_VERSION + 1).to_string();
+        make_stale(&retriever.store, Some(&newer));
+        drop(retriever);
+        let err = Store::open(&dir.path().join("orag.db"))
+            .err()
+            .expect("refused");
+        assert!(err.to_string().contains("newer orag"), "{err}");
     }
 
     #[test]
