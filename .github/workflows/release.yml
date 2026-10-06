@@ -39,10 +39,11 @@ jobs:
       - name: Package
         run: |
           dir="${{ steps.name.outputs.artifact }}"
-          mkdir -p "dist/$dir/docs"
+          mkdir -p "dist/$dir/docs" "dist/$dir/assets"
           cp target/release/orag "dist/$dir/orag"
           cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "dist/$dir/"
           cp docs/api.md "dist/$dir/docs/"
+          cp assets/orag-icon.svg "dist/$dir/assets/"   # the README's header image
           scripts/third-party-licenses.sh "dist/$dir/THIRD-PARTY-LICENSES.md"
           tar -C dist -czf "dist/$dir.tar.gz" "$dir"
           tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag$' | grep -q '^-rwx'

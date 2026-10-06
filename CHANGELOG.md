@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.6] - 2026-10-06
+
+- Project icon: a sickle (*orak*, the name's origin) on a cream rounded square. `assets/orag-icon.svg` is the source; `assets/orag-icon-512.png` and `assets/orag-icon-256.png` are renders of it for places that need a bitmap (GitHub social preview, organization avatar, the v0.3 desktop app), written by `scripts/render-icon.sh` (`--check` fails if they are stale). The README shows the icon at the top, and release tarballs include `assets/orag-icon.svg` so the packaged README shows it too.
+
 ## [0.2.0-alpha.5] - 2026-10-06
 
 - `abstained` is also `true` when the model refuses in its own words: the first sentence says, without a citation, that the sources do not answer (`Verilen kaynaklarda ... belirtilmemiştir.`, `The sources do not mention ...`), even if cited background follows. Before, only the exact refusal sentence counted. On the answer sets: unanswerable questions flagged 4 of 4 (before 1 of 4), answerable ones 0 of 15. The answer text is unchanged.
