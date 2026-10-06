@@ -43,6 +43,7 @@ pub struct StrategyReport {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RetrievalReport {
     pub embedding_model: String,
+    pub lexical_query: String,
     pub corpus_documents: usize,
     pub answerable: usize,
     pub unanswerable: usize,
@@ -54,10 +55,11 @@ pub struct RetrievalReport {
 impl RetrievalReport {
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
-            "Embedding model: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
+            "Embedding model: `{}` · lexical query: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
              | strategy | recall@5 | recall@10 | MRR@10 | nDCG@10 | in context (top {}) | p50 ms | p95 ms |\n\
              |---|---|---|---|---|---|---|---|\n",
             self.embedding_model,
+            self.lexical_query,
             self.corpus_documents,
             self.answerable,
             self.unanswerable,
@@ -86,6 +88,23 @@ pub fn run_retrieval_eval(
     dataset: &[EvalQuery],
     work_dir: &Path,
 ) -> Result<RetrievalReport> {
+    run_retrieval_eval_with(
+        embedder,
+        corpus,
+        dataset,
+        work_dir,
+        RetrievalConfig::default(),
+    )
+}
+
+/// `run_retrieval_eval` with another retrieval configuration (experiments).
+pub fn run_retrieval_eval_with(
+    embedder: Arc<dyn Embedder>,
+    corpus: &Path,
+    dataset: &[EvalQuery],
+    work_dir: &Path,
+    config: RetrievalConfig,
+) -> Result<RetrievalReport> {
     let db = work_dir.join("eval.db");
     if db.exists() {
         return Err(OragError::InvalidInput(format!(
@@ -100,7 +119,7 @@ pub fn run_retrieval_eval(
         index: Arc::new(SqliteVecIndex::new(store.clone())),
         store,
         embedder: embedder.clone(),
-        config: RetrievalConfig::default(),
+        config,
     };
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]
@@ -109,6 +128,7 @@ pub fn run_retrieval_eval(
         .collect::<Result<Vec<_>>>()?;
     Ok(RetrievalReport {
         embedding_model: embedder.descriptor().model_id.clone(),
+        lexical_query: retriever.config.lexical_query.name(),
         corpus_documents,
         answerable: answerable.len(),
         unanswerable: dataset.len() - answerable.len(),
@@ -375,11 +395,30 @@ mod tests {
         assert_eq!((report.answerable, report.unanswerable), (20, 2));
         let lexical = &report.strategies[0];
         // `milli marsimiz` finds `Millî marşı` only through the circumflex
-        // fold (D-006).
-        assert!(
-            !lexical.missed_in_context.iter().any(|m| m == "ana-016"),
-            "ana-016 missed lexically: {lexical:?}"
-        );
+        // fold, `resmi dil` finds `resmî dili` only through prefix terms (D-006).
+        for id in ["ana-016", "ana-001"] {
+            assert!(
+                !lexical.missed_in_context.iter().any(|m| m == id),
+                "{id} missed lexically: {lexical:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn inflection_labels_match_the_corpus() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let dataset = load_dataset(&root.join("datasets/anayasa-cekim-tr.jsonl")).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        // Fails when a label no longer sits inside one chunk.
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            &root.join("corpus/anayasa"),
+            &dataset,
+            work.path(),
+        )
+        .unwrap();
+        assert_eq!((report.answerable, report.unanswerable), (30, 0));
+        assert_eq!(report.lexical_query, "prefix:3");
     }
 
     fn corpus(files: &[(&str, &str)]) -> tempfile::TempDir {

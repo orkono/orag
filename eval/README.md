@@ -77,6 +77,7 @@ fusion decisions has about 200 questions and must cover:
 |---|---|---|---|
 | `eval/corpus/seed` | `seed.jsonl` | 14 answerable, 2 unanswerable | harness check, release gate |
 | `eval/corpus/anayasa` | `anayasa-tr.jsonl` | 20 answerable, 2 unanswerable | Turkish recall on a long legal text: inflected forms (`resmi dil` vs `resmî dili`), the circumflex, accentless typing |
+| `eval/corpus/anayasa` | `anayasa-cekim-tr.jsonl` | 30 answerable | questions in word forms the text does not use (`mirasa` for `miras`, `kanaatini` for `kanaatlerini`) |
 
 ```bash
 orag eval retrieval --corpus eval/corpus/anayasa --dataset eval/datasets/anayasa-tr.jsonl
@@ -89,8 +90,8 @@ Türkiye as published by the Grand National Assembly
 and footnote marks included. Article 31 of Law No. 5846 (FSEK) allows statutes
 to be reproduced freely.
 
-`ana-001` (`resmi dil`) is a known miss: the evidence says `resmî dili`, and
-lexical search has no stemming, so `dil` does not find `dili` (D-006).
+`ana-001` (`resmi dil`, evidence `resmî dili`) was missed until query terms
+became prefix terms in 0.2.0-alpha.4 (D-006).
 
 ## Answer evaluation
 
