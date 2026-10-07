@@ -15,20 +15,37 @@
 </header>
 
 <main>
+  <section aria-labelledby="collection-title">
+    <h2 id="collection-title">Koleksiyon</h2>
+    <p class="hint">Yüklenen dosyalar ve sorular yalnızca seçili koleksiyonda kullanılır.</p>
+    <div class="row">
+      <label for="collection" class="inline">Seçili koleksiyon</label>
+      <select id="collection"></select>
+      <button id="collection-delete" type="button">Koleksiyonu sil</button>
+    </div>
+    <form id="collection-form">
+      <label for="collection-name">Yeni koleksiyon</label>
+      <input id="collection-name" type="text" maxlength="64" required placeholder="Örneğin: Sözleşmeler">
+      <button id="collection-create" type="submit">Koleksiyon oluştur</button>
+    </form>
+    <p class="hint">Ad: en fazla 64 harf, rakam, boşluk, "_", "." veya "-".</p>
+    <div id="collection-status" class="status" role="status" aria-live="polite"></div>
+  </section>
+
   <section aria-labelledby="upload-title">
     <h2 id="upload-title">Dosya yükle</h2>
     <form id="upload-form">
       <input id="upload-file" type="file" name="file" accept=".txt,.md,.markdown,.docx,.pdf" required>
       <button id="upload-button" type="submit">Dosya yükle</button>
     </form>
-    <p class="hint">TXT, Markdown, DOCX veya PDF. Varsayılan koleksiyona eklenir.</p>
+    <p class="hint">TXT, Markdown, DOCX veya PDF. Hedef koleksiyon: <strong id="upload-target"></strong></p>
     <div id="upload-status" class="status" role="status" aria-live="polite"></div>
   </section>
 
   <section aria-labelledby="ask-title">
     <h2 id="ask-title">Sorgu yap</h2>
     <form id="ask-form">
-      <label for="ask-text">Sorunuz</label>
+      <label for="ask-text">Sorunuz (<span id="ask-target"></span> koleksiyonunda aranır)</label>
       <textarea id="ask-text" rows="3" maxlength="2000" required placeholder="Örneğin: İade süresi kaç gündür?"></textarea>
       <button id="ask-button" type="submit">Sorgu yap</button>
     </form>

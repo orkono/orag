@@ -80,7 +80,8 @@ real port).
 `orag serve` also serves a small page on `ui_bind` and prints
 `orag ui on http://127.0.0.1:2442` as its second stdout line (the first line,
 `orag listening on ...`, is unchanged). The page uses this same API on its own
-origin: `GET /`, `/app.js` and `/app.css` are served there with
+origin (collections, uploads, jobs, queries; it adds no endpoint of its own):
+`GET /`, `/app.js`, `/app.css` and `/favicon.svg` are served there with
 `Content-Security-Policy: default-src 'self'` and
 `X-Content-Type-Options: nosniff`; the `/v1` routes answer on both ports.
 
