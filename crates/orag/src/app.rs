@@ -12,10 +12,12 @@ use crate::domain::chunker::ChunkerConfig;
 use crate::infer::fake::{FakeEmbedder, FakeGenerator};
 use crate::infer::{Embedder, Generator};
 use crate::ingest::worker::{IngestContext, spawn_worker};
-use crate::server::{AppState, serve};
+use crate::server::{AppState, serve_with_ui};
 use crate::store::Store;
 
 pub const LISTENING_PREFIX: &str = "orag listening on ";
+/// The second stdout line, printed only when the web UI is on (D-021).
+pub const UI_PREFIX: &str = "orag ui on ";
 /// After the HTTP drain, how long the worker and blocking tasks (an embedding
 /// batch, a generation inside the model) get before the process exits anyway.
 const TASK_STOP_LIMIT: Duration = Duration::from_secs(5);
@@ -36,9 +38,16 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         crate::ingest::isolate::self_executable().context("locating the orag executable")?,
     );
     // Bound before the (slow) model load, so a busy port is reported at once.
-    let listener = std::net::TcpListener::bind(config.bind)
-        .with_context(|| format!("binding {}", config.bind))?;
-    listener.set_nonblocking(true)?;
+    let listener = bind_listener(config.bind, || format!("binding {}", config.bind))?;
+    // Bound before the model load too, so a busy UI port fails at once.
+    let ui_listener = config
+        .ui_bind
+        .map(|addr| {
+            bind_listener(addr, || {
+                format!("binding the web UI to {addr} (set ui_bind in config.toml to another port or \"off\")")
+            })
+        })
+        .transpose()?;
     let store = Arc::new(Store::open(&config.db_path()).context("opening database")?);
     let requeued = store.requeue_running_jobs()?;
     if requeued > 0 {
@@ -65,6 +74,15 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes());
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0
+        let ui_listener = ui_listener.map(TcpListener::from_std).transpose()?;
+        let ui_addr = ui_listener.as_ref().map(TcpListener::local_addr).transpose()?;
+        if let Some(ui_addr) = ui_addr {
+            effective["ui_bind"] = serde_json::json!(ui_addr.to_string());
+            // The page's own origins and nothing else (D-013, D-021).
+            let mut origins = (*state.allowed_origins).clone();
+            origins.extend(crate::server::ui::origins(ui_addr));
+            state.allowed_origins = Arc::new(origins);
+        }
         state.effective_config = Arc::new(effective);
         let ingest = Arc::new(IngestContext { store, embedder, chunker: ChunkerConfig::default() });
         ingest.check()?;
@@ -74,8 +92,12 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         // signal (AppState), which `serve` starts when this future completes.
         let shutdown = shutdown_signal()?;
         let worker = spawn_worker(ingest, state.ingest_wake.clone(), state.subscribe_shutdown());
+        // The listening line stays first: the desktop sidecar and tests read it.
         crate::cli::print_stdout(&format!("{LISTENING_PREFIX}http://{local_addr}"))?;
-        serve(state, listener, shutdown).await?;
+        if let Some(ui_addr) = ui_addr {
+            crate::cli::print_stdout(&format!("{UI_PREFIX}http://{ui_addr}"))?;
+        }
+        serve_with_ui(state, listener, ui_listener, shutdown).await?;
         if tokio::time::timeout(TASK_STOP_LIMIT, worker).await.is_err() {
             tracing::warn!("the ingest worker did not stop within {TASK_STOP_LIMIT:?}; its job resumes on the next start");
         }
@@ -91,6 +113,16 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         crate::exit::exit_without_native_teardown(if served.is_ok() { 0 } else { 1 });
     }
     served
+}
+
+/// A non-blocking listener for tokio; `context` names what failed to bind.
+fn bind_listener(
+    addr: std::net::SocketAddr,
+    context: impl FnOnce() -> String,
+) -> anyhow::Result<std::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(addr).with_context(context)?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
 }
 
 /// Weak handles to the loaded models: alive only while something still uses them.

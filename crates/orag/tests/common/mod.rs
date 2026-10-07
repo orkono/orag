@@ -37,10 +37,20 @@ impl Drop for Server {
     }
 }
 
-/// A home whose config.toml asks for an ephemeral loopback port.
+/// A home whose config.toml asks for an ephemeral loopback port, without the
+/// web UI: parallel tests must not all try to take its fixed default port.
 pub fn ephemeral_home() -> tempfile::TempDir {
+    home_with_config("bind = \"127.0.0.1:0\"\nui_bind = \"off\"\n")
+}
+
+/// A home whose API and web UI both listen on ephemeral loopback ports.
+pub fn ephemeral_home_with_ui() -> tempfile::TempDir {
+    home_with_config("bind = \"127.0.0.1:0\"\nui_bind = \"127.0.0.1:0\"\n")
+}
+
+pub fn home_with_config(text: &str) -> tempfile::TempDir {
     let home = tempfile::tempdir().unwrap();
-    std::fs::write(home.path().join("config.toml"), "bind = \"127.0.0.1:0\"\n").unwrap();
+    std::fs::write(home.path().join("config.toml"), text).unwrap();
     home
 }
 
@@ -112,12 +122,17 @@ pub fn wait_with_deadline(child: &mut Child, limit: Duration) -> Option<ExitStat
 }
 
 pub fn http_get(addr: &str, path: &str, host: &str) -> String {
-    let mut stream = TcpStream::connect(addr).unwrap();
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    http_send(
+        addr,
+        &format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"),
     )
-    .unwrap();
+}
+
+/// Sends a raw HTTP/1.1 request (it must say `Connection: close`) and returns
+/// the whole response.
+pub fn http_send(addr: &str, request: &str) -> String {
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response

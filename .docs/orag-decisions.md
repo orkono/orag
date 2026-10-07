@@ -364,8 +364,8 @@ directly. Protection comes from reachability:
 - requests whose `Host` is not a loopback name or address are rejected with
   `403 forbidden_host` (DNS rebinding);
 - requests carrying an `Origin` header are rejected with `403 forbidden_origin`
-  unless allow-listed (the desktop origin is added in v0.3), so web pages in a
-  local browser cannot call it.
+  unless allow-listed (the desktop origin is added in v0.3; the built-in page's
+  own origins since D-021), so web pages in a local browser cannot call it.
 
 Request bodies are size-limited (D-019). Retrieved text is treated as
 untrusted data inside the prompt, never as instructions.
@@ -459,6 +459,7 @@ reloaded. After editing it, restart the application. Keys:
 | Key | Default | Rule |
 |---|---|---|
 | `bind` | `127.0.0.1:7613` | loopback IP:port only |
+| `ui_bind` | `127.0.0.1:2442` | loopback IP:port of the built-in page (D-021), or `"off"` |
 | `max_document_mb` | `5` | integer 1–10; the next milestone raises the default to 10; values above 10 are not supported |
 | `embedding_model` | `qwen3-embedding-0.6b-q8_0` | installed model pack id |
 | `generation_model` | `qwen3.5-4b-q4_k_m` | installed model pack id |
@@ -536,6 +537,49 @@ not searchable.
 The owner authorized commit, merge into `main` and push for this repository
 only (2026-10-01). This repository-scoped grant overrides the owner's general
 "never commit/push" policy here and nowhere else.
+
+## D-021 — Built-in web page on a second loopback port (owner decision, 2026-10-07)
+
+**Decision.** `orag serve` also serves a minimal page (upload a file to the
+default collection and follow its job; ask a question and stream the answer
+with its sources) on a second loopback listener, `ui_bind` (default
+`127.0.0.1:2442`, `"off"` disables it). Same process, same `AppState`: the
+UI listener serves `GET /`, `/app.js`, `/app.css` plus the whole `/v1` API,
+so the page calls the API on its own origin. The API listener does not serve
+the page.
+
+- **Origins (D-013).** Browsers send `Origin` on same-origin POSTs, so the
+  page's origins must be allowed. `allowed_origins` holds exactly
+  `http://<bound ui address>` and `http://localhost:<bound ui port>`, taken
+  from the bound address (so also with port `0`); with the UI off it stays
+  empty. Every other origin still gets `403 forbidden_origin`, and Host checks
+  apply on both listeners. No credentials are added: the page has the same
+  access as any local process.
+- **Assets.** Plain HTML, CSS and one script, embedded with `include_str!`; no
+  framework, build step or network resource (D-012). Served with
+  `Content-Security-Policy: default-src 'self'` (no inline script),
+  `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY`. Document text
+  is untrusted and rendered with `textContent` only.
+- **Startup and shutdown.** The UI port is bound before the models load, like
+  `bind`; a busy port stops startup with an error naming `ui_bind`. So a
+  second instance (another home) needs its own `ui_bind` or `"off"`, as it
+  already needs its own `bind`. One shutdown signal stops both listeners
+  within the existing 10 s drain.
+- **Links.** A cross-site `GET` without `Origin` stays `403` for the API, but
+  the page's static files (no data) may be opened from a link on another
+  site. Only the page's own origins are trusted, including
+  `http://localhost:<port>`: whatever answers there is a local process, which
+  can already call the API directly (D-013).
+- **Stdout (D-016).** The first line stays `orag listening on http://...`;
+  `orag ui on http://...` follows only when the UI is on. The desktop sidecar
+  reads only the first line; it should write `ui_bind = "off"` (or port `0`)
+  into its own `config.toml` so it never competes for port 2442.
+
+**Why a second port, not the API port.** A page on the API port would make
+the API's own origin a trusted web origin for every client of `bind`
+(including the desktop's fixed port); a separate listener keeps the allowed
+origin tied to the page alone and lets users turn it off without touching the
+API.
 
 ---
 

@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.7] - 2026-10-07
+
+- Built-in web page (D-021): `orag serve` also serves a small page on `ui_bind` (default `http://127.0.0.1:2442`, `"off"` disables it). *Dosya yükle* uploads a TXT/Markdown/DOCX/PDF file to the default collection and follows its indexing; *Sorgu yap* streams the answer, then shows the sources and an abstention notice. Plain HTML/CSS/JS embedded in the binary, `Content-Security-Policy: default-src 'self'`, nothing loaded from the network.
+- New config key `ui_bind` (loopback only, bound before the models load; a busy port stops startup). `GET /v1/version` reports it with the real port. stdout gets a second line, `orag ui on http://...`, after the unchanged `orag listening on ...` line.
+- The API now accepts exactly the page's own origins (`http://<ui address>`, `http://localhost:<ui port>`); every other origin still gets `403 forbidden_origin`. With `ui_bind = "off"` no origin is accepted, as before.
+
 ## [0.2.0-alpha.6] - 2026-10-06
 
 - Project icon: a sickle (*orak*, the name's origin) on a cream rounded square. `assets/orag-icon.svg` is the source; `assets/orag-icon-512.png` and `assets/orag-icon-256.png` are renders of it for places that need a bitmap (GitHub social preview, organization avatar, the v0.3 desktop app), written by `scripts/render-icon.sh` (`--check` fails if they are stale). The README shows the icon at the top, and release tarballs include `assets/orag-icon.svg` so the packaged README shows it too.

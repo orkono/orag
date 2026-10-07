@@ -174,6 +174,122 @@ fn a_busy_port_is_reported_before_models_load() {
     assert!(stderr.contains(&format!("binding {bind}")), "{stderr}");
 }
 
+/// Starts a server with the web UI on; returns it with the API and UI addresses.
+fn start_server_with_ui() -> (tempfile::TempDir, Server, String, String) {
+    let home = ephemeral_home_with_ui();
+    let (server, addr) = start_server(home.path());
+    let line = server
+        .stdout
+        .recv_timeout(PROCESS_LIMIT)
+        .unwrap_or_else(|_| panic!("no ui line; stderr: {}", server.stderr()));
+    let ui = line
+        .strip_prefix("orag ui on http://")
+        .unwrap_or_else(|| panic!("unexpected second line: {line}"))
+        .to_string();
+    (home, server, addr, ui)
+}
+
+fn query_with_origin(addr: &str, origin: &str) -> String {
+    let body = r#"{"query":"iade"}"#;
+    http_send(
+        addr,
+        &format!(
+            "POST /v1/collections/1/query HTTP/1.1\r\nHost: {addr}\r\nOrigin: {origin}\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ),
+    )
+}
+
+#[test]
+fn serve_prints_the_ui_line_after_the_api_line_and_serves_the_page() {
+    let (_home, _server, addr, ui) = start_server_with_ui();
+    assert_ne!(addr, ui);
+    let page = http_get(&ui, "/", &ui);
+    assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+    assert!(
+        page.contains("content-security-policy: default-src 'self'"),
+        "{page}"
+    );
+    assert!(page.contains("<!doctype html>"), "{page}");
+    assert!(http_get(&ui, "/app.js", &ui).starts_with("HTTP/1.1 200"));
+    assert!(http_get(&ui, "/", "evil.example").starts_with("HTTP/1.1 403"));
+    let version = http_get(&addr, "/v1/version", &addr);
+    assert!(
+        version.contains(&format!("\"ui_bind\":\"{ui}\"")),
+        "reports the real UI port: {version}"
+    );
+}
+
+#[test]
+fn the_page_may_call_the_api_and_other_origins_may_not() {
+    let (_home, _server, _addr, ui) = start_server_with_ui();
+    let port = ui.rsplit(':').next().unwrap();
+    for origin in [format!("http://{ui}"), format!("http://localhost:{port}")] {
+        let reply = query_with_origin(&ui, &origin);
+        assert!(reply.starts_with("HTTP/1.1 200"), "{origin}: {reply}");
+    }
+    for origin in ["https://evil.example", "http://localhost:7613", "null"] {
+        let reply = query_with_origin(&ui, origin);
+        assert!(reply.starts_with("HTTP/1.1 403"), "{origin}: {reply}");
+        assert!(reply.contains("forbidden_origin"), "{origin}: {reply}");
+    }
+}
+
+#[test]
+fn ui_off_prints_only_the_api_line() {
+    let home = ephemeral_home();
+    let (server, addr) = start_server(home.path());
+    assert!(http_get(&addr, "/v1/health", &addr).starts_with("HTTP/1.1 200"));
+    assert!(
+        server
+            .stdout
+            .recv_timeout(std::time::Duration::from_millis(300))
+            .is_err(),
+        "no ui line when ui_bind = \"off\""
+    );
+    assert!(http_get(&addr, "/v1/version", &addr).contains("\"ui_bind\":\"off\""));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_signal_stops_both_listeners() {
+    let (_home, mut server, _addr, ui) = start_server_with_ui();
+    // An idle keep-alive connection on the UI port must not hold up the exit.
+    let mut idle = std::net::TcpStream::connect(&ui).unwrap();
+    std::io::Write::write_all(
+        &mut idle,
+        format!("GET /app.css HTTP/1.1\r\nHost: {ui}\r\n\r\n").as_bytes(),
+    )
+    .unwrap();
+    assert!(orag_kill("-TERM", &server.child.id().to_string()).success());
+    let status = wait_with_deadline(&mut server.child, PROCESS_LIMIT)
+        .unwrap_or_else(|| panic!("still running; stderr: {}", server.stderr()));
+    assert!(status.success(), "{status}; stderr: {}", server.stderr());
+    let extra: Vec<String> = server.stdout.iter().collect();
+    assert!(extra.is_empty(), "more stdout after the ui line: {extra:?}");
+}
+
+#[test]
+fn a_busy_ui_port_is_reported_before_models_load() {
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let ui = taken.local_addr().unwrap();
+    let home = home_with_config(&format!("bind = \"127.0.0.1:0\"\nui_bind = \"{ui}\"\n"));
+    // No models are installed: binding must fail first, not the model load.
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .arg("serve")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(&format!("binding the web UI to {ui}")),
+        "{stderr}"
+    );
+    assert!(stderr.contains("ui_bind"), "says how to fix it: {stderr}");
+}
+
 #[test]
 fn second_instance_on_the_same_home_is_refused() {
     let home = ephemeral_home();
