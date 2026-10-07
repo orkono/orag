@@ -171,6 +171,14 @@ fn space_exists(conn: &rusqlite::Connection, space_id: i64) -> Result<bool> {
     )?)
 }
 
+fn collection_exists(conn: &rusqlite::Connection, collection_id: CollectionId) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM collections WHERE id = ?1)",
+        [collection_id],
+        |r| r.get(0),
+    )?)
+}
+
 /// Exact k-NN over sqlite-vec `vec0` (brute force in 0.1.9).
 pub struct SqliteVecIndex {
     store: Arc<Store>,
@@ -211,12 +219,17 @@ impl VectorIndex for SqliteVecIndex {
         );
         let mut stmt = match conn.prepare(&sql) {
             Ok(stmt) => stmt,
-            // The collection was deleted after `query_space`, taking its space with it.
+            // The space was dropped after `query_space`: the collection was
+            // deleted (404), or reindexed and has no vectors yet (no hits).
             Err(_) if !space_exists(&conn, space.id)? => {
-                return Err(OragError::NotFound {
-                    kind: "collection",
-                    id: collection_id,
-                });
+                return if collection_exists(&conn, collection_id)? {
+                    Ok(Vec::new())
+                } else {
+                    Err(OragError::NotFound {
+                        kind: "collection",
+                        id: collection_id,
+                    })
+                };
             }
             Err(e) => return Err(e.into()),
         };
@@ -673,6 +686,26 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn searching_a_space_dropped_by_a_reindex_finds_nothing() {
+        let (_dir, store) = temp_store();
+        let store = Arc::new(store);
+        let other = store.create_collection("other").unwrap();
+        index(
+            &store,
+            other.id,
+            "doc",
+            &[chunk(0, "a", [1.0, 0.0, 0.0, 0.0])],
+        );
+        let space = store.query_space(other.id, &desc("m")).unwrap().unwrap();
+        // The document is ready (published), so the reindex drops the space.
+        store.reindex_collection(other.id).unwrap();
+        let hits = SqliteVecIndex::new(store)
+            .search(&space, other.id, &[1.0, 0.0, 0.0, 0.0], 5)
+            .unwrap();
+        assert!(hits.is_empty(), "{hits:?}");
     }
 
     #[test]

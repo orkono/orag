@@ -162,6 +162,10 @@ fn api_routes(state: &AppState) -> Router<AppState> {
             "/v1/collections/{collection_id}/documents/{document_id}",
             get(documents::get_one).delete(documents::remove),
         )
+        .route(
+            "/v1/collections/{collection_id}/reindex",
+            post(collections::reindex),
+        )
         .route("/v1/jobs/{job_id}", get(jobs::get_one))
         .route("/v1/collections/{collection_id}/query", post(query::query))
 }

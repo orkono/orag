@@ -35,25 +35,40 @@ function el(tag, text, className) {
   return node;
 }
 
-/** A readable message for a failed response: the API's `{error:{code,message}}` if any. */
-async function errorText(response) {
+/**
+ * An Error for a failed response, with a readable message from the API's
+ * `{error:{code,message}}` if any, and `status` and `code` to act on.
+ */
+async function apiError(response) {
   let detail = response.statusText;
+  let code = null;
   try {
     const body = await response.json();
-    if (body && body.error) detail = `${body.error.message} (${body.error.code})`;
+    if (body && body.error) {
+      code = body.error.code;
+      detail = `${body.error.message} (${code})`;
+    }
   } catch {
     // Not JSON: keep the status text.
   }
-  return `HTTP ${response.status}: ${detail}`;
+  const err = new Error(`HTTP ${response.status}: ${detail}`);
+  err.status = response.status;
+  err.code = code;
+  return err;
+}
+
+const REINDEX_HINT =
+  "Bu koleksiyon başka bir modelle indekslenmiş. Koleksiyon bölümündeki " +
+  "\"Yeniden indeksle\" düğmesiyle belgeleri mevcut modelle yeniden işleyin.";
+
+/** The message to show for an error, with a way out where there is one. */
+function explain(code, message) {
+  return code === "reindex_required" ? `${message}\n${REINDEX_HINT}` : message;
 }
 
 async function getJson(path) {
   const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) {
-    const err = new Error(await errorText(response));
-    err.status = response.status;
-    throw err;
-  }
+  if (!response.ok) throw await apiError(response);
   return response.json();
 }
 
@@ -113,6 +128,7 @@ function onCollectionChanged() {
   $("ask-target").textContent = name;
   $("documents-target").textContent = name;
   $("collection-delete").disabled = !current || current.name === DEFAULT_COLLECTION;
+  $("collection-reindex").disabled = !current;
   if (current) prefer(current.id);
   // Only another collection reloads the table: a refresh of the same one
   // (new counts) keeps the pages the user has opened.
@@ -158,7 +174,7 @@ async function createCollection(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    if (!response.ok) throw new Error(await errorText(response));
+    if (!response.ok) throw await apiError(response);
     const created = await response.json();
     $("collection-name").value = "";
     prefer(created.id);
@@ -185,7 +201,7 @@ async function deleteCollection() {
       `"${latest.name}" koleksiyonu ve içindeki ${latest.document_count} belge kalıcı olarak silinsin mi?`;
     if (!window.confirm(question)) return;
     const response = await fetch(`/v1/collections/${current.id}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await errorText(response));
+    if (!response.ok) throw await apiError(response);
     prefer(null);
     resetAnswer();
     showCollectionStatus(`"${current.name}" silindi.`, "ok");
@@ -195,6 +211,32 @@ async function deleteCollection() {
     onCollectionChanged(); // re-enables the button
     // After success or failure (e.g. deleted elsewhere): show what exists now.
     await refreshCollections();
+  }
+}
+
+async function reindexCollection() {
+  const current = selectedCollection();
+  if (!current) return;
+  const question =
+    `"${current.name}" koleksiyonundaki belgeler saklanan kopyalarından mevcut modelle ` +
+    "yeniden işlensin mi? Bitene kadar sorular eksik yanıt verebilir; dosyaları yeniden yüklemeniz gerekmez.";
+  if (!window.confirm(question)) return;
+  const button = $("collection-reindex");
+  button.disabled = true;
+  try {
+    const response = await fetch(`/v1/collections/${current.id}/reindex`, { method: "POST" });
+    if (!response.ok) throw await apiError(response);
+    const result = await response.json();
+    resetAnswer();
+    showCollectionStatus(
+      `"${current.name}": ${result.queued_documents} belge yeniden indeksleme için sıraya alındı.`,
+      "ok",
+    );
+    refreshDocuments();
+  } catch (err) {
+    showCollectionStatus(err.message, "failed");
+  } finally {
+    onCollectionChanged(); // re-enables the button
   }
 }
 
@@ -218,37 +260,57 @@ function formatSize(bytes) {
   return `${value.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} ${units[unit]}`;
 }
 
+/** The document each row shows; rows are updated in place. */
+const rowDocs = new WeakMap();
+/** Documents deleted from this page: a late update must not bring them back. */
+const deletedIds = new Set();
+/** Documents an upload panel already polls; the table watcher skips them. */
+const followedIds = new Set();
+
 function documentRow(collection, doc) {
   const row = el("tr");
   row.dataset.id = String(doc.id);
-  const name = el("td", documentName(doc), "name");
-  for (const warning of doc.warnings || []) name.append(el("div", warning, "warning"));
-  if (doc.error) name.append(el("div", doc.error, "failed"));
-  const [status, statusClass] = documentStatusView(doc);
   const remove = el("button", "Sil");
   remove.type = "button";
-  remove.addEventListener("click", () => deleteDocument(collection, doc, row, remove));
+  remove.addEventListener("click", () => deleteDocument(collection, row, remove));
   const action = el("td");
   action.append(remove);
-  row.append(
-    name,
-    el("td", status, statusClass),
-    el("td", String(doc.chunk_count), "number"),
-    el("td", formatSize(doc.size_bytes), "number"),
-    action,
-  );
+  row.append(el("td", "", "name"), el("td"), el("td", "", "number"), el("td", "", "number"), action);
+  fillDocumentRow(row, doc);
   return row;
 }
 
+/** Writes a document into its row, keeping the row and its button. */
+function fillDocumentRow(row, doc) {
+  rowDocs.set(row, doc);
+  if (doc.status === "queued" || doc.status === "indexing") row.dataset.unfinished = "";
+  else delete row.dataset.unfinished;
+  const [name, status, chunks, size] = row.cells;
+  name.replaceChildren(documentName(doc));
+  for (const warning of doc.warnings || []) name.append(el("div", warning, "warning"));
+  if (doc.error) name.append(el("div", doc.error, "failed"));
+  const [label, statusClass] = documentStatusView(doc);
+  status.textContent = label;
+  status.className = statusClass;
+  chunks.textContent = String(doc.chunk_count);
+  size.textContent = formatSize(doc.size_bytes);
+}
+
 /**
- * Shows a document's latest state (upload progress): replaces its row, or
+ * Shows a document's latest state (upload progress): updates its row, or
  * appends it when the table already shows the end of the list (ids ascend).
  */
 function updateDocumentRow(collection, doc) {
-  if (collection.id !== documentsOf) return;
+  if (collection.id !== documentsOf || deletedIds.has(doc.id)) return;
   const row = $("documents").querySelector(`tr[data-id="${Number(doc.id)}"]`);
-  if (row) row.replaceWith(documentRow(collection, doc));
+  if (row) fillDocumentRow(row, doc);
   else if (documentsAfter == null) $("documents").append(documentRow(collection, doc));
+  showDocumentsEmpty();
+}
+
+function removeDocumentRow(id) {
+  deletedIds.add(id);
+  $("documents").querySelector(`tr[data-id="${Number(id)}"]`)?.remove();
   showDocumentsEmpty();
 }
 
@@ -306,7 +368,33 @@ function refreshDocuments() {
   loadDocuments(true);
 }
 
-async function deleteDocument(collection, doc, row, button) {
+/** Rows still queued or indexing are refreshed until they finish. */
+const WATCH_LIMIT = 10;
+
+async function watchUnfinishedDocuments() {
+  const collection = selectedCollection();
+  if (collection && collection.id === documentsOf && !document.hidden) {
+    const ids = [...$("documents").querySelectorAll("tr[data-unfinished]")]
+      .map((row) => Number(row.dataset.id))
+      .filter((id) => !followedIds.has(id))
+      .slice(0, WATCH_LIMIT);
+    const results = await Promise.allSettled(
+      ids.map((id) => getJson(`/v1/collections/${collection.id}/documents/${id}`)),
+    );
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") updateDocumentRow(collection, result.value);
+      else if (result.reason.status === 404) removeDocumentRow(ids[i]);
+      // Other errors: try again on the next tick.
+    });
+    if (ids.length > 0 && $("documents").querySelector("tr[data-unfinished]") === null) {
+      await refreshCollections(); // e.g. a finished reindex
+    }
+  }
+  setTimeout(watchUnfinishedDocuments, POLL_MS * 2);
+}
+
+async function deleteDocument(collection, row, button) {
+  const doc = rowDocs.get(row);
   const question = `"${documentName(doc)}" belgesi "${collection.name}" koleksiyonundan kalıcı olarak silinsin mi?`;
   if (!window.confirm(question)) return;
   button.disabled = true;
@@ -315,15 +403,14 @@ async function deleteDocument(collection, doc, row, button) {
     const path = `/v1/collections/${collection.id}/documents/${doc.id}`;
     const response = await fetch(path, { method: "DELETE" });
     // 404: already deleted elsewhere, which is the wanted result too.
-    if (!response.ok && response.status !== 404) throw new Error(await errorText(response));
+    if (!response.ok && response.status !== 404) throw await apiError(response);
   } catch (err) {
     $("documents-status").textContent = err.message;
     button.disabled = false;
     return;
   }
   // Removed in place, so the pages the user has opened stay open.
-  row.remove();
-  showDocumentsEmpty();
+  removeDocumentRow(doc.id);
   await refreshCollections(); // new document count
 }
 
@@ -345,9 +432,12 @@ function renderProgress(filename, collection, doc, job, note) {
     ["Koleksiyon", collection.name],
     ["Durum", ...documentStatusView(doc)],
   ];
-  if (job) rows.push(["İş", `#${job.id} ${JOB_STATUS[job.status] || job.status}`]);
+  // A job that failed while its document went on (replaced by a reindex)
+  // says nothing about the document: only the document's state is shown.
+  const shownJob = job && !(job.status === "failed" && doc.status !== "failed") ? job : null;
+  if (shownJob) rows.push(["İş", `#${shownJob.id} ${JOB_STATUS[shownJob.status] || shownJob.status}`]);
   if (finished) rows.push(["Parça sayısı", String(doc.chunk_count)]);
-  const error = doc.error || (job && job.error);
+  const error = doc.error || (shownJob && shownJob.error);
   if (error) rows.push(["Hata", error, "failed"]);
   const extra = [];
   if (note) extra.push(el("p", note, "hint"));
@@ -365,6 +455,15 @@ async function followUpload(filename, collection, accepted) {
   const note = accepted.duplicate ? "Bu dosya bu koleksiyonda zaten var." : "";
   const docPath = `/v1/collections/${collection.id}/documents/${accepted.document_id}`;
   const jobPath = accepted.job_id == null ? null : `/v1/jobs/${accepted.job_id}`;
+  followedIds.add(accepted.document_id);
+  try {
+    await pollUpload(filename, collection, note, docPath, jobPath);
+  } finally {
+    followedIds.delete(accepted.document_id);
+  }
+}
+
+async function pollUpload(filename, collection, note, docPath, jobPath) {
   let job = null;
   for (;;) {
     const jobFinal = job && (job.status === "succeeded" || job.status === "failed");
@@ -406,11 +505,11 @@ async function upload(event) {
       method: "POST",
       body: form,
     });
-    if (!response.ok) throw new Error(await errorText(response));
+    if (!response.ok) throw await apiError(response);
     const accepted = await response.json();
     await followUpload(file.name, collection, accepted);
   } catch (err) {
-    showUpload([["Dosya", file.name], target, ["Hata", err.message, "failed"]]);
+    showUpload([["Dosya", file.name], target, ["Hata", explain(err.code, err.message), "failed"]]);
   } finally {
     button.disabled = false;
   }
@@ -493,7 +592,10 @@ function handleEvent({ event, data }) {
       }
       return true;
     case "error":
-      $("ask-error").textContent = `${data.error.message} (${data.error.code})`;
+      $("ask-error").textContent = explain(
+        data.error.code,
+        `${data.error.message} (${data.error.code})`,
+      );
       return true;
     default:
       return false;
@@ -537,7 +639,7 @@ async function ask(event) {
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify({ query, stream: true }),
     });
-    if (!response.ok) throw new Error(await errorText(response));
+    if (!response.ok) throw await apiError(response);
     $("answer-block").hidden = false;
     let complete = false;
     for await (const record of sseEvents(response.body)) {
@@ -549,7 +651,7 @@ async function ask(event) {
     }
     if (!complete) throw new Error("Bağlantı kesildi; yanıt tamamlanmadı.");
   } catch (err) {
-    if (!controller.signal.aborted) $("ask-error").textContent = err.message;
+    if (!controller.signal.aborted) $("ask-error").textContent = explain(err.code, err.message);
   } finally {
     if (activeQuery === controller) activeQuery = null;
     button.disabled = false;
@@ -564,6 +666,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("collection-form").addEventListener("submit", createCollection);
   $("collection-delete").addEventListener("click", deleteCollection);
+  $("collection-reindex").addEventListener("click", reindexCollection);
   $("upload-form").addEventListener("submit", upload);
   $("ask-form").addEventListener("submit", ask);
   $("documents-more").addEventListener("click", () => {
@@ -573,4 +676,5 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
   refreshCollections();
+  watchUnfinishedDocuments();
 });

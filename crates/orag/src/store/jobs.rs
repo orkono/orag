@@ -124,6 +124,20 @@ impl Store {
         })
     }
 
+    /// Whether the claim on `job_id` still stands: a reindex closes open jobs
+    /// (D-022), and a deleted document takes its jobs with it.
+    pub fn job_is_running(&self, job_id: JobId) -> Result<bool> {
+        let conn = self.read()?;
+        Ok(conn
+            .query_row(
+                "SELECT status = 'running' FROM jobs WHERE id = ?1",
+                [job_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(false))
+    }
+
     /// Restart recovery: jobs left `running` by a crash go back to `queued`.
     pub fn requeue_running_jobs(&self) -> Result<usize> {
         self.write(|conn| {

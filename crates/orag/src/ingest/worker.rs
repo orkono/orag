@@ -3,7 +3,7 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
@@ -22,6 +22,48 @@ use crate::store::publish::{PreparedChunk, PublishOutcome};
 pub const NO_TEXT_WARNING: &str = "no_text: the document contains no extractable text";
 const EMBED_BATCH: usize = 16;
 const IDLE_POLL: Duration = Duration::from_secs(5);
+/// How often a running job checks that its claim still stands.
+const CLAIM_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Notices, between embedding batches and while a parser runs, that a reindex
+/// closed the job (D-022), so its work stops early instead of being discarded
+/// at publish. Store errors count as "still running": publish decides then.
+struct ClaimCheck<'a> {
+    store: &'a Store,
+    job_id: i64,
+    last: std::cell::Cell<Option<Instant>>,
+    lost: std::cell::Cell<bool>,
+}
+
+impl<'a> ClaimCheck<'a> {
+    fn new(store: &'a Store, job_id: i64) -> Self {
+        ClaimCheck {
+            store,
+            job_id,
+            last: Default::default(),
+            lost: Default::default(),
+        }
+    }
+
+    /// True once the job is no longer `running`; checks the store at most
+    /// every `CLAIM_CHECK_INTERVAL`.
+    fn lost(&self) -> bool {
+        if self.lost.get() {
+            return true;
+        }
+        if self
+            .last
+            .get()
+            .is_some_and(|at| at.elapsed() < CLAIM_CHECK_INTERVAL)
+        {
+            return false;
+        }
+        self.last.set(Some(Instant::now()));
+        let lost = matches!(self.store.job_is_running(self.job_id), Ok(false));
+        self.lost.set(lost);
+        lost
+    }
+}
 
 pub struct IngestContext {
     pub store: Arc<Store>,
@@ -177,13 +219,22 @@ fn run_once_until(ctx: &IngestContext, stop: &dyn Fn() -> bool) -> Result<bool> 
     let Some(job) = ctx.store.claim_next_job()? else {
         return Ok(false);
     };
-    let outcome =
-        catch_unwind(AssertUnwindSafe(|| process_until(ctx, &job, stop))).unwrap_or_else(|_| {
+    let claim = ClaimCheck::new(&ctx.store, job.id);
+    let stop_or_lost = || stop() || claim.lost();
+    let outcome = catch_unwind(AssertUnwindSafe(|| process_until(ctx, &job, &stop_or_lost)))
+        .unwrap_or_else(|_| {
             Err(OragError::Internal(format!(
                 "ingest job {} panicked",
                 job.id
             )))
         });
+    if claim.lost.get() {
+        info!(
+            job = job.id,
+            "job no longer claimed (document deleted or reindexed); stopped"
+        );
+        return Ok(true);
+    }
     match outcome {
         Ok(None) => info!(job = job.id, "shutting down; job resumes on the next start"),
         Ok(Some(PublishOutcome::Published { chunk_count })) => {
@@ -195,7 +246,10 @@ fn run_once_until(ctx: &IngestContext, stop: &dyn Fn() -> bool) -> Result<bool> 
             );
         }
         Ok(Some(PublishOutcome::Discarded)) => {
-            info!(job = job.id, "document deleted during indexing; discarded")
+            info!(
+                job = job.id,
+                "document deleted or job superseded during indexing; discarded"
+            )
         }
         Err(OragError::Interrupted) => info!(
             job = job.id,
@@ -454,6 +508,58 @@ mod tests {
         let doc = store.get_document(1, e.document_id).unwrap();
         assert_eq!(doc.status, DocumentStatus::Failed);
         assert!(doc.error.unwrap().contains("reindex"));
+    }
+
+    #[test]
+    fn reindex_waits_for_indexing_then_reuses_the_stored_source() {
+        let (_dir, store) = temp();
+        let old = IngestContext {
+            store: store.clone(),
+            embedder: Arc::new(Renamed::new("previous-model")),
+            chunker: ChunkerConfig::default(),
+        };
+        let first = enqueue(&store, SourceFormat::Markdown, DOC.as_bytes());
+        assert!(run_once(&old).unwrap());
+        let second = enqueue(&store, SourceFormat::PlainText, b"Kargo ucretsizdir.");
+        assert!(
+            matches!(store.reindex_collection(1), Err(OragError::Conflict(_))),
+            "a queued document blocks a reindex"
+        );
+        assert!(run_once(&old).unwrap());
+        assert_eq!(store.reindex_collection(1).unwrap(), 2);
+        let current = context(store.clone());
+        while run_once(&current).unwrap() {}
+        for id in [first.document_id, second.document_id] {
+            let doc = store.get_document(1, id).unwrap();
+            assert_eq!(doc.status, DocumentStatus::Ready, "{doc:?}");
+            assert!(doc.chunk_count > 0);
+        }
+        assert!(
+            store
+                .query_space(1, current.embedder.descriptor())
+                .unwrap()
+                .is_some(),
+            "the collection follows the current model"
+        );
+        let conn = store.read().unwrap();
+        let spaces: i64 = conn
+            .query_row("SELECT COUNT(*) FROM embedding_spaces", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(spaces, 1, "the old space was dropped");
+    }
+
+    #[test]
+    fn a_lost_claim_is_noticed() {
+        let (_dir, store) = temp();
+        let e = enqueue(&store, SourceFormat::Markdown, DOC.as_bytes());
+        let job = store.claim_next_job().unwrap().unwrap();
+        let claim = ClaimCheck::new(&store, job.id);
+        assert!(!claim.lost());
+        // Deleting the document while it is indexed takes its job with it.
+        store.delete_document(1, e.document_id).unwrap();
+        assert!(!claim.lost(), "checked at most every CLAIM_CHECK_INTERVAL");
+        claim.last.set(None);
+        assert!(claim.lost());
     }
 
     #[test]

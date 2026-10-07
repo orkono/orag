@@ -2,7 +2,8 @@
 
 use std::time::Duration;
 
-use axum::http::{StatusCode, header};
+use axum::body::Body;
+use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use orag::infer::fake::FakeGenerator;
 use orag::server::router;
@@ -10,7 +11,8 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use crate::support::{
-    TestApp, app, app_with, drain_jobs, index_with_previous_model, json_request, send, send_full,
+    TestApp, app, app_with, drain_jobs, get, index_with_previous_model, json_request, local, send,
+    send_full,
 };
 
 async fn seed(app: &TestApp) {
@@ -150,6 +152,83 @@ async fn embedding_model_change_requires_reindex() {
         (status, body["error"]["code"].clone()),
         (StatusCode::CONFLICT, json!("reindex_required"))
     );
+}
+
+#[tokio::test]
+async fn reindex_rebuilds_a_collection_with_the_current_model() {
+    let app = app();
+    let collection = app.state.store.create_collection("x").unwrap();
+    index_with_previous_model(&app, collection.id);
+    let query = format!("/v1/collections/{}/query", collection.id);
+    let reindex = format!("/v1/collections/{}/reindex", collection.id);
+    let (status, body) = send(
+        &app,
+        local(Request::post(&reindex)).body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(
+        body,
+        json!({"collection_id": collection.id, "queued_documents": 1})
+    );
+    // Queued again from the stored source: same document, no new upload.
+    let (_, listed) = send(
+        &app,
+        get(&format!("/v1/collections/{}/documents", collection.id)),
+    )
+    .await;
+    assert_eq!(listed["documents"][0]["status"], "queued");
+    assert_eq!(listed["documents"][0]["chunk_count"], 0);
+    drain_jobs(&app);
+    let (_, listed) = send(
+        &app,
+        get(&format!("/v1/collections/{}/documents", collection.id)),
+    )
+    .await;
+    assert_eq!(listed["documents"][0]["status"], "ready", "{listed}");
+    let (status, body) = send(
+        &app,
+        json_request("POST", &query, json!({"query": "metin"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["sources"][0]["filename"], "a.md", "{body}");
+}
+
+#[tokio::test]
+async fn reindex_of_unknown_or_empty_collections() {
+    let app = app();
+    let unknown = local(Request::post("/v1/collections/99/reindex"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, unknown).await.0, StatusCode::NOT_FOUND);
+    let empty = local(Request::post("/v1/collections/1/reindex"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&app, empty).await;
+    assert_eq!(
+        (status, body["queued_documents"].clone()),
+        (StatusCode::ACCEPTED, json!(0))
+    );
+    // Not while a document is still waiting to be indexed.
+    let doc = json!({"filename": "a.md", "content": "# A\n\nmetin"});
+    send(
+        &app,
+        json_request("POST", "/v1/collections/1/documents", doc),
+    )
+    .await;
+    let busy = local(Request::post("/v1/collections/1/reindex"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&app, busy).await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::CONFLICT, json!("conflict"))
+    );
+    let wrong = local(Request::get("/v1/collections/1/reindex"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, wrong).await.0, StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]

@@ -102,7 +102,9 @@ that was interrupted resumes on the next start.
 
 Open **<http://127.0.0.1:2442>** in a browser for the built-in page. *Koleksiyon*
 selects the collection to work in, creates a new one or deletes the selected
-one (with its documents; the `default` collection stays). *Belgeler* lists
+one (with its documents; the `default` collection stays) or reindexes it
+with the current model (*Yeniden indeksle*, e.g. after `409 reindex_required`;
+no new upload needed). *Belgeler* lists
 the documents of the selected collection (status, chunks, size, warnings) and
 deletes one after a confirmation. *Dosya yükle*
 uploads a TXT, Markdown, DOCX or PDF file to the selected collection and shows
@@ -148,7 +150,7 @@ Before upgrading, pin `embedding_model` and `generation_model` in
 `config.toml`, so a new default cannot change the models you indexed with.
 Read the **Upgrade note** bullets in `CHANGELOG.md`: a release that changes the
 embedding space says so, and collections indexed before it then answer
-`409 reindex_required` (see [`docs/api.md`](docs/api.md) for recovery in v0.1).
+`409 reindex_required`; reindex the collection (`POST /v1/collections/{id}/reindex` or *Yeniden indeksle* in the page; see [`docs/api.md`](docs/api.md)).
 
 ## Limits
 

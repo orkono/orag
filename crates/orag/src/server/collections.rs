@@ -33,6 +33,22 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
+/// Queues every document of the collection again from its stored source, so
+/// it is indexed with the current model (D-022). `202`: the work runs in the
+/// background; follow it through the documents.
+pub async fn reindex(
+    State(state): State<AppState>,
+    ApiPath(collection_id): ApiPath<i64>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let store = state.store.clone();
+    let queued = blocking(move || store.reindex_collection(collection_id)).await?;
+    state.ingest_wake.notify_one();
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "collection_id": collection_id, "queued_documents": queued })),
+    ))
+}
+
 pub async fn remove(
     State(state): State<AppState>,
     ApiPath(collection_id): ApiPath<i64>,

@@ -35,7 +35,7 @@ button:disabled { cursor: progress; opacity: 0.6; }
 .status { margin-top: 0.75rem; }
 .status dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; margin: 0; }
 .status dt { color: #6b665c; }
-.status dd { margin: 0; }
+.status dd { margin: 0; white-space: pre-wrap; }
 .error { color: #a1260d; margin-top: 0.75rem; white-space: pre-wrap; }
 .ok { color: #1d6b2f; }
 .failed { color: #a1260d; }
