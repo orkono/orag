@@ -14,6 +14,11 @@ pub const CONFIG_FILE: &str = "config.toml";
 pub const DB_FILE: &str = "orag.db";
 pub const DEFAULT_PORT: u16 = 7613;
 pub const DEFAULT_BIND: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), DEFAULT_PORT);
+pub const DEFAULT_UI_PORT: u16 = 2442;
+pub const DEFAULT_UI_BIND: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), DEFAULT_UI_PORT);
+/// `ui_bind` value that turns the built-in web UI off.
+pub const UI_OFF: &str = "off";
 pub const DEFAULT_MAX_DOCUMENT_MB: u32 = 5;
 pub const MAX_DOCUMENT_MB_LIMIT: u32 = 10;
 pub const DEFAULT_EMBEDDING_MODEL: &str = "qwen3-embedding-0.6b-q8_0";
@@ -30,6 +35,10 @@ pub const DEFAULT_CONFIG_TOML: &str = r#"# ORAG configuration.
 # Loopback address the HTTP API listens on (127.0.0.1 or ::1 only).
 # bind = "127.0.0.1:7613"
 
+# Loopback address of the built-in web page (127.0.0.1 or ::1 only),
+# or "off" to serve no page.
+# ui_bind = "127.0.0.1:2442"
+
 # Maximum size of one uploaded document, in MB (1-10).
 # max_document_mb = 5
 
@@ -45,6 +54,7 @@ pub const DEFAULT_CONFIG_TOML: &str = r#"# ORAG configuration.
 #[serde(deny_unknown_fields)]
 struct FileConfig {
     bind: Option<String>,
+    ui_bind: Option<String>,
     max_document_mb: Option<u32>,
     embedding_model: Option<String>,
     generation_model: Option<String>,
@@ -58,6 +68,9 @@ pub struct Config {
     #[serde(skip)]
     pub home: PathBuf,
     pub bind: SocketAddr,
+    /// Where the web UI listens; `None` when `ui_bind = "off"`.
+    #[serde(serialize_with = "serialize_ui_bind")]
+    pub ui_bind: Option<SocketAddr>,
     pub max_document_mb: u32,
     pub embedding_model: String,
     pub generation_model: String,
@@ -111,9 +124,20 @@ impl Config {
             Some(text) => parse_loopback_bind(text)?,
             None => DEFAULT_BIND,
         };
+        let ui_bind = match file.ui_bind.as_deref() {
+            Some(UI_OFF) => None,
+            Some(text) => Some(parse_loopback_bind(text).map_err(|err| match err {
+                OragError::InvalidInput(message) => OragError::InvalidInput(format!(
+                    "ui_bind: {message}; use a loopback IP:PORT or \"{UI_OFF}\""
+                )),
+                other => other,
+            })?),
+            None => Some(DEFAULT_UI_BIND),
+        };
         Ok(Config {
             home: home.to_path_buf(),
             bind,
+            ui_bind,
             max_document_mb,
             embedding_model: model_id(
                 file.embedding_model,
@@ -148,6 +172,17 @@ impl Config {
     /// The settings in effect, as reported by `GET /v1/version`.
     pub fn effective(&self) -> serde_json::Value {
         serde_json::to_value(self).expect("Config has only string and number fields")
+    }
+}
+
+/// `"off"` or the address, the same forms `config.toml` accepts.
+fn serialize_ui_bind<S: serde::Serializer>(
+    ui_bind: &Option<SocketAddr>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    match ui_bind {
+        Some(addr) => serializer.collect_str(addr),
+        None => serializer.serialize_str(UI_OFF),
     }
 }
 
@@ -405,6 +440,33 @@ mod tests {
     }
 
     #[test]
+    fn ui_bind_defaults_to_port_2442_and_can_be_turned_off() {
+        let fresh = home_with(None);
+        let cfg = Config::load(fresh.path()).unwrap();
+        assert_eq!(cfg.ui_bind, Some("127.0.0.1:2442".parse().unwrap()));
+        assert_eq!(cfg.effective()["ui_bind"], "127.0.0.1:2442");
+        let off = home_with(Some("ui_bind = \"off\"\n"));
+        let cfg = Config::load(off.path()).unwrap();
+        assert_eq!(cfg.ui_bind, None);
+        assert_eq!(cfg.effective()["ui_bind"], "off");
+        let ephemeral = home_with(Some("ui_bind = \"[::1]:0\"\n"));
+        assert_eq!(
+            Config::load(ephemeral.path()).unwrap().ui_bind,
+            Some("[::1]:0".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn ui_bind_must_be_loopback() {
+        for bad in ["0.0.0.0:2442", "localhost:2442", "OFF ", "2442", ""] {
+            let home = home_with(Some(&format!("ui_bind = \"{bad}\"\n")));
+            let err = Config::load(home.path()).unwrap_err().to_string();
+            assert!(err.contains("ui_bind"), "{bad}: {err}");
+            assert!(err.contains("config.toml"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
     fn non_loopback_bind_is_rejected() {
         assert!(parse_loopback_bind("0.0.0.0:7613").is_err());
         assert!(parse_loopback_bind("192.168.1.5:7613").is_err());
@@ -434,6 +496,7 @@ mod tests {
         let json = Config::load(home.path()).unwrap().effective();
         for key in [
             "bind",
+            "ui_bind",
             "max_document_mb",
             "embedding_model",
             "generation_model",

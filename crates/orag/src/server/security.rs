@@ -5,12 +5,13 @@
 use std::net::IpAddr;
 
 use axum::extract::{Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use crate::server::AppState;
 use crate::server::errors::ApiError;
+use crate::server::ui::is_asset;
 
 /// Blocks DNS-rebinding (non-loopback Host) and cross-origin browser requests.
 pub async fn check_host_and_origin(
@@ -32,7 +33,10 @@ pub async fn check_host_and_origin(
         .headers()
         .get("sec-fetch-site")
         .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"cross-site"));
-    if cross_site && request.headers().get(header::ORIGIN).is_none() {
+    // The page's own files hold no data, so a link from another site (a
+    // cross-site navigation) may open them.
+    let static_asset = request.method() == Method::GET && is_asset(request.uri().path());
+    if cross_site && !static_asset && request.headers().get(header::ORIGIN).is_none() {
         return ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden_origin",

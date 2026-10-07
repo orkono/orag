@@ -13,6 +13,11 @@ answers are placeholders; real models answer from the documents).
   from a web page (`Origin` or `Sec-Fetch-Site: cross-site`,
   `403 forbidden_origin`). Any account or process on the same machine can
   call it, so v1 is meant for single-user personal machines.
+- **Allowed origins.** The only web origins accepted are those of the
+  built-in page (`ui_bind`, default `http://127.0.0.1:2442` and
+  `http://localhost:2442`; the real port when it is `0`). With
+  `ui_bind = "off"` no origin is accepted. Every other page gets
+  `403 forbidden_origin`.
 - Request and response bodies are JSON (`Content-Type: application/json`),
   except multipart uploads and the SSE query stream.
 
@@ -61,12 +66,23 @@ commented out, so built-in defaults apply until a line is uncommented.
 | Key | Default | Meaning |
 |---|---|---|
 | `bind` | `"127.0.0.1:7613"` | Loopback address; port `0` picks a free port |
+| `ui_bind` | `"127.0.0.1:2442"` | Loopback address of the built-in web page (port `0` picks a free port), or `"off"` |
 | `max_document_mb` | `5` | Largest document accepted, 1–10 MB |
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding pack id |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation pack id |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace` (stderr) |
 
-`GET /v1/version` shows the values in effect.
+`GET /v1/version` shows the values in effect (`bind` and `ui_bind` with the
+real port).
+
+## Built-in web page
+
+`orag serve` also serves a small page on `ui_bind` and prints
+`orag ui on http://127.0.0.1:2442` as its second stdout line (the first line,
+`orag listening on ...`, is unchanged). The page uses this same API on its own
+origin: `GET /`, `/app.js` and `/app.css` are served there with
+`Content-Security-Policy: default-src 'self'` and
+`X-Content-Type-Options: nosniff`; the `/v1` routes answer on both ports.
 
 ## Errors
 
@@ -132,7 +148,7 @@ HTTP/1.1 200 OK
 
 ```text
 HTTP/1.1 200 OK
-{"api":"v1","config":{"bind":"127.0.0.1:7613","embedding_model":"qwen3-embedding-0.6b-q8_0","generation_model":"qwen3.5-4b-q4_k_m","log_level":"info","max_document_mb":5},"git_sha":"239d9e66c70d","schema_version":1,"version":"0.1.0"}
+{"api":"v1","config":{"bind":"127.0.0.1:7613","embedding_model":"qwen3-embedding-0.6b-q8_0","generation_model":"qwen3.5-4b-q4_k_m","log_level":"info","max_document_mb":5,"ui_bind":"127.0.0.1:2442"},"git_sha":"239d9e66c70d","schema_version":1,"version":"0.1.0"}
 ```
 
 ### `GET /v1/collections`

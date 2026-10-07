@@ -7,8 +7,9 @@ pub mod jobs;
 pub mod query;
 pub mod security;
 pub mod system;
+pub mod ui;
 
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -125,7 +126,18 @@ impl AppState {
     }
 }
 
+/// The API listener: the `/v1` routes only.
 pub fn router(state: AppState) -> Router {
+    with_layers(api_routes(&state), state)
+}
+
+/// The web UI listener: the page's assets plus the same API, so the page
+/// calls `/v1/...` on its own origin.
+pub fn ui_router(state: AppState) -> Router {
+    with_layers(api_routes(&state).merge(ui::routes()), state)
+}
+
+fn api_routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/v1/health", get(system::health))
         .route("/v1/version", get(system::version))
@@ -152,6 +164,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/jobs/{job_id}", get(jobs::get_one))
         .route("/v1/collections/{collection_id}/query", post(query::query))
+}
+
+fn with_layers(routes: Router<AppState>, state: AppState) -> Router {
+    routes
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(middleware::from_fn_with_state(
@@ -184,23 +200,48 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
+    serve_with_ui(state, listener, None, shutdown).await
+}
+
+/// Serves the API on `listener` and, if given, the web UI on `ui_listener`.
+/// One shutdown stops both; the drain limit covers both together.
+pub async fn serve_with_ui(
+    state: AppState,
+    listener: TcpListener,
+    ui_listener: Option<TcpListener>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
     // Whatever ends the server also starts the app's own shutdown, so requests
     // waiting on a slot or a body see 503 instead of holding the drain open.
     let stopper = state.clone();
-    let shutdown = async move {
+    let trigger = async move {
         shutdown.await;
         stopper.begin_shutdown();
+        std::future::pending::<()>().await;
     };
     // The drain is bounded: a peer that stopped reading (a stalled SSE client)
     // cannot keep the server alive after shutdown starts, however it started.
-    let mut stopped = state.subscribe_shutdown();
+    let stopped = shutdown_started(&state);
     let drain_limit = async move {
-        if stopped.wait_for(|stopping| *stopping).await.is_err() {
-            std::future::pending::<()>().await;
-        }
+        stopped.await;
         tokio::time::sleep(GRACEFUL_SHUTDOWN_LIMIT).await;
     };
-    let served = axum::serve(listener, router(state)).with_graceful_shutdown(shutdown);
+    let api = axum::serve(listener, router(state.clone()))
+        .with_graceful_shutdown(shutdown_started(&state));
+    let ui = async {
+        match ui_listener {
+            Some(listener) => {
+                axum::serve(listener, ui_router(state.clone()))
+                    .with_graceful_shutdown(shutdown_started(&state))
+                    .await
+            }
+            None => Ok(()),
+        }
+    };
+    let served = async {
+        let (api, ui) = tokio::join!(api.into_future(), ui);
+        api.and(ui)
+    };
     tokio::select! {
         served = served => {
             served.map_err(|err| OragError::Internal(format!("server error: {err}")))
@@ -210,6 +251,17 @@ pub async fn serve(
                 "open connections did not finish within {GRACEFUL_SHUTDOWN_LIMIT:?}; closing them"
             );
             Ok(())
+        }
+        () = trigger => unreachable!("the shutdown trigger never completes"),
+    }
+}
+
+/// Completes once shutdown starts; never if the signal can no longer come.
+fn shutdown_started(state: &AppState) -> impl Future<Output = ()> + Send + 'static {
+    let mut stopped = state.subscribe_shutdown();
+    async move {
+        if stopped.wait_for(|stopping| *stopping).await.is_err() {
+            std::future::pending::<()>().await;
         }
     }
 }

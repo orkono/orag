@@ -56,6 +56,7 @@ uncomment a line. It is read **once at startup**; after editing it, restart
 | Key | Default | Meaning |
 |---|---|---|
 | `bind` | `"127.0.0.1:7613"` | Address of the HTTP API. Loopback only (`127.0.0.1` or `::1`); port `0` picks a free port |
+| `ui_bind` | `"127.0.0.1:2442"` | Address of the built-in web page, loopback only, or `"off"` |
 | `max_document_mb` | `5` | Largest document accepted, in MB (1–10) |
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding model pack (`orag models list`) |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack |
@@ -95,8 +96,17 @@ orag models list
 orag serve
 ```
 
-It prints one line, `orag listening on http://127.0.0.1:7613`, and stops on
-Ctrl-C or SIGTERM. Indexing that was interrupted resumes on the next start.
+It prints `orag listening on http://127.0.0.1:7613` (the API) and then
+`orag ui on http://127.0.0.1:2442`, and stops on Ctrl-C or SIGTERM. Indexing
+that was interrupted resumes on the next start.
+
+Open **<http://127.0.0.1:2442>** in a browser for the built-in page: *Dosya
+yükle* uploads a TXT, Markdown, DOCX or PDF file to the default collection
+and shows its indexing progress; *Sorgu yap* asks a question and streams the
+answer with its sources. The page is part of the binary and loads nothing
+from the network. Set `ui_bind = "off"` in `config.toml` to turn it off. A
+second `orag serve` (another `ORAG_HOME`) needs its own `bind` and `ui_bind`
+(or `ui_bind = "off"`): a busy port stops startup.
 
 The API needs **no credentials** and is reachable **only from this machine**
 (127.0.0.1). That also means any account or process on the same machine can

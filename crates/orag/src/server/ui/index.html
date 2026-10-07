@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORAG</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>ORAG</h1>
+  <p class="hint">Yerel belge arama ve soru-cevap. Her şey bu bilgisayarda kalır.</p>
+</header>
+
+<main>
+  <section aria-labelledby="upload-title">
+    <h2 id="upload-title">Dosya yükle</h2>
+    <form id="upload-form">
+      <input id="upload-file" type="file" name="file" accept=".txt,.md,.markdown,.docx,.pdf" required>
+      <button id="upload-button" type="submit">Dosya yükle</button>
+    </form>
+    <p class="hint">TXT, Markdown, DOCX veya PDF. Varsayılan koleksiyona eklenir.</p>
+    <div id="upload-status" class="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="ask-title">
+    <h2 id="ask-title">Sorgu yap</h2>
+    <form id="ask-form">
+      <label for="ask-text">Sorunuz</label>
+      <textarea id="ask-text" rows="3" maxlength="2000" required placeholder="Örneğin: İade süresi kaç gündür?"></textarea>
+      <button id="ask-button" type="submit">Sorgu yap</button>
+    </form>
+    <div id="ask-error" class="error" role="alert"></div>
+    <div id="answer-block" hidden>
+      <h3>Yanıt</h3>
+      <p id="answer" class="answer" aria-live="polite"></p>
+      <p id="answer-notice" class="notice" hidden></p>
+    </div>
+    <div id="sources-block" hidden>
+      <h3>Kaynaklar</h3>
+      <ol id="sources" class="sources"></ol>
+    </div>
+  </section>
+</main>
+</body>
+</html>
