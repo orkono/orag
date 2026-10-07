@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.11] - 2026-10-07
+
+- Query answers carry `citation_markers`: every `[n]` marker in `answer` order with its place (`answer[start..end]`, UTF-8 byte offsets) and the source numbers it cites (a range expanded). Same rules as `citations` (markers in fenced code blocks are not citations; `[01]` and years are not markers). In the JSON response and the SSE `done` event; an added field, no breaking change.
+- Web page: citations link to their sources. When an answer is complete, the digits of each marker, as the model wrote it, link to their source, which is highlighted and scrolled into view (no history entry); a number with no source is struck through. Sources the answer does not cite are dimmed and marked *yanıtta kullanılmadı*. The page takes the markers from the server instead of parsing the answer.
+
 ## [0.2.0-alpha.10] - 2026-10-07
 
 - Reindex (D-022): `POST /v1/collections/{collection_id}/reindex` indexes every document of a collection again from the copy stored at upload, with the running embedding model and chunker; `202 {collection_id, queued_documents}`. This is the recovery for `409 reindex_required` without uploading files again; collection and document ids stay. Refused with `409 conflict` while a document of the collection is still queued or indexing, so a repeated call cannot undo finished work. Until the new jobs finish, queries find only the documents already done; a query that races the reindex gets no dense hits instead of a 404.

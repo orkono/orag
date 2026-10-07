@@ -307,13 +307,18 @@ curl -s -H 'Content-Type: application/json' \
   {"number":1,"chunk_id":2,"document_id":2,"title":"sample-tr.pdf","filename":"sample-tr.pdf","heading_path":[],"ordinal":0,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. Iğdır,\n\nşık, çay, öğün.","rank_score":0.03278688524590164,"lexical_rank":1,"dense_rank":1},
   {"number":2,"chunk_id":3,"document_id":3,"title":"İade","filename":"iade.md","heading_path":["İade"],"ordinal":0,"excerpt":"14 gün içinde iade.","rank_score":0.03225806451612903,"lexical_rank":2,"dense_rank":2},
   {"number":3,"chunk_id":1,"document_id":1,"title":"Kargo Politikası","filename":"sample.docx","heading_path":["Kargo Politikası","İade Koşulları"],"ordinal":0,"excerpt":"Ürünler 14 gün içinde iade edilebilir. …","rank_score":0.031746031746031744,"lexical_rank":3,"dense_rank":3}],
- "citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop",
+ "citations":[1],"invalid_citations":[],"citation_markers":[{"start":46,"end":49,"numbers":[1]}],"abstained":false,"finish_reason":"stop",
  "trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},
   "context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
 `citations` are the source numbers the answer cites; `invalid_citations` are
-numbers it cited that no source has. `trace` shows how the answer was made.
+numbers it cited that no source has. `citation_markers` lists every marker in
+answer order: `answer[start..end]` is the marker as written (UTF-8 byte
+offsets, `end` exclusive, from `[` to `]`; `[1]`, `[1, 3]`, `[1-3]`, `[^1]`)
+and `numbers` the source numbers it cites, a range expanded, valid or not.
+Markers inside fenced code blocks are not citations. A client can link
+citations from this without parsing the answer. `trace` shows how the answer was made.
 
 `finish_reason` says why the answer ended:
 
@@ -337,7 +342,8 @@ The response is `text/event-stream`. Events, in order:
 1. `sources` (once): `{"sources":[...]}`, the same objects as above;
 2. `token` (zero or more): `{"text":"..."}`;
 3. `done` (once): the answer without the sources, which already came in the
-   `sources` event: `answer`, `citations`, `invalid_citations`, `abstained`,
+   `sources` event: `answer`, `citations`, `invalid_citations`,
+   `citation_markers`, `abstained`,
    `finish_reason` and `trace`, as in the non-streaming response.
 
 If something fails, the stream ends with one `error` event instead of `done`.
@@ -366,7 +372,7 @@ data: {"text":"is "}
 …
 
 event: done
-data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"abstained":false,"finish_reason":"stop","trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
+data: {"answer":"This is a development answer from fake models [1].","citations":[1],"invalid_citations":[],"citation_markers":[{"start":46,"end":49,"numbers":[1]}],"abstained":false,"finish_reason":"stop","trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},"context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
 ```
 
 Errors before streaming starts (unknown collection, invalid query,

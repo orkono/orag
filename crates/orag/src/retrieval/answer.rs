@@ -7,7 +7,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::domain::CollectionId;
-use crate::domain::citations::extract_citations;
+use crate::domain::citations::{CitationMarker, extract_citations};
 use crate::domain::normalize::{lexical_terms, normalize_for_lexical};
 use crate::error::{OragError, Result};
 use crate::infer::{ChatMessage, GenerationRequest, Generator, Role, SamplerProfile};
@@ -65,6 +65,8 @@ pub struct AnswerSummary {
     pub answer: String,
     pub citations: Vec<usize>,
     pub invalid_citations: Vec<usize>,
+    /// Where each `[n]` marker is in `answer` (UTF-8 byte offsets).
+    pub citation_markers: Vec<CitationMarker>,
     pub abstained: bool,
     pub finish_reason: FinishReason,
     pub trace: QueryTrace,
@@ -183,7 +185,9 @@ impl AnswerEngine {
         trace.prompt_tokens = stats.prompt_tokens;
         trace.completion_tokens = stats.completion_tokens;
         trace.generation_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let citations = extract_citations(&answer, context.len());
+        // Offsets refer to the answer as returned, so scan the trimmed text.
+        let trimmed = answer.trim();
+        let citations = extract_citations(trimmed, context.len());
         let finish_reason = if looped {
             FinishReason::Repetition
         } else if stats.length_limited {
@@ -193,9 +197,10 @@ impl AnswerEngine {
         };
         let summary = AnswerSummary {
             abstained: abstained(&answer),
-            answer: answer.trim().to_string(),
+            answer: trimmed.to_string(),
             citations: citations.valid,
             invalid_citations: citations.invalid,
+            citation_markers: citations.markers,
             finish_reason,
             trace,
         };
@@ -339,6 +344,7 @@ fn abstain(
         answer: refusal.to_string(),
         citations: Vec::new(),
         invalid_citations: Vec::new(),
+        citation_markers: Vec::new(),
         abstained: true,
         finish_reason: FinishReason::Stop,
         trace,

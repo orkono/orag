@@ -518,12 +518,19 @@ async function upload(event) {
 
 // ---- Ask ------------------------------------------------------------------
 
+/** Source numbers of the answer being shown, for its citation links. */
+let shownSources = new Set();
+
 function renderSources(sources) {
   const list = $("sources");
   list.replaceChildren();
+  shownSources = new Set(sources.map((source) => source.number));
   for (const source of sources) {
     const item = el("li");
-    const title = el("strong", `[${source.number}] ${source.filename}`);
+    item.id = `source-${source.number}`;
+    item.dataset.number = String(source.number);
+    const name = source.filename || source.title || `Belge #${source.document_id}`;
+    const title = el("strong", `[${source.number}] ${name}`);
     item.append(title);
     if (source.heading_path && source.heading_path.length > 0) {
       item.append(el("div", source.heading_path.join(" › "), "heading"));
@@ -532,6 +539,72 @@ function renderSources(sources) {
     list.append(item);
   }
   $("sources-block").hidden = sources.length === 0;
+}
+
+/** One citation marker, as written: digits it cites become links to their sources. */
+function citationMarker(text, numbers) {
+  const marker = el("span", undefined, "citation-marker");
+  marker.title = `Kaynak ${numbers.join(", ")}`;
+  const cited = new Set(numbers);
+  for (const part of text.split(/(\d+)/)) {
+    const number = Number(part);
+    if (!/^\d+$/.test(part) || !cited.has(number)) {
+      marker.append(document.createTextNode(part));
+    } else if (shownSources.has(number)) {
+      const link = el("a", part, "citation");
+      link.href = `#source-${number}`;
+      link.addEventListener("click", (event) => {
+        event.preventDefault(); // no history entry, no stale :target later
+        openSource(number);
+      });
+      marker.append(link);
+    } else {
+      const missing = el("span", part, "citation-invalid");
+      missing.title = "Bu numarada bir kaynak yok";
+      marker.append(missing);
+    }
+  }
+  return marker;
+}
+
+/**
+ * The answer as text nodes and marker elements, from the server's
+ * `citation_markers` (UTF-8 byte offsets into `answer`): the server decides
+ * what a marker is, so the page never parses citations itself.
+ */
+function linkCitations(answer, markers) {
+  const bytes = new TextEncoder().encode(answer);
+  const decoder = new TextDecoder();
+  const text = (from, to) => decoder.decode(bytes.subarray(from, to));
+  const nodes = [];
+  let last = 0;
+  for (const { start, end, numbers } of markers) {
+    if (start < last || end > bytes.length || start >= end) continue; // defensive
+    nodes.push(document.createTextNode(text(last, start)));
+    nodes.push(citationMarker(text(start, end), numbers));
+    last = end;
+  }
+  nodes.push(document.createTextNode(text(last, bytes.length)));
+  return nodes;
+}
+
+/** Highlights a source and brings it into view. */
+function openSource(number) {
+  for (const item of $("sources").children) {
+    item.classList.toggle("opened", Number(item.dataset.number) === number);
+  }
+  $(`source-${number}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/** Marks the sources the answer cites; the others were only context. */
+function markCitedSources(citations) {
+  const cited = new Set(citations);
+  for (const item of $("sources").children) {
+    const used = cited.has(Number(item.dataset.number));
+    item.classList.toggle("cited", used);
+    item.classList.toggle("uncited", !used);
+    if (!used) item.querySelector("strong").after(el("span", " · yanıtta kullanılmadı", "uncited-note"));
+  }
 }
 
 function showNotice(text) {
@@ -585,6 +658,8 @@ function handleEvent({ event, data }) {
       $("answer").append(document.createTextNode(data.text));
       return false;
     case "done":
+      $("answer").replaceChildren(...linkCitations(data.answer, data.citation_markers || []));
+      markCitedSources(data.citations || []);
       if (data.abstained) {
         showNotice("Belgelerde bu sorunun yanıtı bulunamadı; model yanıt vermekten kaçındı.");
       } else if (FINISH_NOTICE[data.finish_reason]) {

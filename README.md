@@ -109,7 +109,7 @@ the documents of the selected collection (status, chunks, size, warnings) and
 deletes one after a confirmation. *Dosya yükle*
 uploads a TXT, Markdown, DOCX or PDF file to the selected collection and shows
 its indexing progress; *Sorgu yap* asks a question in the selected collection
-only and streams the answer with its sources. The page is part of the binary and loads nothing
+only and streams the answer with its sources; each `[n]` in the answer links to source `n`, and sources the answer does not cite are marked. The page is part of the binary and loads nothing
 from the network. Set `ui_bind = "off"` in `config.toml` to turn it off. A
 second `orag serve` (another `ORAG_HOME`) needs its own `bind` and `ui_bind`
 (or `ui_bind = "off"`): a busy port stops startup.

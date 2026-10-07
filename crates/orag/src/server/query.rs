@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::domain::citations::CitationMarker;
 use crate::retrieval::answer::{
     AnswerEvent, AnswerSummary, FinishReason, QueryTrace, SourceRef, validate_question,
 };
@@ -57,6 +58,7 @@ pub struct QueryResponse {
     pub sources: Vec<SourceRef>,
     pub citations: Vec<usize>,
     pub invalid_citations: Vec<usize>,
+    pub citation_markers: Vec<CitationMarker>,
     pub abstained: bool,
     pub finish_reason: FinishReason,
     pub trace: QueryTrace,
@@ -145,6 +147,7 @@ async fn collect_answer(
             sources,
             citations: summary.citations,
             invalid_citations: summary.invalid_citations,
+            citation_markers: summary.citation_markers,
             abstained: summary.abstained,
             finish_reason: summary.finish_reason,
             trace: summary.trace,
