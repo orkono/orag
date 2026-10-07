@@ -541,7 +541,7 @@ only (2026-10-01). This repository-scoped grant overrides the owner's general
 ## D-021 — Built-in web page on a second loopback port (owner decision, 2026-10-07)
 
 **Decision.** `orag serve` also serves a minimal page (choose, create or
-delete a collection; upload a file to the selected collection and follow its
+delete a collection; list and delete its documents; upload a file to the selected collection and follow its
 job; ask a question in the selected collection and stream the answer with its
 sources) on a second loopback listener, `ui_bind` (default
 `127.0.0.1:2442`, `"off"` disables it). Same process, same `AppState`: the

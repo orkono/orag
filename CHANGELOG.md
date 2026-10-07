@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.9] - 2026-10-07
+
+- Web page: a *Belgeler* section lists the documents of the selected collection (file name, status, chunk count, size, warnings and errors), 50 at a time with *Daha fazla göster*, and deletes a document after a confirmation; the collection's document count updates. The list follows the selected collection and shows a new upload while it is indexed. No API change.
+
 ## [0.2.0-alpha.8] - 2026-10-07
 
 - Web page: collections. A *Koleksiyon* section selects the collection to work in (with its document count; the choice is remembered in the browser), creates a new one and deletes the selected one after a confirmation (the `default` collection cannot be deleted). Uploads and questions use the selected collection only, so a question no longer searches documents uploaded for another topic; before, the page always used the default collection. No API change.

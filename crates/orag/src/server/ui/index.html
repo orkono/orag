@@ -42,6 +42,20 @@
     <div id="upload-status" class="status" role="status" aria-live="polite"></div>
   </section>
 
+  <section aria-labelledby="documents-title">
+    <h2 id="documents-title">Belgeler</h2>
+    <p class="hint">Seçili koleksiyondaki belgeler: <strong id="documents-target"></strong></p>
+    <table class="documents">
+      <thead>
+        <tr><th>Dosya</th><th>Durum</th><th class="number">Parça</th><th class="number">Boyut</th><th></th></tr>
+      </thead>
+      <tbody id="documents"></tbody>
+    </table>
+    <p id="documents-empty" class="hint" hidden>Bu koleksiyonda belge yok.</p>
+    <button id="documents-more" type="button" hidden>Daha fazla göster</button>
+    <div id="documents-status" class="error" role="alert"></div>
+  </section>
+
   <section aria-labelledby="ask-title">
     <h2 id="ask-title">Sorgu yap</h2>
     <form id="ask-form">

@@ -294,3 +294,44 @@ fn the_page_offers_collection_management() {
     assert!(!ui::APP_JS.contains("/v1/collections/1/"));
     assert!(!ui::APP_JS.contains("COLLECTION = 1"));
 }
+
+#[tokio::test]
+async fn the_page_can_list_and_delete_documents_of_a_collection() {
+    let app = ui_app();
+    let call = |request| fetch(ui_router(app.state.clone()), request);
+    let mut upload = multipart("not.txt", "text/plain", "Toplantı notu.".as_bytes());
+    upload
+        .headers_mut()
+        .insert(header::ORIGIN, UI_ORIGIN.parse().unwrap());
+    let (status, _, body) = call(upload).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain_jobs(&app);
+
+    let list = from_page("GET", "/v1/collections/1/documents?limit=50", None);
+    let (status, _, body) = call(list).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let listed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let doc = &listed["documents"][0];
+    assert_eq!(
+        (doc["filename"].as_str(), doc["status"].as_str()),
+        (Some("not.txt"), Some("ready"))
+    );
+    let id = doc["id"].as_i64().unwrap();
+
+    let path = format!("/v1/collections/1/documents/{id}");
+    let (status, _, body) = call(from_page("DELETE", &path, None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (status, _, _) = call(from_page("GET", &path, None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[test]
+fn the_page_lists_the_documents_of_the_selected_collection() {
+    for id in ["documents", "documents-more", "documents-empty"] {
+        assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
+    }
+    // Paged with the API's cursor, and each row can be deleted.
+    assert!(ui::APP_JS.contains("after_id"));
+    assert!(ui::APP_JS.contains("/documents/${doc.id}`"));
+    assert!(ui::APP_JS.contains("method: \"DELETE\""));
+}
