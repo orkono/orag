@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.8] - 2026-10-07
+
+- Web page: collections. A *Koleksiyon* section selects the collection to work in (with its document count; the choice is remembered in the browser), creates a new one and deletes the selected one after a confirmation (the `default` collection cannot be deleted). Uploads and questions use the selected collection only, so a question no longer searches documents uploaded for another topic; before, the page always used the default collection. No API change.
+
 ## [0.2.0-alpha.7] - 2026-10-07
 
 - Built-in web page (D-021): `orag serve` also serves a small page on `ui_bind` (default `http://127.0.0.1:2442`, `"off"` disables it). *Dosya yükle* uploads a TXT/Markdown/DOCX/PDF file to the default collection and follows its indexing; *Sorgu yap* streams the answer, then shows the sources and an abstention notice. Plain HTML/CSS/JS embedded in the binary, `Content-Security-Policy: default-src 'self'`, nothing loaded from the network.

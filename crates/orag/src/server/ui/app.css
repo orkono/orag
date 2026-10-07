@@ -22,6 +22,10 @@ section {
 
 form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 label { width: 100%; font-weight: 600; }
+label.inline { width: auto; }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+select, input[type="text"] { font: inherit; padding: 0.35rem 0.5rem; }
+input[type="text"] { flex: 1; min-width: 12rem; }
 textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.5rem; }
 button { font: inherit; padding: 0.4rem 1rem; cursor: pointer; }
 button:disabled { cursor: progress; opacity: 0.6; }

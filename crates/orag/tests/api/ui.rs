@@ -9,7 +9,7 @@ use orag::server::{router, ui, ui_router};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::support::{TestApp, app, local};
+use crate::support::{TestApp, app, drain_jobs, local, multipart};
 
 const UI_ORIGIN: &str = "http://127.0.0.1:2442";
 
@@ -177,4 +177,120 @@ fn assets_load_nothing_from_the_network_and_never_parse_html() {
     // CSP forbids inline script and style: everything comes from the two files.
     assert!(!ui::INDEX_HTML.contains("<script>") && !ui::INDEX_HTML.contains("style="));
     assert!(ui::INDEX_HTML.contains(r#"<script src="/app.js" defer></script>"#));
+}
+
+/// A request the page sends: same origin, so it carries the page's `Origin`.
+fn from_page(method: &str, uri: &str, body: Option<serde_json::Value>) -> Request<Body> {
+    let builder =
+        local(Request::builder().method(method).uri(uri)).header(header::ORIGIN, UI_ORIGIN);
+    match body {
+        Some(json) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json.to_string()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn the_page_can_manage_collections_and_use_the_selected_one() {
+    let app = ui_app();
+    let call = |request| fetch(ui_router(app.state.clone()), request);
+    let (status, _, body) = call(from_page(
+        "POST",
+        "/v1/collections",
+        Some(json!({"name": "Sözleşmeler"})),
+    ))
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let created: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let id = created["id"].as_i64().unwrap();
+
+    let mut upload = multipart(
+        "iade.txt",
+        "text/plain",
+        "İade süresi 30 gündür.".as_bytes(),
+    );
+    *upload.uri_mut() = format!("/v1/collections/{id}/documents").parse().unwrap();
+    upload
+        .headers_mut()
+        .insert(header::ORIGIN, UI_ORIGIN.parse().unwrap());
+    let (status, _, body) = call(upload).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain_jobs(&app);
+
+    let (status, _, body) = call(from_page("GET", "/v1/collections", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let mine = listed["collections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == id)
+        .unwrap();
+    assert_eq!(mine["document_count"], 1);
+
+    let query = from_page(
+        "POST",
+        &format!("/v1/collections/{id}/query"),
+        Some(json!({"query": "iade süresi"})),
+    );
+    let (status, _, body) = call(query).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body.contains("iade.txt"),
+        "the selected collection is searched: {body}"
+    );
+    let other = from_page(
+        "POST",
+        "/v1/collections/1/query",
+        Some(json!({"query": "iade süresi"})),
+    );
+    let (status, _, body) = call(other).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        !body.contains("iade.txt"),
+        "other collections are not: {body}"
+    );
+
+    let (status, _, body) = call(from_page("DELETE", &format!("/v1/collections/{id}"), None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (status, _, body) = call(from_page("DELETE", "/v1/collections/1", None)).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "the default collection stays: {body}"
+    );
+}
+
+/// Every element the script looks up exists in the page.
+#[test]
+fn the_script_only_uses_elements_the_page_has() {
+    let ids: Vec<&str> = ui::APP_JS
+        .split("$(\"")
+        .skip(1)
+        .map(|rest| rest.split('"').next().unwrap())
+        .collect();
+    assert!(ids.len() > 10, "{ids:?}");
+    for id in ids {
+        assert!(
+            ui::INDEX_HTML.contains(&format!("id=\"{id}\"")),
+            "#{id} is not in index.html"
+        );
+    }
+}
+
+#[test]
+fn the_page_offers_collection_management() {
+    for id in [
+        "collection",
+        "collection-form",
+        "collection-name",
+        "collection-delete",
+    ] {
+        assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
+    }
+    // Uploads and questions go to the selected collection, not a fixed one.
+    assert!(!ui::APP_JS.contains("/v1/collections/1/"));
+    assert!(!ui::APP_JS.contains("COLLECTION = 1"));
 }
