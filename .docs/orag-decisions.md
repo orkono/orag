@@ -546,7 +546,7 @@ delete a collection; list and delete its documents; upload a file to the selecte
 job; ask a question in the selected collection and stream the answer with its
 sources) on a second loopback listener, `ui_bind` (default
 `127.0.0.1:2442`, `"off"` disables it). Same process, same `AppState`: the
-UI listener serves `GET /`, `/app.js`, `/app.css` plus the whole `/v1` API,
+UI listener serves `GET /`, its CSS and script modules plus the whole `/v1` API,
 so the page calls the API on its own origin. The API listener does not serve
 the page.
 
@@ -557,7 +557,7 @@ the page.
   empty. Every other origin still gets `403 forbidden_origin`, and Host checks
   apply on both listeners. No credentials are added: the page has the same
   access as any local process.
-- **Assets.** Plain HTML, CSS and one script, embedded with `include_str!`; no
+- **Assets.** Plain HTML, CSS and small ES modules (`app.js` imports the rest), embedded with `include_str!`; no
   framework, build step or network resource (D-012). Served with
   `Content-Security-Policy: default-src 'self'` (no inline script),
   `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY`. Document text

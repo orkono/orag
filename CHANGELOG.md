@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.12] - 2026-10-07
+
+- Web page is easier to use: the collection selector sits at the top with its management (create, reindex, delete) folded under *Koleksiyonu yönet*; *Sorgu yap* comes first, then *Dosya yükle* and *Belgeler*. Questions are sent with Ctrl/⌘ + Enter, can be stopped (*Durdur*, the partial answer stays) and copied (*Kopyala*); an empty collection says to upload first. Files are dropped on the page or chosen, several at once, and each gets its own line that follows its indexing; the size limit is checked before sending. Errors are explained in Turkish (unreachable server, unsupported type, size, busy, reindex needed, duplicate name, ...) with the API message below. Long source excerpts start folded. Status badges, keyboard focus rings and a dark theme that follows the system.
+- The page script is split into small ES modules (`app.js` imports the rest), all embedded and served by the UI listener. No API change.
+
 ## [0.2.0-alpha.11] - 2026-10-07
 
 - Query answers carry `citation_markers`: every `[n]` marker in `answer` order with its place (`answer[start..end]`, UTF-8 byte offsets) and the source numbers it cites (a range expanded). Same rules as `citations` (markers in fenced code blocks are not citations; `[01]` and years are not markers). In the JSON response and the SSE `done` event; an added field, no breaking change.

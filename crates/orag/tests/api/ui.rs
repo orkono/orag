@@ -49,19 +49,42 @@ fn ui_origins_follow_the_bound_address() {
     );
 }
 
+/// Every script module of the page, joined, for checks that span them all.
+fn all_js() -> String {
+    ui::SCRIPTS
+        .iter()
+        .map(|(_, text)| *text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[tokio::test]
 async fn assets_are_served_with_their_types_and_a_strict_policy() {
     let app = ui_app();
-    for (path, content_type, marker) in [
-        ("/", "text/html; charset=utf-8", "<!doctype html>"),
+    let mut assets = vec![
         (
-            "/app.js",
-            "text/javascript; charset=utf-8",
-            "\"use strict\"",
+            "/".to_string(),
+            "text/html; charset=utf-8",
+            "<!doctype html>",
         ),
-        ("/app.css", "text/css; charset=utf-8", "body"),
-        ("/favicon.svg", "image/svg+xml; charset=utf-8", "<svg"),
-    ] {
+        ("/app.css".to_string(), "text/css; charset=utf-8", "body"),
+        (
+            "/favicon.svg".to_string(),
+            "image/svg+xml; charset=utf-8",
+            "<svg",
+        ),
+    ];
+    for (name, text) in ui::SCRIPTS {
+        // The first line of each module identifies it.
+        let first_line = text.lines().next().unwrap();
+        assets.push((
+            format!("/{name}"),
+            "text/javascript; charset=utf-8",
+            first_line,
+        ));
+    }
+    for (path, content_type, marker) in assets {
+        let path = path.as_str();
         let (status, headers, body) = fetch(ui_router(app.state.clone()), get_ui(path)).await;
         assert_eq!(status, StatusCode::OK, "{path}");
         assert_eq!(headers[header::CONTENT_TYPE], content_type, "{path}");
@@ -153,11 +176,9 @@ async fn only_the_ui_origins_may_call_the_api() {
 
 #[test]
 fn assets_load_nothing_from_the_network_and_never_parse_html() {
-    for (name, text) in [
-        ("index.html", ui::INDEX_HTML),
-        ("app.js", ui::APP_JS),
-        ("app.css", ui::APP_CSS),
-    ] {
+    let mut files = vec![("index.html", ui::INDEX_HTML), ("app.css", ui::APP_CSS)];
+    files.extend(ui::SCRIPTS);
+    for (name, text) in files {
         assert!(
             !text.contains("http://") && !text.contains("https://") && !text.contains("//cdn"),
             "{name} references a network resource"
@@ -171,12 +192,29 @@ fn assets_load_nothing_from_the_network_and_never_parse_html() {
         "document.write",
         "eval(",
     ] {
-        assert!(!ui::APP_JS.contains(sink), "app.js uses {sink}");
+        for (name, text) in ui::SCRIPTS {
+            assert!(!text.contains(sink), "{name} uses {sink}");
+        }
     }
-    assert!(ui::APP_JS.contains("textContent"));
-    // CSP forbids inline script and style: everything comes from the two files.
+    assert!(all_js().contains("textContent"));
+    // CSP forbids inline script and style: everything comes from the files.
     assert!(!ui::INDEX_HTML.contains("<script>") && !ui::INDEX_HTML.contains("style="));
-    assert!(ui::INDEX_HTML.contains(r#"<script src="/app.js" defer></script>"#));
+    assert!(ui::INDEX_HTML.contains(r#"<script type="module" src="/app.js"></script>"#));
+    // Every module a script names (static, multi-line or dynamic import) is
+    // served: a missing one would stop the whole page.
+    for (name, text) in ui::SCRIPTS {
+        for rest in text.split("\"./").skip(1) {
+            let module = rest.split('"').next().unwrap();
+            assert!(
+                ui::SCRIPTS.iter().any(|(served, _)| *served == module),
+                "{name} names ./{module}, which is not served"
+            );
+        }
+        assert!(
+            !text.contains("'./"),
+            "{name}: use double quotes for module paths"
+        );
+    }
 }
 
 /// A request the page sends: same origin, so it carries the page's `Origin`.
@@ -266,7 +304,8 @@ async fn the_page_can_manage_collections_and_use_the_selected_one() {
 /// Every element the script looks up exists in the page.
 #[test]
 fn the_script_only_uses_elements_the_page_has() {
-    let ids: Vec<&str> = ui::APP_JS
+    let js = all_js();
+    let ids: Vec<&str> = js
         .split("$(\"")
         .skip(1)
         .map(|rest| rest.split('"').next().unwrap())
@@ -291,8 +330,8 @@ fn the_page_offers_collection_management() {
         assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
     }
     // Uploads and questions go to the selected collection, not a fixed one.
-    assert!(!ui::APP_JS.contains("/v1/collections/1/"));
-    assert!(!ui::APP_JS.contains("COLLECTION = 1"));
+    assert!(!all_js().contains("/v1/collections/1/"));
+    assert!(!all_js().contains("COLLECTION = 1"));
 }
 
 #[tokio::test]
@@ -331,30 +370,60 @@ fn the_page_lists_the_documents_of_the_selected_collection() {
         assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
     }
     // Paged with the API's cursor, and each row can be deleted.
-    assert!(ui::APP_JS.contains("after_id"));
-    assert!(ui::APP_JS.contains("/documents/${doc.id}`"));
-    assert!(ui::APP_JS.contains("method: \"DELETE\""));
+    assert!(all_js().contains("after_id"));
+    assert!(all_js().contains("/documents/${doc.id}`"));
+    assert!(all_js().contains("method: \"DELETE\""));
 }
 
 #[test]
 fn the_page_offers_a_reindex_of_the_selected_collection() {
     assert!(ui::INDEX_HTML.contains("id=\"collection-reindex\""));
-    assert!(ui::APP_JS.contains("/reindex`"));
+    assert!(all_js().contains("/reindex`"));
     // A 409 reindex_required points the user to the button.
-    assert!(ui::APP_JS.contains("\"reindex_required\""));
+    let js = all_js();
+    let hint = js
+        .split("reindex_required:")
+        .nth(1)
+        .expect("a message for reindex_required");
+    let near: String = hint.chars().take(300).collect();
+    assert!(near.contains("Yeniden indeksle"), "{hint}");
 }
 
 #[test]
 fn citations_in_the_answer_link_to_their_sources() {
     // Each source has an anchor, and markers in a finished answer link to it.
-    assert!(ui::APP_JS.contains("`source-${source.number}`"));
-    assert!(ui::APP_JS.contains("function linkCitations("));
+    assert!(all_js().contains("`source-${source.number}`"));
+    assert!(all_js().contains("function linkCitations("));
     // The server's markers decide what a citation is: no client-side parser.
-    assert!(ui::APP_JS.contains("data.citation_markers"));
-    assert!(!ui::APP_JS.contains("matchAll("));
+    assert!(all_js().contains("data.citation_markers"));
+    assert!(!all_js().contains("matchAll("));
     // Opening a source adds no history entry (no `:target` highlight).
-    assert!(ui::APP_JS.contains("event.preventDefault()"));
+    assert!(all_js().contains("event.preventDefault()"));
     assert!(!ui::APP_CSS.contains(":target"));
     // HTML sinks are banned in the whole script by
     // `assets_load_nothing_from_the_network_and_never_parse_html`.
+}
+
+#[test]
+fn the_page_is_easy_to_use() {
+    for id in [
+        "collection-manage", // management folded away under the selector
+        "dropzone",          // drop files or click to choose
+        "upload-list",       // one line per file
+        "ask-stop",          // stop an answer
+        "answer-copy",       // copy an answer
+        "ask-empty",         // says to upload first when there is nothing to search
+    ] {
+        assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
+    }
+    // The question comes before the upload and the document list.
+    let ask = ui::INDEX_HTML.find("id=\"ask-form\"").unwrap();
+    assert!(ask < ui::INDEX_HTML.find("id=\"dropzone\"").unwrap());
+    assert!(ask < ui::INDEX_HTML.find("id=\"documents\"").unwrap());
+    assert!(ui::INDEX_HTML.contains("multiple"));
+    let js = all_js();
+    // Ctrl/Cmd+Enter sends; dropped files upload; errors are explained in Turkish.
+    assert!(js.contains("event.key === \"Enter\""));
+    assert!(js.contains("\"drop\""));
+    assert!(js.contains("Sunucuya ulaşılamıyor"));
 }

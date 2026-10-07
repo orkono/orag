@@ -12,8 +12,19 @@ use axum::routing::get;
 use crate::server::AppState;
 
 pub const INDEX_HTML: &str = include_str!("ui/index.html");
-pub const APP_JS: &str = include_str!("ui/app.js");
 pub const APP_CSS: &str = include_str!("ui/app.css");
+/// The page's script modules (`app.js` is the entry point), served at `/<name>`.
+pub const SCRIPTS: [(&str, &str); 9] = [
+    ("app.js", include_str!("ui/app.js")),
+    ("api.js", include_str!("ui/api.js")),
+    ("ask.js", include_str!("ui/ask.js")),
+    ("collections.js", include_str!("ui/collections.js")),
+    ("documents.js", include_str!("ui/documents.js")),
+    ("dom.js", include_str!("ui/dom.js")),
+    ("sources.js", include_str!("ui/sources.js")),
+    ("sse.js", include_str!("ui/sse.js")),
+    ("upload.js", include_str!("ui/upload.js")),
+];
 /// The project icon (`assets/orag-icon.svg`), so the browser asks for no
 /// `/favicon.ico`.
 pub const ICON_SVG: &str = include_str!("../../../../assets/orag-icon.svg");
@@ -32,24 +43,34 @@ pub fn origins(addr: SocketAddr) -> Vec<String> {
 
 /// The asset routes, added to the API routes on the UI listener only.
 pub fn routes() -> Router<AppState> {
-    ASSETS
-        .iter()
-        .fold(Router::new(), |router, &(path, body, content_type)| {
-            router.route(path, get(move || async move { asset(body, content_type) }))
+    let scripts = SCRIPTS.iter().map(|&(name, body)| (name, body, JAVASCRIPT));
+    FILES
+        .into_iter()
+        .chain(scripts)
+        .fold(Router::new(), |router, (name, body, content_type)| {
+            router.route(
+                &format!("/{name}"),
+                get(move || async move { asset(body, content_type) }),
+            )
         })
 }
 
-/// Path, body and `Content-Type` of every file the page is made of.
-const ASSETS: [(&str, &str, &str); 4] = [
-    ("/", INDEX_HTML, "text/html; charset=utf-8"),
-    ("/app.js", APP_JS, "text/javascript; charset=utf-8"),
-    ("/app.css", APP_CSS, "text/css; charset=utf-8"),
-    ("/favicon.svg", ICON_SVG, "image/svg+xml; charset=utf-8"),
+const JAVASCRIPT: &str = "text/javascript; charset=utf-8";
+
+/// The page's other files: name (`""` is the page itself at `/`), body and
+/// `Content-Type`. `routes` and `is_asset` both read this table and `SCRIPTS`.
+const FILES: [(&str, &str, &str); 3] = [
+    ("", INDEX_HTML, "text/html; charset=utf-8"),
+    ("app.css", APP_CSS, "text/css; charset=utf-8"),
+    ("favicon.svg", ICON_SVG, "image/svg+xml; charset=utf-8"),
 ];
 
 /// Whether `path` is one of the page's static files (they carry no data).
 pub fn is_asset(path: &str) -> bool {
-    ASSETS.iter().any(|&(asset, _, _)| asset == path)
+    path.strip_prefix('/').is_some_and(|name| {
+        FILES.iter().any(|&(file, _, _)| file == name)
+            || SCRIPTS.iter().any(|&(script, _)| script == name)
+    })
 }
 
 fn asset(body: &'static str, content_type: &'static str) -> Response {
