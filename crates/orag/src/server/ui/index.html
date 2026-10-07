@@ -3,70 +3,60 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>ORAG</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
-<script src="/app.js" defer></script>
+<script type="module" src="/app.js"></script>
 </head>
 <body>
 <header>
-  <h1>ORAG</h1>
-  <p class="hint">Yerel belge arama ve soru-cevap. Her şey bu bilgisayarda kalır.</p>
-</header>
-
-<main>
-  <section aria-labelledby="collection-title">
-    <h2 id="collection-title">Koleksiyon</h2>
-    <p class="hint">Yüklenen dosyalar ve sorular yalnızca seçili koleksiyonda kullanılır.</p>
-    <div class="row">
-      <label for="collection" class="inline">Seçili koleksiyon</label>
-      <select id="collection"></select>
-      <button id="collection-reindex" type="button">Yeniden indeksle</button>
-      <button id="collection-delete" type="button">Koleksiyonu sil</button>
+  <div class="brand">
+    <img src="/favicon.svg" alt="" width="36" height="36">
+    <div>
+      <h1>ORAG</h1>
+      <p class="hint">Belgelerinize soru sorun. Her şey bu bilgisayarda kalır.</p>
     </div>
+  </div>
+  <div class="collection-bar">
+    <label for="collection">Koleksiyon</label>
+    <select id="collection"></select>
+  </div>
+  <details id="collection-manage">
+    <summary>Koleksiyonu yönet</summary>
     <form id="collection-form">
       <label for="collection-name">Yeni koleksiyon</label>
       <input id="collection-name" type="text" maxlength="64" required placeholder="Örneğin: Sözleşmeler">
-      <button id="collection-create" type="submit">Koleksiyon oluştur</button>
+      <button id="collection-create" type="submit">Oluştur</button>
     </form>
-    <p class="hint">Ad: en fazla 64 harf, rakam, boşluk, "_", "." veya "-".</p>
-    <div id="collection-status" class="status" role="status" aria-live="polite"></div>
-  </section>
+    <p class="hint">Ad: en fazla 64 harf, rakam, boşluk, "_", "." veya "-". Her koleksiyon ayrı aranır.</p>
+    <div class="row">
+      <button id="collection-reindex" type="button" title="Belgeleri saklanan kopyalarından mevcut modelle yeniden işler">Yeniden indeksle</button>
+      <button id="collection-delete" type="button" class="danger">Koleksiyonu sil</button>
+    </div>
+  </details>
+  <div id="collection-status" class="status" role="status" aria-live="polite"></div>
+</header>
 
-  <section aria-labelledby="upload-title">
-    <h2 id="upload-title">Dosya yükle</h2>
-    <form id="upload-form">
-      <input id="upload-file" type="file" name="file" accept=".txt,.md,.markdown,.docx,.pdf" required>
-      <button id="upload-button" type="submit">Dosya yükle</button>
-    </form>
-    <p class="hint">TXT, Markdown, DOCX veya PDF. Hedef koleksiyon: <strong id="upload-target"></strong></p>
-    <div id="upload-status" class="status" role="status" aria-live="polite"></div>
-  </section>
-
-  <section aria-labelledby="documents-title">
-    <h2 id="documents-title">Belgeler</h2>
-    <p class="hint">Seçili koleksiyondaki belgeler: <strong id="documents-target"></strong></p>
-    <table class="documents">
-      <thead>
-        <tr><th>Dosya</th><th>Durum</th><th class="number">Parça</th><th class="number">Boyut</th><th></th></tr>
-      </thead>
-      <tbody id="documents"></tbody>
-    </table>
-    <p id="documents-empty" class="hint" hidden>Bu koleksiyonda belge yok.</p>
-    <button id="documents-more" type="button" hidden>Daha fazla göster</button>
-    <div id="documents-status" class="error" role="alert"></div>
-  </section>
-
+<main>
   <section aria-labelledby="ask-title">
     <h2 id="ask-title">Sorgu yap</h2>
     <form id="ask-form">
-      <label for="ask-text">Sorunuz (<span id="ask-target"></span> koleksiyonunda aranır)</label>
+      <label for="ask-text" class="visually-hidden">Sorunuz</label>
       <textarea id="ask-text" rows="3" maxlength="2000" required placeholder="Örneğin: İade süresi kaç gündür?"></textarea>
-      <button id="ask-button" type="submit">Sorgu yap</button>
+      <div class="row">
+        <button id="ask-button" type="submit" class="primary">Sorgu yap</button>
+        <button id="ask-stop" type="button" hidden>Durdur</button>
+        <span class="hint"><strong id="ask-target"></strong> koleksiyonunda aranır · Ctrl/⌘ + Enter ile gönderin</span>
+      </div>
     </form>
-    <div id="ask-error" class="error" role="alert"></div>
+    <p id="ask-empty" class="notice" hidden>Bu koleksiyonda henüz belge yok. Önce aşağıdan bir dosya yükleyin.</p>
+    <div id="ask-error"></div>
     <div id="answer-block" hidden>
-      <h3>Yanıt</h3>
+      <div class="row spread">
+        <h3>Yanıt</h3>
+        <button id="answer-copy" type="button" class="small" hidden>Kopyala</button>
+      </div>
       <p id="answer" class="answer" aria-live="polite"></p>
       <p id="answer-notice" class="notice" hidden></p>
     </div>
@@ -74,6 +64,30 @@
       <h3>Kaynaklar</h3>
       <ol id="sources" class="sources"></ol>
     </div>
+  </section>
+
+  <section aria-labelledby="upload-title">
+    <h2 id="upload-title">Dosya yükle</h2>
+    <input id="upload-file" class="visually-hidden" type="file" name="file" multiple accept=".txt,.md,.markdown,.docx,.pdf">
+    <label id="dropzone" class="dropzone" for="upload-file">
+      <span class="dropzone-title">Dosyaları buraya bırakın veya seçmek için tıklayın</span>
+      <span class="hint">TXT, Markdown, DOCX veya PDF · <span id="upload-limit"></span> Hedef: <strong id="upload-target"></strong></span>
+    </label>
+    <ul id="upload-list" class="upload-list"></ul>
+    <button id="upload-clear" type="button" class="small" hidden>Tamamlananları temizle</button>
+  </section>
+
+  <section aria-labelledby="documents-title">
+    <h2 id="documents-title">Belgeler <span class="hint">· <span id="documents-target"></span></span></h2>
+    <table id="documents-table" class="documents" hidden>
+      <thead>
+        <tr><th>Dosya</th><th>Durum</th><th class="number">Parça</th><th class="number">Boyut</th><th></th></tr>
+      </thead>
+      <tbody id="documents"></tbody>
+    </table>
+    <p id="documents-empty" class="hint" hidden>Bu koleksiyonda belge yok. Yukarıdaki alana bir dosya bırakarak başlayın.</p>
+    <button id="documents-more" type="button" hidden>Daha fazla göster</button>
+    <div id="documents-status"></div>
   </section>
 </main>
 </body>

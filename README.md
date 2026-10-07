@@ -100,16 +100,14 @@ It prints `orag listening on http://127.0.0.1:7613` (the API) and then
 `orag ui on http://127.0.0.1:2442`, and stops on Ctrl-C or SIGTERM. Indexing
 that was interrupted resumes on the next start.
 
-Open **<http://127.0.0.1:2442>** in a browser for the built-in page. *Koleksiyon*
-selects the collection to work in, creates a new one or deletes the selected
-one (with its documents; the `default` collection stays) or reindexes it
-with the current model (*Yeniden indeksle*, e.g. after `409 reindex_required`;
-no new upload needed). *Belgeler* lists
-the documents of the selected collection (status, chunks, size, warnings) and
-deletes one after a confirmation. *Dosya yükle*
-uploads a TXT, Markdown, DOCX or PDF file to the selected collection and shows
-its indexing progress; *Sorgu yap* asks a question in the selected collection
-only and streams the answer with its sources; each `[n]` in the answer links to source `n`, and sources the answer does not cite are marked. The page is part of the binary and loads nothing
+Open **<http://127.0.0.1:2442>** in a browser for the built-in page. Choose
+the collection at the top (*Koleksiyonu yönet* creates, reindexes or deletes
+one). *Sorgu yap* asks a question in the selected collection only and streams
+the answer (Ctrl/⌘ + Enter sends, *Durdur* stops, *Kopyala* copies); each
+`[n]` links to its source, and sources the answer does not cite are marked.
+*Dosya yükle* takes TXT, Markdown, DOCX or PDF files dropped on it or chosen
+(several at once) and shows each one's indexing; *Belgeler* lists and deletes
+the collection's documents. The page is part of the binary and loads nothing
 from the network. Set `ui_bind = "off"` in `config.toml` to turn it off. A
 second `orag serve` (another `ORAG_HOME`) needs its own `bind` and `ui_bind`
 (or `ui_bind = "off"`): a busy port stops startup.
