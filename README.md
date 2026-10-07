@@ -102,7 +102,9 @@ that was interrupted resumes on the next start.
 
 Open **<http://127.0.0.1:2442>** in a browser for the built-in page. *Koleksiyon*
 selects the collection to work in, creates a new one or deletes the selected
-one (with its documents; the `default` collection stays). *Dosya yükle*
+one (with its documents; the `default` collection stays). *Belgeler* lists
+the documents of the selected collection (status, chunks, size, warnings) and
+deletes one after a confirmation. *Dosya yükle*
 uploads a TXT, Markdown, DOCX or PDF file to the selected collection and shows
 its indexing progress; *Sorgu yap* asks a question in the selected collection
 only and streams the answer with its sources. The page is part of the binary and loads nothing

@@ -1,9 +1,11 @@
-// ORAG built-in page: manage collections, upload a file, ask a question.
+// ORAG built-in page: manage collections and their documents, upload a file,
+// ask a question.
 // Plain DOM, no libraries. Document text and names are untrusted: they are
 // only ever set as textContent.
 "use strict";
 
 const POLL_MS = 1000;
+const PAGE_SIZE = 50;
 const DEFAULT_COLLECTION = "default";
 const SELECTED_KEY = "orag.collection";
 
@@ -47,8 +49,23 @@ async function errorText(response) {
 
 async function getJson(path) {
   const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error(await errorText(response));
+  if (!response.ok) {
+    const err = new Error(await errorText(response));
+    err.status = response.status;
+    throw err;
+  }
   return response.json();
+}
+
+/** A document's display name: JSON text uploads may have no file name. */
+function documentName(doc) {
+  return doc.filename || doc.title || `Belge #${doc.id}`;
+}
+
+/** Label and CSS class of a document status, shared by the upload panel and the table. */
+function documentStatusView(doc) {
+  const className = doc.status === "ready" ? "ok" : doc.status === "failed" ? "failed" : "";
+  return [DOCUMENT_STATUS[doc.status] || doc.status, className];
 }
 
 // ---- Collections ----------------------------------------------------------
@@ -94,8 +111,12 @@ function onCollectionChanged() {
   const name = current ? current.name : "";
   $("upload-target").textContent = name;
   $("ask-target").textContent = name;
+  $("documents-target").textContent = name;
   $("collection-delete").disabled = !current || current.name === DEFAULT_COLLECTION;
   if (current) prefer(current.id);
+  // Only another collection reloads the table: a refresh of the same one
+  // (new counts) keeps the pages the user has opened.
+  if ((current ? current.id : null) !== documentsOf) refreshDocuments();
 }
 
 /** Reloads the list; keeps the preferred collection, else selects the first. */
@@ -177,6 +198,135 @@ async function deleteCollection() {
   }
 }
 
+// ---- Documents ------------------------------------------------------------
+
+/** Cursor of the next page, or null when the list is complete. */
+let documentsAfter = null;
+/** Only the newest document load may change the table. */
+let documentsSeq = 0;
+/** The collection the table shows. */
+let documentsOf = null;
+
+function formatSize(bytes) {
+  const units = ["bayt", "KB", "MB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} ${units[unit]}`;
+}
+
+function documentRow(collection, doc) {
+  const row = el("tr");
+  row.dataset.id = String(doc.id);
+  const name = el("td", documentName(doc), "name");
+  for (const warning of doc.warnings || []) name.append(el("div", warning, "warning"));
+  if (doc.error) name.append(el("div", doc.error, "failed"));
+  const [status, statusClass] = documentStatusView(doc);
+  const remove = el("button", "Sil");
+  remove.type = "button";
+  remove.addEventListener("click", () => deleteDocument(collection, doc, row, remove));
+  const action = el("td");
+  action.append(remove);
+  row.append(
+    name,
+    el("td", status, statusClass),
+    el("td", String(doc.chunk_count), "number"),
+    el("td", formatSize(doc.size_bytes), "number"),
+    action,
+  );
+  return row;
+}
+
+/**
+ * Shows a document's latest state (upload progress): replaces its row, or
+ * appends it when the table already shows the end of the list (ids ascend).
+ */
+function updateDocumentRow(collection, doc) {
+  if (collection.id !== documentsOf) return;
+  const row = $("documents").querySelector(`tr[data-id="${Number(doc.id)}"]`);
+  if (row) row.replaceWith(documentRow(collection, doc));
+  else if (documentsAfter == null) $("documents").append(documentRow(collection, doc));
+  showDocumentsEmpty();
+}
+
+function showDocumentsEmpty() {
+  $("documents-empty").hidden = $("documents").children.length > 0;
+}
+
+/**
+ * Loads the first page again (`reset`) or the next one. Errors are shown in
+ * the section, and only by the newest load, so an outdated request (for a
+ * collection no longer selected) never overwrites a newer result.
+ */
+async function loadDocuments(reset) {
+  const seq = ++documentsSeq;
+  const collection = selectedCollection();
+  const more = $("documents-more");
+  more.disabled = true;
+  if (reset) {
+    documentsAfter = null;
+    more.hidden = true;
+  }
+  $("documents-status").textContent = "";
+  if (!collection || collection.id !== documentsOf) {
+    // Never show (or offer to delete) another collection's rows meanwhile.
+    $("documents").replaceChildren();
+    $("documents-empty").hidden = true;
+    documentsOf = collection ? collection.id : null;
+  }
+  if (!collection) return;
+  const cursor = reset || documentsAfter == null ? "" : `&after_id=${documentsAfter}`;
+  try {
+    // One extra row tells whether another page exists, so a collection of
+    // exactly 50 documents offers no empty "more" page.
+    const body = await getJson(
+      `/v1/collections/${collection.id}/documents?limit=${PAGE_SIZE + 1}${cursor}`,
+    );
+    if (seq !== documentsSeq) return; // another collection or a newer load
+    const page = body.documents.slice(0, PAGE_SIZE);
+    const rows = page.map((doc) => documentRow(collection, doc));
+    if (reset) $("documents").replaceChildren(...rows);
+    else $("documents").append(...rows);
+    documentsAfter = body.documents.length > PAGE_SIZE ? page[page.length - 1].id : null;
+    more.hidden = documentsAfter == null;
+    showDocumentsEmpty();
+  } catch (err) {
+    if (seq === documentsSeq) {
+      $("documents-status").textContent = `Belge listesi yüklenemedi: ${err.message}`;
+    }
+  } finally {
+    if (seq === documentsSeq) more.disabled = false;
+  }
+}
+
+function refreshDocuments() {
+  loadDocuments(true);
+}
+
+async function deleteDocument(collection, doc, row, button) {
+  const question = `"${documentName(doc)}" belgesi "${collection.name}" koleksiyonundan kalıcı olarak silinsin mi?`;
+  if (!window.confirm(question)) return;
+  button.disabled = true;
+  $("documents-status").textContent = "";
+  try {
+    const path = `/v1/collections/${collection.id}/documents/${doc.id}`;
+    const response = await fetch(path, { method: "DELETE" });
+    // 404: already deleted elsewhere, which is the wanted result too.
+    if (!response.ok && response.status !== 404) throw new Error(await errorText(response));
+  } catch (err) {
+    $("documents-status").textContent = err.message;
+    button.disabled = false;
+    return;
+  }
+  // Removed in place, so the pages the user has opened stay open.
+  row.remove();
+  showDocumentsEmpty();
+  await refreshCollections(); // new document count
+}
+
 // ---- Upload ---------------------------------------------------------------
 
 function showUpload(rows, extra) {
@@ -193,11 +343,7 @@ function renderProgress(filename, collection, doc, job, note) {
   const rows = [
     ["Dosya", filename],
     ["Koleksiyon", collection.name],
-    [
-      "Durum",
-      DOCUMENT_STATUS[doc.status] || doc.status,
-      doc.status === "ready" ? "ok" : doc.status === "failed" ? "failed" : "",
-    ],
+    ["Durum", ...documentStatusView(doc)],
   ];
   if (job) rows.push(["İş", `#${job.id} ${JOB_STATUS[job.status] || job.status}`]);
   if (finished) rows.push(["Parça sayısı", String(doc.chunk_count)]);
@@ -222,11 +368,19 @@ async function followUpload(filename, collection, accepted) {
   let job = null;
   for (;;) {
     const jobFinal = job && (job.status === "succeeded" || job.status === "failed");
-    const [doc, latestJob] = await Promise.all([
-      getJson(docPath),
-      jobPath && !jobFinal ? getJson(jobPath) : job,
-    ]);
-    job = latestJob;
+    let doc;
+    try {
+      [doc, job] = await Promise.all([
+        getJson(docPath),
+        jobPath && !jobFinal ? getJson(jobPath) : job,
+      ]);
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      // Deleted while indexing (the Sil button): not an upload failure.
+      showUpload([["Dosya", filename], ["Koleksiyon", collection.name], ["Durum", "Silindi"]]);
+      return;
+    }
+    updateDocumentRow(collection, doc);
     if (renderProgress(filename, collection, doc, job, note)) return;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
@@ -253,7 +407,8 @@ async function upload(event) {
       body: form,
     });
     if (!response.ok) throw new Error(await errorText(response));
-    await followUpload(file.name, collection, await response.json());
+    const accepted = await response.json();
+    await followUpload(file.name, collection, accepted);
   } catch (err) {
     showUpload([["Dosya", file.name], target, ["Hata", err.message, "failed"]]);
   } finally {
@@ -411,5 +566,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("collection-delete").addEventListener("click", deleteCollection);
   $("upload-form").addEventListener("submit", upload);
   $("ask-form").addEventListener("submit", ask);
+  $("documents-more").addEventListener("click", () => {
+    loadDocuments(false).catch((err) => {
+      $("documents-status").textContent = err.message;
+      $("documents-more").disabled = false;
+    });
+  });
   refreshCollections();
 });

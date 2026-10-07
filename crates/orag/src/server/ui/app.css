@@ -41,6 +41,14 @@ button:disabled { cursor: progress; opacity: 0.6; }
 .failed { color: #a1260d; }
 .answer { white-space: pre-wrap; margin-top: 0; }
 .notice { background: #fff4d6; border-left: 4px solid #d9a400; padding: 0.4rem 0.75rem; }
+.documents { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.documents th { text-align: left; color: #6b665c; font-weight: 600; }
+.documents th, .documents td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee9de; vertical-align: top; }
+.documents td.name { word-break: break-word; }
+.documents .number { text-align: right; white-space: nowrap; }
+.documents .warning { color: #8a5a00; font-size: 0.85rem; }
+.documents button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
+#documents-more { margin-top: 0.5rem; }
 .sources { list-style: none; padding-left: 0; }
 .sources li { margin-bottom: 0.75rem; }
 .sources .heading { color: #6b665c; font-size: 0.9rem; }
