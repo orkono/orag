@@ -50,7 +50,14 @@ button:disabled { cursor: progress; opacity: 0.6; }
 .documents button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
 #documents-more { margin-top: 0.5rem; }
 .sources { list-style: none; padding-left: 0; }
-.sources li { margin-bottom: 0.75rem; }
+.sources li.opened { background: #fff4d6; }
+.sources li.cited strong { color: #1d4f91; }
+.sources li.uncited { opacity: 0.7; }
+.uncited-note { color: #6b665c; font-size: 0.85rem; }
+a.citation { color: #1d4f91; font-weight: 600; text-decoration: none; }
+a.citation:hover, a.citation:focus { text-decoration: underline; }
+.citation-invalid { color: #a1260d; text-decoration: line-through; }
+.sources li { margin-bottom: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 6px; }
 .sources .heading { color: #6b665c; font-size: 0.9rem; }
 .sources blockquote {
   margin: 0.25rem 0 0;

@@ -17,6 +17,18 @@ pub struct Citations {
     pub valid: Vec<usize>,
     /// Numbers cited by the model that do not correspond to a source.
     pub invalid: Vec<usize>,
+    /// Every marker in answer order, so a client can link it without parsing.
+    pub markers: Vec<CitationMarker>,
+}
+
+/// One marker: `answer[start..end]` (UTF-8 byte offsets, `end` exclusive)
+/// from its `[` to its `]`, and the numbers it cites in order (a range
+/// expanded), valid or not.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CitationMarker {
+    pub start: usize,
+    pub end: usize,
+    pub numbers: Vec<usize>,
 }
 
 /// Longest number read as a marker; longer digit runs (years) are not markers.
@@ -35,8 +47,8 @@ pub fn extract_citations(answer: &str, source_count: usize) -> Citations {
         seen: [false; MARKER_LIMIT],
         citations: Citations::default(),
     };
-    for prose in outside_closed_fences(answer) {
-        found.scan(prose);
+    for (offset, prose) in outside_closed_fences(answer) {
+        found.scan(offset, prose);
     }
     found.citations
 }
@@ -48,7 +60,9 @@ struct Collector {
 }
 
 impl Collector {
-    fn scan(&mut self, prose: &str) {
+    /// `offset`: where `prose` starts in the answer. `rest` is always a
+    /// suffix of `prose`, so its place is `offset + prose.len() - rest.len()`.
+    fn scan(&mut self, offset: usize, prose: &str) {
         let mut rest = prose;
         while let Some(open) = rest.find('[') {
             let after = &rest[open + 1..];
@@ -59,11 +73,19 @@ impl Collector {
                 continue;
             }
             if is_marker(inner) {
-                for part in inner.split(',') {
-                    for number in part_numbers(part).into_iter().flatten() {
-                        self.add(number);
-                    }
+                let start = offset + prose.len() - rest.len() + open;
+                let numbers: Vec<usize> = inner
+                    .split(',')
+                    .flat_map(|part| part_numbers(part).into_iter().flatten())
+                    .collect();
+                for &number in &numbers {
+                    self.add(number);
                 }
+                self.citations.markers.push(CitationMarker {
+                    start,
+                    end: start + close + 2, // `[`, inner, `]`
+                    numbers,
+                });
             }
             rest = &after[close + 1..];
         }
@@ -98,14 +120,15 @@ fn part_numbers(part: &str) -> Option<std::ops::RangeInclusive<usize>> {
     }
 }
 
-/// The parts of `answer` outside fenced code blocks that are closed. A fence
+/// The parts of `answer` outside fenced code blocks that are closed, each
+/// with its byte offset. A fence
 /// is a line of three or more backticks or tildes (after any indentation and
 /// blockquote `>` markers), closed by a later line of the same character at
 /// least as long. A fence that is never closed is plain text, so a stray
 /// fence never hides the rest of the answer. Linear time: a suffix table of
 /// the longest closing run below each line tells whether an opener closes
 /// before searching, and a search only walks lines it then skips.
-fn outside_closed_fences(answer: &str) -> Vec<&str> {
+fn outside_closed_fences(answer: &str) -> Vec<(usize, &str)> {
     let lines: Vec<(usize, &str)> = answer
         .split_inclusive('\n')
         .scan(0, |offset, line| {
@@ -137,14 +160,14 @@ fn outside_closed_fences(answer: &str) -> Vec<&str> {
             });
         match close {
             Some(j) => {
-                parts.push(&answer[prose_start..start]);
+                parts.push((prose_start, &answer[prose_start..start]));
                 prose_start = lines[j].0 + lines[j].1.len();
                 i = j + 1;
             }
             None => i += 1,
         }
     }
-    parts.push(&answer[prose_start..]);
+    parts.push((prose_start, &answer[prose_start..]));
     parts
 }
 
@@ -194,6 +217,34 @@ mod tests {
     fn cite(answer: &str, sources: usize) -> (Vec<usize>, Vec<usize>) {
         let c = extract_citations(answer, sources);
         (c.valid, c.invalid)
+    }
+
+    /// Each marker as (its text, its numbers).
+    fn markers(answer: &str, sources: usize) -> Vec<(&str, Vec<usize>)> {
+        extract_citations(answer, sources)
+            .markers
+            .into_iter()
+            .map(|m| (&answer[m.start..m.end], m.numbers))
+            .collect()
+    }
+
+    #[test]
+    fn markers_give_their_place_and_numbers() {
+        let answer = "İade [1] ve [2, 9]; aralık [1-3], dipnot [^2], kaçış \\[3\\].\n\
+                      ```\nxs[1]\n```\nyıl [2024], sıfır [01].";
+        assert_eq!(
+            markers(answer, 3),
+            vec![
+                ("[1]", vec![1]),
+                ("[2, 9]", vec![2, 9]),
+                ("[1-3]", vec![1, 2, 3]),
+                ("[^2]", vec![2]),
+                ("[3\\]", vec![3]),
+            ]
+        );
+        // Repeated numbers repeat in markers; valid/invalid stay unique.
+        let c = extract_citations("[1] [1]", 1);
+        assert_eq!((c.valid, c.markers.len()), (vec![1], 2));
     }
 
     #[test]

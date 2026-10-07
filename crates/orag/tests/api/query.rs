@@ -84,6 +84,12 @@ async fn query_returns_grounded_answer_json() {
     assert_eq!(body["trace"]["retrieval"]["strategy"], "hybrid");
     assert_eq!(body["abstained"], false);
     assert_eq!(body["finish_reason"], "stop");
+    // UTF-8 byte offsets: "14 gün " is 8 bytes ("ü" takes two).
+    assert_eq!(
+        body["citation_markers"],
+        json!([{"start": 8, "end": 11, "numbers": [1]}])
+    );
+    assert_eq!(&"14 gün [1]."[8..11], "[1]");
 }
 
 #[tokio::test]
@@ -116,6 +122,10 @@ async fn query_streams_sources_tokens_done_in_order() {
     assert!(sources < token && token < done, "{text}");
     assert!(
         text[done..].contains("\"finish_reason\":\"stop\""),
+        "{text}"
+    );
+    assert!(
+        text[done..].contains(r#""citation_markers":[{"start":8,"end":11,"numbers":[1]}]"#),
         "{text}"
     );
 }

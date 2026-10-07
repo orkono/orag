@@ -343,3 +343,18 @@ fn the_page_offers_a_reindex_of_the_selected_collection() {
     // A 409 reindex_required points the user to the button.
     assert!(ui::APP_JS.contains("\"reindex_required\""));
 }
+
+#[test]
+fn citations_in_the_answer_link_to_their_sources() {
+    // Each source has an anchor, and markers in a finished answer link to it.
+    assert!(ui::APP_JS.contains("`source-${source.number}`"));
+    assert!(ui::APP_JS.contains("function linkCitations("));
+    // The server's markers decide what a citation is: no client-side parser.
+    assert!(ui::APP_JS.contains("data.citation_markers"));
+    assert!(!ui::APP_JS.contains("matchAll("));
+    // Opening a source adds no history entry (no `:target` highlight).
+    assert!(ui::APP_JS.contains("event.preventDefault()"));
+    assert!(!ui::APP_CSS.contains(":target"));
+    // HTML sinks are banned in the whole script by
+    // `assets_load_nothing_from_the_network_and_never_parse_html`.
+}
