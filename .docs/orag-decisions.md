@@ -388,6 +388,7 @@ GET    /v1/health
 GET    /v1/version                                  (+ effective config)
 POST   /v1/collections            GET /v1/collections
 DELETE /v1/collections/{collection_id}
+POST   /v1/collections/{collection_id}/reindex      → 202 {collection_id, queued_documents} (D-022)
 POST   /v1/collections/{collection_id}/documents   → 202 {document_id, job_id}
 GET    /v1/collections/{collection_id}/documents   (paginated)
 GET    /v1/collections/{collection_id}/documents/{document_id}
@@ -581,6 +582,35 @@ the API's own origin a trusted web origin for every client of `bind`
 (including the desktop's fixed port); a separate listener keeps the allowed
 origin tied to the page alone and lets users turn it off without touching the
 API.
+
+## D-022 — Reindex from stored sources (owner request, 2026-10-07)
+
+**Decision.** `POST /v1/collections/{collection_id}/reindex` re-indexes a
+collection with the running model from the source snapshots kept since
+upload (`sources`), the recovery for `409 reindex_required` (D-009). One
+write transaction removes the collection's chunks with their FTS and vector
+rows, unbinds its embedding space (dropping it if unused), marks open jobs of
+its documents `failed` with `superseded by a reindex of the collection`, sets
+every document `queued` and inserts one new job per document. The worker then
+indexes them as usual; the first publish binds the current space.
+
+- **Why in place, not side by side.** The old space cannot serve anyway (its
+  model is not loaded, queries already get 409), so building a second index
+  next to it would only double the storage. Ids of collections and documents
+  stay, and a crash mid-way resumes like any ingest (D-008).
+- **One at a time.** A reindex is refused (`409 conflict`) while any document
+  of the collection is `queued` or `indexing`, checked in the same
+  transaction, so a retried or repeated call cannot reset finished work.
+  Closing open jobs (`superseded by a reindex of the collection`) stays as a
+  safety net. A running job checks every 0.5 s that it is still `running`
+  and stops early otherwise (this also ends the work of a document deleted
+  while it is indexed); `publish_document` discards a claim that is not.
+- **During the reindex** queries see only the documents already done (a query
+  that raced the dropped vector table finds no dense hits instead of a 404);
+  the page says so before it starts. It is allowed at any time, not only
+  after a 409 (for example to apply a newer chunker).
+- The built-in page (D-021) offers it as *Yeniden indeksle* and points to it
+  when an error is `reindex_required`.
 
 ---
 

@@ -335,3 +335,11 @@ fn the_page_lists_the_documents_of_the_selected_collection() {
     assert!(ui::APP_JS.contains("/documents/${doc.id}`"));
     assert!(ui::APP_JS.contains("method: \"DELETE\""));
 }
+
+#[test]
+fn the_page_offers_a_reindex_of_the_selected_collection() {
+    assert!(ui::INDEX_HTML.contains("id=\"collection-reindex\""));
+    assert!(ui::APP_JS.contains("/reindex`"));
+    // A 409 reindex_required points the user to the button.
+    assert!(ui::APP_JS.contains("\"reindex_required\""));
+}

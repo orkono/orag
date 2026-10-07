@@ -6,11 +6,13 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::domain::CollectionId;
 use crate::error::{OragError, Result};
-use crate::store::Store;
 use crate::store::publish::{ChunkScope, delete_chunk_rows, delete_orphan_sources};
 use crate::store::spaces::{collection_space_id, drop_unused_space};
+use crate::store::{NOW_SQL, Store};
 
 pub const DEFAULT_COLLECTION: &str = "default";
+/// Recorded on the jobs a reindex replaces (they never publish).
+pub const SUPERSEDED_BY_REINDEX: &str = "superseded by a reindex of the collection";
 const MAX_NAME_CHARS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -137,8 +139,7 @@ impl Store {
                     "the default collection cannot be deleted".into(),
                 ));
             }
-            let space_id = collection_space_id(&tx, id)?;
-            delete_chunk_rows(&tx, space_id, ChunkScope::Collection(id))?;
+            let space_id = clear_collection_index(&tx, id)?;
             let shas: Vec<String> = {
                 let mut stmt = tx.prepare(
                     "SELECT DISTINCT source_sha256 FROM documents WHERE collection_id = ?1",
@@ -157,6 +158,73 @@ impl Store {
             Ok(())
         })
     }
+
+    /// Re-indexes every document of a collection from its stored source with
+    /// whatever model the worker runs (D-022). Refused while a document is
+    /// still queued or indexing (an upload or an earlier reindex), so a
+    /// repeated call cannot undo finished work. In one transaction: the
+    /// chunks, FTS and vector rows go, the collection leaves its embedding
+    /// space (the first publish binds the current one), any open job is
+    /// closed so its claim can no longer publish, and each document is queued
+    /// with a new job. Returns the number of documents queued.
+    pub fn reindex_collection(&self, id: CollectionId) -> Result<usize> {
+        self.write(|conn| {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            collection_space_id(&tx, id)?; // 404 for an unknown collection
+            let busy: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM documents WHERE collection_id = ?1 \
+                 AND status IN ('queued', 'indexing'))",
+                [id],
+                |r| r.get(0),
+            )?;
+            if busy {
+                return Err(OragError::Conflict(
+                    "documents of this collection are still being indexed; \
+                     reindex when they are ready or failed"
+                        .into(),
+                ));
+            }
+            let space_id = clear_collection_index(&tx, id)?;
+            tx.execute(
+                "UPDATE collections SET embedding_space_id = NULL WHERE id = ?1",
+                [id],
+            )?;
+            if let Some(space) = space_id {
+                drop_unused_space(&tx, space)?;
+            }
+            tx.execute(
+                &format!(
+                    "UPDATE jobs SET status = 'failed', error = ?2, updated_at = {NOW_SQL} \
+                     WHERE status IN ('queued', 'running') \
+                     AND document_id IN (SELECT id FROM documents WHERE collection_id = ?1)"
+                ),
+                rusqlite::params![id, SUPERSEDED_BY_REINDEX],
+            )?;
+            let queued = tx.execute(
+                &format!(
+                    "UPDATE documents SET status = 'queued', error = NULL, title = NULL, \
+                     warnings = '[]', chunk_count = 0, updated_at = {NOW_SQL} \
+                     WHERE collection_id = ?1"
+                ),
+                [id],
+            )?;
+            tx.execute(
+                "INSERT INTO jobs (document_id, kind, status) \
+                 SELECT id, 'ingest', 'queued' FROM documents WHERE collection_id = ?1 ORDER BY id",
+                [id],
+            )?;
+            tx.commit()?;
+            Ok(queued)
+        })
+    }
+}
+
+/// Removes a collection's chunks with their FTS and vector rows; returns the
+/// space it was bound to. Call inside a write transaction.
+fn clear_collection_index(tx: &rusqlite::Transaction<'_>, id: CollectionId) -> Result<Option<i64>> {
+    let space_id = collection_space_id(tx, id)?;
+    delete_chunk_rows(tx, space_id, ChunkScope::Collection(id))?;
+    Ok(space_id)
 }
 
 #[cfg(test)]

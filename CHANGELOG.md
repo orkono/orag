@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.10] - 2026-10-07
+
+- Reindex (D-022): `POST /v1/collections/{collection_id}/reindex` indexes every document of a collection again from the copy stored at upload, with the running embedding model and chunker; `202 {collection_id, queued_documents}`. This is the recovery for `409 reindex_required` without uploading files again; collection and document ids stay. Refused with `409 conflict` while a document of the collection is still queued or indexing, so a repeated call cannot undo finished work. Until the new jobs finish, queries find only the documents already done; a query that races the reindex gets no dense hits instead of a 404.
+- Web page: *Yeniden indeksle* in the collection section (with a confirmation); a `reindex_required` error on upload or query now says to use it. Rows of documents still queued or indexing refresh by themselves until they finish.
+- An ingest job checks every 0.5 s that it is still claimed and stops otherwise, so deleting a document while it is indexed (or a reindex) no longer lets the worker finish parsing and embedding it for nothing.
+
 ## [0.2.0-alpha.9] - 2026-10-07
 
 - Web page: a *Belgeler* section lists the documents of the selected collection (file name, status, chunk count, size, warnings and errors), 50 at a time with *Daha fazla göster*, and deletes a document after a confirmation; the collection's document count updates. The list follows the selected collection and shows a new upload while it is indexed. No API change.

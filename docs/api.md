@@ -114,14 +114,17 @@ Every error, including unknown routes, has the same shape:
 Client timeouts for queries should exceed 120 s plus the answer time, because
 a query waits for the single answer slot before it gets `busy`.
 
-### `reindex_required` (409): recovery in v0.1
+### `reindex_required` (409): recovery
 
 A collection keeps the embedding space it was indexed with. If the embedding
 model, or anything else in that space, changed, queries and uploads on that
-collection return `409 reindex_required`. Automatic reindexing arrives in
-v0.2. In v0.1:
+collection return `409 reindex_required`. Then:
 
-1. **Pin the previous model.** Set `embedding_model` back to the previous pack
+1. **Reindex the collection** (since 0.2.0-alpha.10):
+   `POST /v1/collections/{collection_id}/reindex` (or *Yeniden indeksle* in the
+   built-in page) indexes every document again from its stored copy with the
+   current model. Nothing needs to be uploaded again and ids stay the same.
+2. **Or pin the previous model.** Set `embedding_model` back to the previous pack
    id in `config.toml` and restart. This works only if nothing else in the
    embedding space changed: the space fingerprint covers the model id and file
    checksum, pooling, query and document prefixes, dimensions, normalization,
@@ -129,7 +132,7 @@ v0.2. In v0.1:
    encoding (D-009). A change of the lexical search (normalizer, indexed text)
    is not part of it: ORAG rebuilds the full-text index at startup instead. A release that changes any of them says
    so in an **Upgrade note** in `CHANGELOG.md`; then pinning is not enough.
-2. **Otherwise re-upload.** A collection with no documents follows the
+3. **Or re-upload.** A collection with no documents follows the
    current embedding model again. Either delete every document in the
    collection (`DELETE .../documents/{id}` works while it is
    `reindex_required`) and upload the files again, which keeps the collection
@@ -224,6 +227,26 @@ A PDF sent as JSON:
 ```text
 HTTP/1.1 400 Bad Request
 {"error":{"code":"invalid_input","message":"invalid input: pdf files must be uploaded as multipart/form-data (field `file`)"}}
+```
+
+### `POST /v1/collections/{collection_id}/reindex`
+
+Indexes every document of the collection again from the copy stored at upload,
+with the embedding model and chunker of the running server. No body. The
+chunks are removed and each document is queued with a new job at once, so
+until the jobs finish, queries find only the documents already done. While a
+document of the collection is still `queued` or `indexing` (an upload or an
+earlier reindex) the call is refused with `409 conflict`, so a repeated call
+cannot undo finished work; try again when they are `ready` or `failed`.
+`404 not_found` for an unknown collection.
+
+```bash
+curl -s -X POST http://127.0.0.1:7613/v1/collections/1/reindex
+```
+
+```text
+HTTP/1.1 202 Accepted
+{"collection_id":1,"queued_documents":3}
 ```
 
 ### `GET /v1/jobs/{job_id}`
