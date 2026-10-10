@@ -26,7 +26,8 @@ per supported target:
   (`MACOSX_DEPLOYMENT_TARGET=14.0` forced in `.cargo/config.toml`; every llama.cpp
   object and the final binary are checked);
 - `x86_64-unknown-linux-gnu` (CPU);
-- later `x86_64-pc-windows-msvc` (CPU, then Vulkan/CUDA variants).
+- `x86_64-pc-windows-msvc` (CPU) from v0.2, Windows 10 22H2 / 11; Vulkan or
+  CUDA variants later.
 
 Everything ORAG builds (llama.cpp, SQLite, sqlite-vec) is linked statically.
 The only dynamic dependencies are the platform's base libraries: glibc,
@@ -36,6 +37,23 @@ frameworks; `check-binary-deps.sh` enforces this. OpenMP is off on
 every target, so there is no dynamic `libgomp`/`libomp` (`check-llama-build.sh`).
 Model files live outside the executable. GPU drivers are documented system
 prerequisites, not bundled.
+
+**Windows (v0.2, step 37).** The C runtime is linked statically
+(`+crt-static` and `LLAMA_STATIC_CRT=1` in `.cargo/config.toml`), so
+`orag.exe` imports only system DLLs (no VC++ redistributable;
+`check-binary-deps.sh` reads the import table and allows only
+`WINDOWS_SYSTEM_DLLS`). The CPU floor is x86-64 with AVX2, FMA, F16C and BMI2
+(Haswell 2013+, AMD Zen): llama.cpp's MSVC build enables its AVX2 kernels
+from those Rust target features, with `GGML_NATIVE` off, and
+`check-llama-build.sh` checks the CMake cache. The DOCX/PDF parser child runs
+in its own Job Object instead of a process group and rlimits: kill on job
+close (so it dies with `orag serve`), a 4 GiB committed-memory cap, no
+error-report dialog, and `TerminateJobObject` kills everything it started. It
+has no console, so console Ctrl-C/Ctrl-Break never reach it; `orag serve`
+stops gracefully on Ctrl-C, Ctrl-Break, console close and logoff/shutdown.
+Crash NTSTATUS codes (access violation, stack overflow, fast fail, out of
+memory) blame the file; other exit codes are host problems, as on unix. The
+binary is not code-signed yet (SmartScreen warns on first start).
 
 **Why.** CUDA needs a matching driver and, depending on linking, runtime
 libraries; no single artifact can cover every accelerator. The desktop app is
@@ -534,6 +552,10 @@ not searchable.
    (`merge: step NN <slug> (v<VERSION>)`) and CHANGELOG has its version;
    any other `step/*` branch is the interrupted task (plan P0 rule 8).
 9. Tags are never created by the agent; they are handed to the owner.
+10. From step 37 (2026-10-10) a step branch is pushed to `origin` before its
+    merge, only so CI runs on all three operating systems (Windows-only code
+    is never compiled on the development Mac); no pull request is opened, and
+    the remote branch is deleted after the merge.
 
 The owner authorized commit, merge into `main` and push for this repository
 only (2026-10-01). This repository-scoped grant overrides the owner's general

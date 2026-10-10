@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.14] - 2026-10-10
+
+- Windows x86-64 (`x86_64-pc-windows-msvc`) builds and is tested in CI next to macOS and Linux (D-001). `orag.exe` links the C runtime statically (no Visual C++ redistributable) and imports only system DLLs (`check-binary-deps.sh` reads its import table); llama.cpp is built for the CPU floor AVX2/FMA/F16C/BMI2 (Intel 2013+, AMD Zen), checked in its CMake cache by `check-llama-build.sh`.
+- The DOCX/PDF parser child runs in a Windows Job Object: it dies with `orag serve`, is capped at 4 GiB of memory, shows no error dialog, and is killed together with anything it started. Crash codes blame the file; other exit codes are host problems, as on unix. `orag serve` stops gracefully on Ctrl-C, Ctrl-Break, closing the console and logoff/shutdown.
+- Process isolation is split into `isolate/unix.rs` and `isolate/windows.rs` behind one interface that keeps the rule "probe without reaping, kill the whole group, then reap".
+- CI also runs for `step/**` branches (pushed before their merge, no pull request; D-020 rule 10). The parser test that sends stop signals now waits for the child to report that its signal dispositions are installed, instead of a fixed 0.5 s, which failed on a cold start of a freshly built binary.
+- README: Windows 10 22H2 / 11 x86-64 with AVX2 in the system requirements.
+
 ## [0.2.0-alpha.13] - 2026-10-10
 
 - Plan for the rest of v0.2 (page provenance, layout warning, 10 MB default, setup mode and launcher, 200-question set, answer metrics, model decision, page completeness, release) and the Windows build and installer

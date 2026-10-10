@@ -31,7 +31,8 @@ from offline packs (D-001, D-012).
 
 - macOS 14 or newer on Apple Silicon (Metal is used automatically), or Linux
   x86-64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+; the
-  binary is built on Ubuntu 22.04). Windows arrives in v0.2.
+  binary is built on Ubuntu 22.04), or Windows 10 22H2 / 11 x86-64 on a CPU
+  with AVX2 (Intel 2013+, AMD Zen); no Visual C++ runtime is needed.
 - 16 GB RAM recommended.
 - About 3.3 GB of disk for the two installed default models, plus your
   documents. `orag models import` copies a pack, so the pack directory you

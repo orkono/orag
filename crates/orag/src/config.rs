@@ -207,6 +207,7 @@ fn create_home(home: &Path) -> std::io::Result<()> {
     if let Some(parent) = home.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
