@@ -218,7 +218,12 @@ impl Drop for TempCopy {
 /// is synced before it gets the final name and the directory entry after,
 /// so a power loss never leaves a short file under `to`.
 fn publish(from: &Path, to: &Path) -> io::Result<()> {
-    std::fs::File::open(from)?.sync_all()?;
+    // Opened for writing: Windows refuses to flush a read-only handle
+    // (FlushFileBuffers: access denied). `from` is our own temporary copy.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(from)?
+        .sync_all()?;
     match std::fs::hard_link(from, to) {
         Err(err) if err.kind() != io::ErrorKind::AlreadyExists => copy_no_clobber(from, to)?,
         other => other?,

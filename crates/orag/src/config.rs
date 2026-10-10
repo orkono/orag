@@ -328,6 +328,12 @@ pub fn parse_loopback_bind(text: &str) -> Result<SocketAddr> {
 mod tests {
     use super::*;
 
+    /// An absolute path on this platform (`/home/u`, `C:\\home\\u`).
+    fn abs(relative: &str) -> PathBuf {
+        let root = if cfg!(windows) { "C:\\" } else { "/" };
+        PathBuf::from(root).join(relative)
+    }
+
     #[test]
     fn home_with_turkish_letters_and_spaces() {
         // A Windows profile such as `C:\Users\Öznur Şahin` must work for the
@@ -491,17 +497,11 @@ mod tests {
 
     #[test]
     fn home_resolution_prefers_orag_home() {
-        let env = |key: &str| (key == "ORAG_HOME").then(|| OsString::from("/tmp/x"));
-        let user = Some(PathBuf::from("/home/u"));
-        assert_eq!(
-            home_from(&env, user.clone()).unwrap(),
-            PathBuf::from("/tmp/x")
-        );
+        let env = |key: &str| (key == "ORAG_HOME").then(|| OsString::from(abs("tmp/x")));
+        let user = Some(abs("home/u"));
+        assert_eq!(home_from(&env, user.clone()).unwrap(), abs("tmp/x"));
         let none = |_: &str| None;
-        assert_eq!(
-            home_from(&none, user).unwrap(),
-            PathBuf::from("/home/u/.orag")
-        );
+        assert_eq!(home_from(&none, user).unwrap(), abs("home/u").join(".orag"));
     }
 
     #[test]
@@ -654,7 +654,7 @@ mod tests {
         let none = |_: &str| None;
         assert!(home_from(&none, Some(PathBuf::from("relative/dir"))).is_err());
         assert!(
-            home_from(&none, Some(PathBuf::from("/home/u")))
+            home_from(&none, Some(abs("home/u")))
                 .unwrap()
                 .ends_with(".orag")
         );

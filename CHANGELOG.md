@@ -11,6 +11,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 - The DOCX/PDF parser child runs in a Windows Job Object: it dies with `orag serve`, is capped at 4 GiB of memory, shows no error dialog, and is killed together with anything it started. A crash (an exception status such as an access violation, stack overflow or abort) blames the file; plain exit codes are host problems, as on unix. `orag serve` stops gracefully on Ctrl-C, Ctrl-Break, closing the console and (as a service) system shutdown; logoff is ignored.
 - Process isolation is split into `isolate/unix.rs` and `isolate/windows.rs` behind one interface that keeps the rule "probe without reaping, kill the whole group, then reap".
 - CI also runs for `step/**` branches (pushed before their merge, no pull request; D-020 rule 10). The parser test that sends stop signals now waits for the child to report that its signal dispositions are installed, instead of a fixed 0.5 s, which failed on a cold start of a freshly built binary.
+- Backups (`orag backup`, and the copy taken before a schema upgrade) flush the finished copy through a writable handle; Windows refuses to flush a read-only one, so on Windows every backup and every upgrade failed with "access denied".
 - README: Windows 10 22H2 / 11 x86-64 with AVX2 in the system requirements.
 
 ## [0.2.0-alpha.13] - 2026-10-10
