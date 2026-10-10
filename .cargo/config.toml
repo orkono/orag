@@ -7,6 +7,10 @@ MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }
 # is set; Rust uses it too (rustflags below), so orag.exe needs no VC++
 # redistributable. Read only by the Windows build.
 LLAMA_STATIC_CRT = "1"
+# ...but llama.cpp's CMake (CMP0091) takes the runtime from
+# CMAKE_MSVC_RUNTIME_LIBRARY, not from /MT; this toolchain file sets it.
+# Target-specific name: cmake-rs reads it only when building for Windows.
+CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc = { value = "packaging/windows/static-crt.cmake", relative = true }
 
 # Windows x86-64 floor (scripts/platform-floors.sh WINDOWS_CPU_FLOOR): AVX2,
 # FMA, F16C, BMI2 (Intel Haswell 2013+, AMD Zen). llama-cpp-sys-2 turns ggml's
