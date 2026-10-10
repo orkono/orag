@@ -189,10 +189,13 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
 }
 
 /// Windows: Ctrl-C, Ctrl-Break (what a supervisor sends to a process group),
-/// closing the console window, and logoff/shutdown all stop the service
-/// gracefully. Windows gives a closing console a few seconds only, so the
-/// drain limits still apply but the process may be ended before they run
-/// out; an unfinished job is requeued on the next start.
+/// closing the console window, and system shutdown (delivered to services)
+/// stop the service gracefully. A logoff event (also only delivered to
+/// services) is ignored: another user logging off must not stop it, and
+/// without a listener the default handler would end the process at once.
+/// Windows gives a closing console a few seconds only, so the drain limits
+/// still apply but the process may be ended before they run out; an
+/// unfinished job is requeued on the next start.
 #[cfg(windows)]
 fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static> {
     use tokio::signal::windows;
@@ -200,12 +203,19 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
     let mut ctrl_break = windows::ctrl_break().context("installing the Ctrl-Break handler")?;
     let mut close = windows::ctrl_close().context("installing the console-close handler")?;
     let mut shutdown = windows::ctrl_shutdown().context("installing the shutdown handler")?;
+    let mut logoff = windows::ctrl_logoff().context("installing the logoff handler")?;
     Ok(async move {
+        let ignore_logoff = async {
+            loop {
+                logoff.recv().await;
+            }
+        };
         tokio::select! {
             _ = ctrl_c.recv() => {}
             _ = ctrl_break.recv() => {}
             _ = close.recv() => {}
             _ = shutdown.recv() => {}
+            () = ignore_logoff => {}
         }
         tracing::info!("shutting down");
     })

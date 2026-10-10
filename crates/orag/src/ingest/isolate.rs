@@ -86,6 +86,11 @@ pub const TEST_DELAY_ENV: &str = "ORAG_TEST_PARSE_DELAY_MS";
 /// child's limits and signal dispositions are installed, so a test can act
 /// on an event instead of guessing how long process startup takes.
 pub const TEST_DELAY_READY: &str = "orag-test: parse delay started";
+/// Debug builds only: input that starts with this prefix and an outcome
+/// makes the child end as a test asks: `abort` (a crash), `exit3` (an error
+/// exit), `hang` (never ends). In the input, not the environment, so only
+/// that one parse is affected.
+pub const TEST_OUTCOME_PREFIX: &[u8] = b"ORAG-TEST-OUTCOME:";
 
 /// Parses `bytes` in a child process; kills it after `timeout`, or stops it
 /// and returns `Interrupted` once `stop` turns true (service shutdown): the
@@ -283,6 +288,17 @@ pub fn run_child(
     let format = SourceFormat::from_name(format_name)?;
     let mut bytes = Vec::new();
     std::io::stdin().read_to_end(&mut bytes)?;
+    #[cfg(debug_assertions)]
+    if let Some(outcome) = bytes.strip_prefix(TEST_OUTCOME_PREFIX) {
+        match outcome {
+            b"abort" => std::process::abort(),
+            b"exit3" => std::process::exit(3),
+            b"hang" => loop {
+                std::thread::sleep(Duration::from_secs(60));
+            },
+            _ => {}
+        }
+    }
     emit(&child_output(format, &bytes, &parse))
 }
 

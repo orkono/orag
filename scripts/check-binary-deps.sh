@@ -49,7 +49,7 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     # Imported DLLs from the PE import table (llvm-readobj ships with the
     # llvm-tools rustup component). Static CRT: no VC++ runtime may appear.
-    readobj=$(command -v llvm-readobj || ls "$(rustc --print sysroot)"/lib/rustlib/*/bin/llvm-readobj* 2>/dev/null | head -1)
+    readobj=$(command -v llvm-readobj || ls "$(rustc --print sysroot)"/lib/rustlib/*/bin/llvm-readobj* 2>/dev/null | head -1 || true)
     [ -n "$readobj" ] || { echo "llvm-readobj not found (rustup component add llvm-tools)" >&2; exit 2; }
     imports=$("$readobj" --coff-imports "$bin")
     deps=$(sed -nE 's/^ *Name: ([^ ]+\.[dD][lL][lL])$/\1/p' <<<"$imports" | tr 'A-Z' 'a-z' | sort -u)

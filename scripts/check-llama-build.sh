@@ -36,6 +36,11 @@ fi
 names=$(printf '%s\n' "$message" | sed -E 's/.*"linked_libs":\[([^]]*)\].*/\1/' \
   | tr ',' '\n' | tr -d '"' | sed -E 's/^.*=//')
 out_dir=$(printf '%s\n' "$message" | sed -E 's/.*"out_dir":"([^"]*)".*/\1/')
+# JSON escapes backslashes: a Windows path arrives as `D:\\a\\...`.
+out_dir=$(sed 's/\\\\/\\/g' <<<"$out_dir")
+if command -v cygpath >/dev/null 2>&1; then
+  out_dir=$(cygpath -u "$out_dir")
+fi
 cache="$out_dir/build/CMakeCache.txt"
 if [ ! -f "$cache" ]; then
   echo "expected CMake cache is missing (llama-cpp-sys-2 layout changed?): $cache" >&2
@@ -51,9 +56,23 @@ if [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] && ! grep -qx 'ggml-metal' <<<
 fi
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
-    # ggml must be built for the documented CPU floor, never for the build machine.
-    for flag in GGML_AVX2 GGML_FMA GGML_F16C; do
-      if ! grep -qx "$flag:BOOL=ON" "$cache"; then
+    # ggml must be built for the documented CPU floor, never for the build
+    # machine. The floor's Rust target features must be in .cargo/config.toml
+    # (an environment RUSTFLAGS would replace them, so it is refused too).
+    if [ -n "${RUSTFLAGS:-}" ] || [ -n "${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS:-}" ]; then
+      echo "RUSTFLAGS is set; it would replace the CPU floor and static CRT of .cargo/config.toml" >&2
+      exit 1
+    fi
+    for feature in $WINDOWS_CPU_FLOOR crt-static; do
+      if ! grep -qE "target-feature=[^\"]*\+$feature([,\"]|$)" .cargo/config.toml; then
+        echo ".cargo/config.toml does not enable +$feature for Windows (floor: $WINDOWS_CPU_FLOOR)" >&2
+        exit 1
+      fi
+    done
+    # MSVC: GGML_FMA and GGML_F16C are not CMake options (implied by AVX2),
+    # so they stay untyped in the cache; accept any type.
+    for flag in GGML_AVX2 GGML_BMI2 GGML_FMA GGML_F16C; do
+      if ! grep -qxE "$flag(:[A-Z]+)?=ON" "$cache"; then
         echo "llama.cpp was not built with $flag (floor: $WINDOWS_CPU_FLOOR; see .cargo/config.toml): $cache" >&2
         exit 1
       fi

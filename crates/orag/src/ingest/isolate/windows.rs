@@ -7,7 +7,7 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
 
-use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{HANDLE, WAIT_FAILED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
@@ -20,16 +20,12 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::error::{OragError, Result};
 
-/// NTSTATUS codes of a crash: access violation, stack overflow, fast fail
-/// (Rust's abort, a failed allocation under the job's memory cap), and the
-/// two out-of-memory codes. Anything else is an error exit (a host problem).
-const CRASH_CODES: [u32; 5] = [
-    0xC000_0005,
-    0xC000_00FD,
-    0xC000_0409,
-    0xC000_0017,
-    0xC000_012D,
-];
+/// Exit codes from this value up are exception statuses (NTSTATUS warning
+/// and error severity, C++ exceptions): the process died of a crash
+/// (access violation, stack overflow, Rust's abort / fast fail, heap
+/// corruption, an out-of-memory failure under the job's cap, a breakpoint).
+/// Plain exit codes below it are error exits, as on unix.
+const FIRST_EXCEPTION_CODE: u32 = 0x8000_0000;
 
 /// A parser child inside its own Job Object.
 pub(super) struct Contained {
@@ -115,6 +111,9 @@ impl Contained {
     pub(super) fn exited(&mut self) -> io::Result<bool> {
         // SAFETY: the process handle is valid while `self.child` lives.
         let state = unsafe { WaitForSingleObject(self.child.as_raw_handle() as HANDLE, 0) };
+        if state == WAIT_FAILED {
+            return Err(io::Error::last_os_error());
+        }
         Ok(state == WAIT_OBJECT_0)
     }
 
@@ -133,12 +132,14 @@ impl Contained {
     }
 }
 
-/// A crash (see `CRASH_CODES`) is the file's fault; any other unsuccessful
-/// exit is a host problem: `run_child` reports a bad file, also a parser
-/// panic, as a `Rejected` result, never as an exit code.
+/// A crash (an exception status, see `FIRST_EXCEPTION_CODE`) is the file's
+/// fault, like a crash signal on unix; a plain error exit is a host problem:
+/// `run_child` reports a bad file, also a parser panic, as a `Rejected`
+/// result, never as an exit code. `TerminateJobObject` (our own kill) exits
+/// with 1 but is never classified: the stop and deadline paths return first.
 pub(super) fn classify(status: ExitStatus) -> OragError {
     match status.code().map(|code| code as u32) {
-        Some(code) if CRASH_CODES.contains(&code) => super::file_fault(),
+        Some(code) if code >= FIRST_EXCEPTION_CODE => super::file_fault(),
         _ => OragError::Internal(format!("the parser process failed ({status})")),
     }
 }
@@ -167,14 +168,29 @@ mod tests {
     #[test]
     fn crash_codes_are_the_files_fault_and_error_exits_the_hosts() {
         let status = |code: u32| ExitStatus::from_raw(code);
-        for code in CRASH_CODES {
+        // Access violation, illegal instruction, stack overflow, heap
+        // corruption, fast fail (Rust abort), breakpoint, C++ exception.
+        let crashes = [
+            0xC000_0005,
+            0xC000_001D,
+            0xC000_00FD,
+            0xC000_0374,
+            0xC000_0409,
+            0x8000_0003,
+            0xE06D_7363,
+        ];
+        for code in crashes {
             assert!(
                 matches!(classify(status(code)), OragError::InvalidInput(_)),
                 "{code:#x}"
             );
         }
-        assert!(matches!(classify(status(1)), OragError::Internal(_)));
-        assert!(matches!(classify(status(3)), OragError::Internal(_)));
+        for code in [1, 3, 101] {
+            assert!(
+                matches!(classify(status(code)), OragError::Internal(_)),
+                "{code}"
+            );
+        }
     }
 
     #[test]
@@ -204,10 +220,20 @@ mod tests {
             .stdout(std::process::Stdio::piped());
         let mut contained = spawn(&mut command).unwrap();
         let (_, stdout, _) = contained.take_pipes();
+        // Let cmd start ping (inside the job) before the kill.
+        std::thread::sleep(std::time::Duration::from_millis(500));
         contained.kill_tree();
         contained.wait().unwrap();
-        // The pipe closes only when every process holding it (ping too) is gone.
-        let mut rest = Vec::new();
-        std::io::Read::read_to_end(&mut stdout.unwrap(), &mut rest).unwrap();
+        // The pipe closes only when every process holding it (ping too) is
+        // gone; ping alone would keep it open for about a minute.
+        let (done, reached) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut rest = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stdout.unwrap(), &mut rest);
+            let _ = done.send(());
+        });
+        reached
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("a grandchild kept the pipe open: kill_tree missed it");
     }
 }

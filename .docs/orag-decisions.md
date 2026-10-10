@@ -50,9 +50,11 @@ in its own Job Object instead of a process group and rlimits: kill on job
 close (so it dies with `orag serve`), a 4 GiB committed-memory cap, no
 error-report dialog, and `TerminateJobObject` kills everything it started. It
 has no console, so console Ctrl-C/Ctrl-Break never reach it; `orag serve`
-stops gracefully on Ctrl-C, Ctrl-Break, console close and logoff/shutdown.
-Crash NTSTATUS codes (access violation, stack overflow, fast fail, out of
-memory) blame the file; other exit codes are host problems, as on unix. The
+stops gracefully on Ctrl-C, Ctrl-Break, console close and (as a service)
+system shutdown; a logoff event is ignored. A crash exit (an exception status,
+code 0x80000000 and up: access violation, stack overflow, fast fail, heap
+corruption, out of memory) blames the file; plain exit codes are host
+problems, as on unix. The
 binary is not code-signed yet (SmartScreen warns on first start).
 
 **Why.** CUDA needs a matching driver and, depending on linking, runtime

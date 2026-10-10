@@ -2,11 +2,56 @@
 
 mod common;
 
+// Used only by the end-to-end tests that drive a server with unix signals.
+#[cfg(unix)]
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::net::TcpStream;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use common::*;
+use orag::error::OragError;
+use orag::ingest::format::SourceFormat;
+use orag::ingest::isolate::{TEST_OUTCOME_PREFIX, parse_isolated_until};
+
+/// The real `orag __parse` child, on every platform: a crash is the file's
+/// fault (unix signal, Windows exception status), an error exit the host's,
+/// and a stop request interrupts instead of failing. Debug builds only: the
+/// outcome hook is compiled out of release binaries.
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs the debug-only parse hooks")]
+fn the_isolated_child_is_classified_the_same_on_every_platform() {
+    let exe = std::path::Path::new(env!("CARGO_BIN_EXE_orag"));
+    let run = |outcome: &str, stop: &dyn Fn() -> bool| {
+        let input = [TEST_OUTCOME_PREFIX, outcome.as_bytes()].concat();
+        parse_isolated_until(
+            exe,
+            SourceFormat::Pdf,
+            &input,
+            Duration::from_secs(60),
+            stop,
+        )
+    };
+    let crash = run("abort", &|| false).unwrap_err();
+    assert!(
+        matches!(crash, OragError::InvalidInput(_)),
+        "abort: {crash:?}"
+    );
+    let host = run("exit3", &|| false).unwrap_err();
+    assert!(matches!(host, OragError::Internal(_)), "exit 3: {host:?}");
+    let started = std::time::Instant::now();
+    let stopped = run("hang", &|| started.elapsed() > Duration::from_millis(500)).unwrap_err();
+    assert!(
+        matches!(stopped, OragError::Interrupted),
+        "hang: {stopped:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the stop did not kill the child"
+    );
+}
 
 #[test]
 fn hidden_parse_subcommand_round_trips_a_pdf() {
