@@ -1382,6 +1382,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-normalization",
  "unicode-segmentation",
+ "windows-sys",
  "zip",
 ]
 

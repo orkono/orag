@@ -6,6 +6,12 @@ GLIBC_MIN=2.35
 GLIBCXX_MIN=3.4.30
 CXXABI_MIN=1.3.13
 GCC_MIN=7.0.0   # libgcc_s: Rust needs only old GCC_ versions
+# Windows x86-64 CPU floor (Haswell 2013+, AMD Zen): .cargo/config.toml turns
+# these target features on, and check-llama-build.sh checks ggml was built for them.
+WINDOWS_CPU_FLOOR="avx2 fma f16c bmi2"
+# DLLs a Windows binary may import: system libraries present on every
+# Windows 10/11. Static CRT, so no VCRUNTIME*/MSVCP*/api-ms-win-crt-*.
+WINDOWS_SYSTEM_DLLS='^(kernel32|kernelbase|advapi32|ntdll|ws2_32|bcrypt|bcryptprimitives|userenv|shell32|ole32|oleaut32|crypt32|secur32|user32|gdi32|shlwapi|iphlpapi|dbghelp|psapi|powrprof|synchronization|api-ms-win-core-[a-z0-9-]+)\.dll$'
 
 # version_le A B: true if version A <= B ("14" and "14.0" are equal).
 version_le() {

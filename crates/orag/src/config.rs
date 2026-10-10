@@ -327,6 +327,19 @@ pub fn parse_loopback_bind(text: &str) -> Result<SocketAddr> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn home_with_turkish_letters_and_spaces() {
+        // A Windows profile such as `C:\Users\Öznur Şahin` must work for the
+        // config file and the SQLite database alike.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("Öznur Şahin").join("ORAG verileri");
+        let config = Config::load(&home).unwrap();
+        assert_eq!(config.home, home);
+        assert!(home.join(CONFIG_FILE).is_file());
+        let store = crate::store::Store::open(&config.db_path()).unwrap();
+        assert_eq!(store.list_collections().unwrap().len(), 1);
+    }
+
     fn home_with(config: Option<&str>) -> tempfile::TempDir {
         let home = tempfile::tempdir().unwrap();
         if let Some(text) = config {

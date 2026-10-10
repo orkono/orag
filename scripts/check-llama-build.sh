@@ -49,6 +49,21 @@ if [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] && ! grep -qx 'ggml-metal' <<<
   echo "the Metal backend was not built" >&2
   exit 1
 fi
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    # ggml must be built for the documented CPU floor, never for the build machine.
+    for flag in GGML_AVX2 GGML_FMA GGML_F16C; do
+      if ! grep -qx "$flag:BOOL=ON" "$cache"; then
+        echo "llama.cpp was not built with $flag (floor: $WINDOWS_CPU_FLOOR; see .cargo/config.toml): $cache" >&2
+        exit 1
+      fi
+    done
+    if ! grep -qx 'GGML_NATIVE:BOOL=OFF' "$cache"; then
+      echo "llama.cpp was built for the build machine (GGML_NATIVE): $cache" >&2
+      exit 1
+    fi
+    ;;
+esac
 if [ "$(uname -s)" = "Darwin" ]; then
   # Every archive under OUT_DIR: CMake's lib/ and the cc-built wrappers.
   objects=$(find "$out_dir" -name '*.a' -exec otool -l {} +)

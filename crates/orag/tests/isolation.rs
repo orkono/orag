@@ -53,6 +53,7 @@ fn the_parser_child_ignores_stop_signals() {
         .env("ORAG_TEST_PARSE_DELAY_MS", "1500")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
     child
@@ -61,7 +62,12 @@ fn the_parser_child_ignores_stop_signals() {
         .unwrap()
         .write_all(&std::fs::read(fixture).unwrap())
         .unwrap();
-    std::thread::sleep(Duration::from_millis(500));
+    // Signal only once the child says its dispositions are installed: the
+    // first start of a freshly built binary can take seconds (macOS scans it).
+    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut stderr, &mut line).unwrap();
+    assert_eq!(line.trim_end(), orag::ingest::isolate::TEST_DELAY_READY);
     let pid = child.id().to_string();
     for signal in ["-TERM", "-INT", "-HUP"] {
         assert!(orag_kill(signal, &pid).success());

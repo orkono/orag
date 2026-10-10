@@ -46,6 +46,19 @@ case "$(uname -s)" in
     deps=$(awk '/=>/ {print $3} !/=>/ {print $1}' <<<"$linked" | grep -v '^$')
     bad=$(echo "$deps" | grep -vE '^(linux-vdso\.so[.0-9]*|/(usr/)?lib(64)?/([^/]+/)?(ld-linux[^/]*|lib(c|m|dl|rt|pthread|gcc_s|stdc\+\+))\.so[.0-9]*)$' || true)
     ;;
+  MINGW*|MSYS*|CYGWIN*)
+    # Imported DLLs from the PE import table (llvm-readobj ships with the
+    # llvm-tools rustup component). Static CRT: no VC++ runtime may appear.
+    readobj=$(command -v llvm-readobj || ls "$(rustc --print sysroot)"/lib/rustlib/*/bin/llvm-readobj* 2>/dev/null | head -1)
+    [ -n "$readobj" ] || { echo "llvm-readobj not found (rustup component add llvm-tools)" >&2; exit 2; }
+    imports=$("$readobj" --coff-imports "$bin")
+    deps=$(sed -nE 's/^ *Name: ([^ ]+\.[dD][lL][lL])$/\1/p' <<<"$imports" | tr 'A-Z' 'a-z' | sort -u)
+    if [ -z "$deps" ]; then
+      echo "no DLL imports read from $bin; cannot check them" >&2
+      exit 1
+    fi
+    bad=$(grep -vE "$WINDOWS_SYSTEM_DLLS" <<<"$deps" || true)
+    ;;
   *)
     echo "unsupported OS" >&2
     exit 1

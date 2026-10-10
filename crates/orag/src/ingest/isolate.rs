@@ -18,6 +18,13 @@ use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
 use crate::ingest::format::SourceFormat;
 
+#[cfg(unix)]
+#[path = "isolate/unix.rs"]
+mod sys;
+#[cfg(windows)]
+#[path = "isolate/windows.rs"]
+mod sys;
+
 /// Hidden CLI subcommand that runs one parse in a child process.
 pub const PARSE_SUBCOMMAND: &str = "__parse";
 pub const PARSE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -61,8 +68,9 @@ pub enum ChildOutput {
 
 /// Separates the child's result from anything a third-party parser prints to stdout.
 pub const RESULT_MARKER: &[u8] = b"\n@@ORAG-PARSE-RESULT@@\n";
-/// Address-space cap for the child on Linux (decompression bombs). Generous,
-/// because address space includes reservations; malloc arenas are limited too.
+/// Memory cap for the child (decompression bombs): the address space on
+/// Linux, committed memory on Windows (its job object). Generous, because
+/// address space includes reservations; malloc arenas are limited too.
 pub const CHILD_MEMORY_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 /// The child exits on its own this long after the parent's deadline, or as soon
 /// as its parent disappears, so it can never outlive a killed `orag serve`.
@@ -74,6 +82,10 @@ const STDERR_LOG_BYTES: usize = 2048;
 pub const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 /// Debug builds only: integration tests set this (milliseconds) to slow the child down.
 pub const TEST_DELAY_ENV: &str = "ORAG_TEST_PARSE_DELAY_MS";
+/// Debug builds only: written to stderr when the delay starts, after the
+/// child's limits and signal dispositions are installed, so a test can act
+/// on an event instead of guessing how long process startup takes.
+pub const TEST_DELAY_READY: &str = "orag-test: parse delay started";
 
 /// Parses `bytes` in a child process; kills it after `timeout`, or stops it
 /// and returns `Interrupted` once `stop` turns true (service shutdown): the
@@ -97,9 +109,7 @@ fn run_isolated(
     stop: &dyn Fn() -> bool,
 ) -> Result<ParsedDocument> {
     let mut child = spawn_parser(executable, format)?;
-    let (Some(mut stdin), Some(stdout), Some(stderr)) =
-        (child.stdin.take(), child.stdout.take(), child.stderr.take())
-    else {
+    let (Some(mut stdin), Some(stdout), Some(stderr)) = child.take_pipes() else {
         return Err(OragError::Internal("child pipes unavailable".into()));
     };
     // Feed and drain on threads so a child that stops reading or writing cannot
@@ -127,52 +137,27 @@ fn run_isolated(
         )));
     }
     if !status.success() {
-        return Err(failed_exit(status));
+        return Err(sys::classify(status));
     }
     decode_result(&output)
 }
 
-/// Why a child that ended without success failed:
-/// - a crash signal (stack overflow, abort, the memory cap): the file;
-/// - SIGKILL (OOM killer, an operator, a cgroup limit) or a stop signal the
-///   child ignores (SIGTERM/INT/HUP) still killing it: something outside orag;
-/// - an exit code: `run_child` reports a bad file (also a parser panic) as a
-///   `Rejected` result, so an error exit is a host problem.
-fn failed_exit(status: std::process::ExitStatus) -> OragError {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            let outside = [libc::SIGKILL, libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
-            if outside.contains(&signal) {
-                return OragError::Internal(format!(
-                    "the parser process was killed from outside orag (signal {signal}; \
-                     the host may be out of memory)"
-                ));
-            }
-            return OragError::InvalidInput(
-                "the file could not be parsed (the parser crashed or ran out of memory); it was not indexed".into(),
-            );
-        }
-    }
-    OragError::Internal(format!("the parser process failed ({status})"))
+/// The error for a parse that crashed or ran out of memory: the file's fault.
+fn file_fault() -> OragError {
+    OragError::InvalidInput(
+        "the file could not be parsed (the parser crashed or ran out of memory); it was not indexed".into(),
+    )
 }
 
-/// Starts `orag __parse <format>` with piped stdio in its own process group.
-fn spawn_parser(executable: &Path, format: SourceFormat) -> Result<std::process::Child> {
+/// Starts `orag __parse <format>` with piped stdio, contained (`sys::spawn`).
+fn spawn_parser(executable: &Path, format: SourceFormat) -> Result<sys::Contained> {
     let mut command = Command::new(executable);
     command
         .args([PARSE_SUBCOMMAND, format.as_str()])
-        // Few malloc arenas keep address-space use (RLIMIT_AS) proportional to real use.
-        .env("MALLOC_ARENA_MAX", "2")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Own process group: a terminal Ctrl-C reaches `orag serve`, which then
-    // stops the child itself and reports `Interrupted` instead of a crash.
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    command.spawn().map_err(|e| {
+    sys::spawn(&mut command).map_err(|e| {
         OragError::Internal(format!(
             "cannot start the parser process {}: {e}",
             executable.display()
@@ -224,16 +209,16 @@ fn read_bounded(
 }
 
 fn wait_with_deadline(
-    child: &mut std::process::Child,
+    child: &mut sys::Contained,
     timeout: Duration,
     stop: &dyn Fn() -> bool,
 ) -> Result<std::process::ExitStatus> {
     let deadline = Instant::now() + timeout;
     let outcome = loop {
-        match exited_unreaped(child) {
+        match child.exited() {
             Ok(true) => break Ok(()),
             Ok(false) => {}
-            Err(err) => break Err(err),
+            Err(err) => break Err(err.into()),
         }
         if stop() {
             break Err(OragError::Interrupted);
@@ -246,52 +231,14 @@ fn wait_with_deadline(
         }
         std::thread::sleep(POLL_INTERVAL);
     };
-    // On every path: the whole process group, while the child is still
-    // unreaped (so its pid, and with it the group id, cannot be reused), so
-    // nothing a parser started keeps the pipes and the reader threads open.
-    kill_group(child);
+    // On every path: the whole process group (job on Windows), while the
+    // child is still unreaped (so its pid, and with it the group id, cannot
+    // be reused), so nothing a parser started keeps the pipes and the reader
+    // threads open.
+    child.kill_tree();
     let status = child.wait();
     outcome?;
     Ok(status?)
-}
-
-/// True once the child has exited, without reaping it (`WNOWAIT`).
-#[cfg(unix)]
-fn exited_unreaped(child: &std::process::Child) -> Result<bool> {
-    let pid = libc::id_t::from(child.id());
-    // SAFETY: `info` is a zeroed, writable siginfo_t; waitid only fills it in.
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
-    // SAFETY: valid id type and pointer; WNOWAIT leaves the child waitable.
-    if unsafe { libc::waitid(libc::P_PID, pid, &mut info, flags) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    // SAFETY: after a successful waitid, si_pid is set (0 if nothing changed).
-    Ok(unsafe { info.si_pid() } != 0)
-}
-
-#[cfg(not(unix))]
-fn exited_unreaped(child: &mut std::process::Child) -> Result<bool> {
-    Ok(child.try_wait()?.is_some())
-}
-
-/// SIGKILL to the child's process group (it leads its own, see
-/// `spawn_parser`); the child alone if it leads none.
-#[cfg(unix)]
-fn kill_group(child: &mut std::process::Child) {
-    let group_killed = libc::pid_t::try_from(child.id()).is_ok_and(|pid| {
-        // SAFETY: killpg only sends a signal; the group id is our unreaped
-        // child's own pid, so no other process group can be affected.
-        unsafe { libc::killpg(pid, libc::SIGKILL) == 0 }
-    });
-    if !group_killed {
-        let _ = child.kill();
-    }
-}
-
-#[cfg(not(unix))]
-fn kill_group(child: &mut std::process::Child) {
-    let _ = child.kill();
 }
 
 /// The result is the JSON after the last `RESULT_MARKER`; earlier bytes are parser noise.
@@ -315,8 +262,8 @@ pub fn run_child(
     format_name: &str,
     parse: impl Fn(SourceFormat, &[u8]) -> Result<ParsedDocument>,
 ) -> Result<()> {
-    ignore_stop_signals();
-    if let Err(err) = apply_child_limits() {
+    sys::ignore_stop_signals();
+    if let Err(err) = sys::apply_child_limits() {
         // A denied setrlimit is a host problem; report it as internal, not as a bad file.
         return emit(&ChildOutput::Failed(format!(
             "cannot limit parser memory: {err}"
@@ -330,6 +277,7 @@ pub fn run_child(
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
     {
+        eprintln!("{TEST_DELAY_READY}");
         std::thread::sleep(Duration::from_millis(ms));
     }
     let format = SourceFormat::from_name(format_name)?;
@@ -359,21 +307,6 @@ fn child_output(
     }
 }
 
-/// The parent stops the child itself (SIGKILL to its process group) and the
-/// watchdog ends an orphan, so stop signals sent to every process at once
-/// (systemd's control-group kill, `pkill orag`) must not end a parse early:
-/// that would look like a crash. The parent then reports `Interrupted`.
-fn ignore_stop_signals() {
-    #[cfg(unix)]
-    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-        // SAFETY: setting a standard signal's disposition to SIG_IGN has no
-        // preconditions and installs no handler code.
-        unsafe {
-            libc::signal(signal, libc::SIG_IGN);
-        }
-    }
-}
-
 fn emit(output: &ChildOutput) -> Result<()> {
     let json = serde_json::to_vec(output).map_err(|e| OragError::Internal(e.to_string()))?;
     let mut stdout = std::io::stdout().lock();
@@ -385,71 +318,17 @@ fn emit(output: &ChildOutput) -> Result<()> {
 
 /// Exits the child if its parent goes away or the absolute deadline passes.
 fn spawn_watchdog(limit: Duration) {
-    #[cfg(unix)]
-    let parent = std::os::unix::process::parent_id();
+    let orphaned = sys::orphan_check();
     let started = Instant::now();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_millis(500));
-            #[cfg(unix)]
-            let orphaned = std::os::unix::process::parent_id() != parent;
-            #[cfg(not(unix))]
-            let orphaned = false;
-            if orphaned || started.elapsed() > limit {
+            if orphaned() || started.elapsed() > limit {
                 // The parser may hold locks that exit-time destructors need.
                 crate::exit::exit_without_native_teardown(3);
             }
         }
     });
-}
-
-/// Linux: cap the child's address space and make it the OOM killer's first
-/// choice, so a decompression bomb cannot take down `orag serve` (which holds
-/// the models). Other platforms rely on the parse deadline.
-/// Fails (and the parse is refused) if the memory cap cannot be installed; a
-/// stricter inherited limit is kept.
-#[cfg(target_os = "linux")]
-fn apply_child_limits() -> Result<()> {
-    // Best effort: some containers forbid it. The address-space cap below is
-    // the real guard, and a warning here would be logged on every parse.
-    let _ = std::fs::write("/proc/self/oom_score_adj", "1000");
-    let (current_soft, current_hard) = address_space_limit()?;
-    let cap = CHILD_MEMORY_LIMIT_BYTES as libc::rlim_t;
-    let hard = current_hard.min(cap);
-    let limit = libc::rlimit {
-        rlim_cur: current_soft.min(hard),
-        rlim_max: hard,
-    };
-    // SAFETY: setrlimit only reads `limit` and changes the limits of this (child) process alone.
-    if unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) } != 0 {
-        return Err(OragError::Internal(format!(
-            "cannot install the parser memory limit: {}",
-            std::io::Error::last_os_error()
-        )));
-    }
-    Ok(())
-}
-
-/// Current (soft, hard) RLIMIT_AS of this process.
-#[cfg(target_os = "linux")]
-fn address_space_limit() -> Result<(libc::rlim_t, libc::rlim_t)> {
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    // SAFETY: getrlimit writes into the valid `limit` struct we pass.
-    if unsafe { libc::getrlimit(libc::RLIMIT_AS, &mut limit) } != 0 {
-        return Err(OragError::Internal(format!(
-            "cannot read the address-space limit: {}",
-            std::io::Error::last_os_error()
-        )));
-    }
-    Ok((limit.rlim_cur, limit.rlim_max))
-}
-
-#[cfg(not(target_os = "linux"))]
-fn apply_child_limits() -> Result<()> {
-    Ok(())
 }
 
 #[cfg(all(test, unix))]
@@ -542,7 +421,7 @@ mod tests {
 
     #[test]
     fn shutdown_interrupts_instead_of_failing_the_document() {
-        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let mut child = sys::spawn(Command::new("sleep").arg("30")).unwrap();
         let err = wait_with_deadline(&mut child, Duration::from_secs(30), &|| true).unwrap_err();
         assert!(matches!(err, OragError::Interrupted), "{err}");
     }
@@ -654,8 +533,8 @@ mod tests {
     fn child_memory_limit_is_installed_on_linux() {
         const PROBE_SENTINEL: &str = "ORAG_LIMIT_PROBE_OK";
         if std::env::var_os("ORAG_LIMIT_PROBE").is_some() {
-            apply_child_limits().unwrap();
-            let (soft, hard) = address_space_limit().unwrap();
+            sys::apply_child_limits().unwrap();
+            let (soft, hard) = sys::address_space_limit().unwrap();
             assert!(
                 soft <= CHILD_MEMORY_LIMIT_BYTES as libc::rlim_t
                     && hard <= CHILD_MEMORY_LIMIT_BYTES as libc::rlim_t

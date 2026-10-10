@@ -1,7 +1,9 @@
 name: ci
 on:
   push:
-    branches: [main]
+    # step/** too: a step branch is pushed for CI (all three OS) before it is
+    # merged, because Windows-only code is never compiled on the dev Mac (D-020).
+    branches: [main, "step/**"]
   pull_request:
 
 # Read-only token: CI only builds and tests.
@@ -16,14 +18,22 @@ jobs:
         # ubuntu-22.04 = the oldest supported Linux (glibc 2.35 floor in the README), the same
         # image release.yml builds on. When GitHub retires this image, build inside a pinned
         # `ubuntu:22.04` container instead of moving to a newer runner (that would raise the floor).
-        os: [ubuntu-22.04, macos-15]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
+    # Git Bash on Windows, so every script runs the same everywhere.
+    defaults:
+      run:
+        shell: bash
     env:
       CARGO_TERM_COLOR: always
       ORAG_REQUIRE_FIXTURES: "1"
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: rustup toolchain install   # reads rust-toolchain.toml
+      # llvm-readobj for check-binary-deps.sh on Windows.
+      - if: startsWith(matrix.os, 'windows')
+        run: rustup component add llvm-tools
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: scripts/check-version.sh
       # The fixture is pinned by SHA-256, so the cache never needs invalidating;
@@ -37,9 +47,9 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: scripts/check-llama-build.sh
-      - run: scripts/check-binary-deps.sh target/debug/orag --release-floor
+      - run: scripts/check-binary-deps.sh "target/debug/orag$EXE" --release-floor
       # The release profile (thin LTO) links differently from debug (on macOS it
       # needs build.rs's clang runtime link), and it is what ships: build it and
       # check its dependencies on both images, so a release never finds out first.
       - run: scripts/check-llama-build.sh --release
-      - run: scripts/check-binary-deps.sh target/release/orag --release-floor
+      - run: scripts/check-binary-deps.sh "target/release/orag$EXE" --release-floor
