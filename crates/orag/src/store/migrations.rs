@@ -218,17 +218,23 @@ impl Drop for TempCopy {
 /// is synced before it gets the final name and the directory entry after,
 /// so a power loss never leaves a short file under `to`.
 fn publish(from: &Path, to: &Path) -> io::Result<()> {
-    // Opened for writing: Windows refuses to flush a read-only handle
-    // (FlushFileBuffers: access denied). `from` is our own temporary copy.
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(from)?
-        .sync_all()?;
+    sync_file(from)?;
     match std::fs::hard_link(from, to) {
         Err(err) if err.kind() != io::ErrorKind::AlreadyExists => copy_no_clobber(from, to)?,
         other => other?,
     }
     sync_parent(to)
+}
+
+/// Flushes a finished file to disk. Windows refuses to flush a read-only
+/// handle (FlushFileBuffers: access denied), so it gets a writable one; unix
+/// keeps a read handle, which works even when a umask made the file 0444.
+fn sync_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    let file = std::fs::OpenOptions::new().write(true).open(path)?;
+    #[cfg(not(windows))]
+    let file = std::fs::File::open(path)?;
+    file.sync_all()
 }
 
 #[cfg(unix)]

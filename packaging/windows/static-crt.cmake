@@ -5,6 +5,9 @@
 # variable (default: the DLL runtime, /MD), not from the /MT flag cmake-rs
 # adds for LLAMA_STATIC_CRT. Rust links the static runtime (+crt-static), so
 # both must use it, or link.exe misses every __imp_ CRT symbol (D-001).
-# The release runtime also in Rust debug builds: llama-cpp-sys-2 builds
-# llama.cpp as RelWithDebInfo, and Rust always links the release CRT.
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+# Release static runtime for llama-cpp-sys-2's normal profiles (Release,
+# RelWithDebInfo, matching Rust's libcmt); the debug one only for
+# LLAMA_LIB_PROFILE=Debug, where llama-cpp-sys-2 links libcmtd.
+# A build directory configured before this file existed keeps its runtime:
+# run `cargo clean -p llama-cpp-sys-2` (check-llama-build.sh says so).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

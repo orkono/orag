@@ -26,6 +26,17 @@ use crate::error::{OragError, Result};
 /// corruption, an out-of-memory failure under the job's cap, a breakpoint).
 /// Plain exit codes below it are error exits, as on unix.
 const FIRST_EXCEPTION_CODE: u32 = 0x8000_0000;
+/// Statuses in that range that come from the host, not from the file, like
+/// SIGKILL/SIGTERM on unix: the process could not start (a DLL failed to
+/// load or initialize, desktop heap exhausted), was blocked (antivirus,
+/// AppLocker), or was ended by a console Ctrl-C.
+const HOST_STATUSES: [u32; 5] = [
+    0xC000_0022, // STATUS_ACCESS_DENIED
+    0xC000_0135, // STATUS_DLL_NOT_FOUND
+    0xC000_0139, // STATUS_ENTRYPOINT_NOT_FOUND
+    0xC000_0142, // STATUS_DLL_INIT_FAILED
+    0xC000_013A, // STATUS_CONTROL_C_EXIT
+];
 
 /// A parser child inside its own Job Object.
 pub(super) struct Contained {
@@ -139,6 +150,10 @@ impl Contained {
 /// with 1 but is never classified: the stop and deadline paths return first.
 pub(super) fn classify(status: ExitStatus) -> OragError {
     match status.code().map(|code| code as u32) {
+        Some(code) if HOST_STATUSES.contains(&code) => OragError::Internal(format!(
+            "the parser process could not run (status {code:#X}; blocked or missing system \
+             libraries, or stopped from outside orag)"
+        )),
         Some(code) if code >= FIRST_EXCEPTION_CODE => super::file_fault(),
         _ => OragError::Internal(format!("the parser process failed ({status})")),
     }
@@ -185,7 +200,15 @@ mod tests {
                 "{code:#x}"
             );
         }
-        for code in [1, 3, 101] {
+        for code in [
+            1,
+            3,
+            101,
+            0xC000_0142,
+            0xC000_0135,
+            0xC000_0022,
+            0xC000_013A,
+        ] {
             assert!(
                 matches!(classify(status(code)), OragError::Internal(_)),
                 "{code}"
@@ -220,8 +243,14 @@ mod tests {
             .stdout(std::process::Stdio::piped());
         let mut contained = spawn(&mut command).unwrap();
         let (_, stdout, _) = contained.take_pipes();
-        // Let cmd start ping (inside the job) before the kill.
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Wait for ping's first output line: ping (the grandchild) is running.
+        let mut stdout = std::io::BufReader::new(stdout.unwrap());
+        let mut first = String::new();
+        while first.trim().is_empty() {
+            first.clear();
+            let read = std::io::BufRead::read_line(&mut stdout, &mut first).unwrap();
+            assert!(read > 0, "no output from ping");
+        }
         contained.kill_tree();
         contained.wait().unwrap();
         // The pipe closes only when every process holding it (ping too) is
@@ -229,7 +258,7 @@ mod tests {
         let (done, reached) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut rest = Vec::new();
-            let _ = std::io::Read::read_to_end(&mut stdout.unwrap(), &mut rest);
+            let _ = std::io::Read::read_to_end(&mut stdout, &mut rest);
             let _ = done.send(());
         });
         reached

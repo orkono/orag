@@ -39,7 +39,11 @@ Model files live outside the executable. GPU drivers are documented system
 prerequisites, not bundled.
 
 **Windows (v0.2, step 37).** The C runtime is linked statically
-(`+crt-static`, `LLAMA_STATIC_CRT=1` and, because llama.cpp's CMake policy CMP0091 takes the runtime only from `CMAKE_MSVC_RUNTIME_LIBRARY`, the Windows-only toolchain file `packaging/windows/static-crt.cmake`, all set in `.cargo/config.toml`), so
+(`+crt-static`,
+`LLAMA_STATIC_CRT=1` and the Windows-only toolchain file
+`packaging/windows/static-crt.cmake`, because llama.cpp's CMake (policy
+CMP0091) appends its own runtime flag after `/MT`; all set in
+`.cargo/config.toml`), so
 `orag.exe` imports only system DLLs (no VC++ redistributable;
 `check-binary-deps.sh` reads the import table and allows only
 `WINDOWS_SYSTEM_DLLS`). The CPU floor is x86-64 with AVX2, FMA, F16C and BMI2
@@ -53,8 +57,9 @@ has no console, so console Ctrl-C/Ctrl-Break never reach it; `orag serve`
 stops gracefully on Ctrl-C, Ctrl-Break, console close and (as a service)
 system shutdown; a logoff event is ignored. A crash exit (an exception status,
 code 0x80000000 and up: access violation, stack overflow, fast fail, heap
-corruption, out of memory) blames the file; plain exit codes are host
-problems, as on unix. The
+corruption, out of memory) blames the file; plain exit codes and host
+statuses (a DLL that fails to load, a blocked start, a console Ctrl-C) are
+host problems, as on unix. The
 binary is not code-signed yet (SmartScreen warns on first start).
 
 **Why.** CUDA needs a matching driver and, depending on linking, runtime

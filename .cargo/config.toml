@@ -3,13 +3,16 @@
 # Without it llama.cpp targets the build machine's SDK. `force`: a
 # MACOSX_DEPLOYMENT_TARGET in the shell cannot override it.
 MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }
-# llama-cpp-sys-2 builds llama.cpp with the static CRT (/MT) only when this
-# is set; Rust uses it too (rustflags below), so orag.exe needs no VC++
-# redistributable. Read only by the Windows build.
+# Windows: orag.exe links the static C runtime (rustflags below), so no VC++
+# redistributable is needed; llama.cpp must use the same runtime.
+# LLAMA_STATIC_CRT makes llama-cpp-sys-2 pass /MT and link the matching CRT
+# library, but llama.cpp's CMake (CMP0091 NEW) appends its own runtime flag
+# from CMAKE_MSVC_RUNTIME_LIBRARY (default /MD), which wins; the toolchain
+# file sets that variable. Target-specific name: cmake-rs reads it only for
+# x86_64-pc-windows-msvc. Not forced, so a CMAKE_TOOLCHAIN_FILE_* already in
+# the environment (cargo-xwin, vcpkg) wins, and check-llama-build.sh then
+# reports the missing static runtime.
 LLAMA_STATIC_CRT = "1"
-# ...but llama.cpp's CMake (CMP0091) takes the runtime from
-# CMAKE_MSVC_RUNTIME_LIBRARY, not from /MT; this toolchain file sets it.
-# Target-specific name: cmake-rs reads it only when building for Windows.
 CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc = { value = "packaging/windows/static-crt.cmake", relative = true }
 
 # Windows x86-64 floor (scripts/platform-floors.sh WINDOWS_CPU_FLOOR): AVX2,

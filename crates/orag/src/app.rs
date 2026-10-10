@@ -205,10 +205,13 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
     let mut shutdown = windows::ctrl_shutdown().context("installing the shutdown handler")?;
     let mut logoff = windows::ctrl_logoff().context("installing the logoff handler")?;
     Ok(async move {
+        // Each logoff event parks one OS console-handler thread inside tokio
+        // for the rest of the process (reserved stack only); logoffs reach
+        // services, which see few of them, and are cheaper to keep than to
+        // let end the service.
         let ignore_logoff = async {
-            loop {
-                logoff.recv().await;
-            }
+            while logoff.recv().await.is_some() {}
+            std::future::pending::<()>().await;
         };
         tokio::select! {
             _ = ctrl_c.recv() => {}

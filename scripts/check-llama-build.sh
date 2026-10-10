@@ -77,6 +77,14 @@ case "$(uname -s)" in
         exit 1
       fi
     done
+    # The static runtime comes from packaging/windows/static-crt.cmake; a
+    # build directory configured before it (or with another toolchain file)
+    # still has the DLL runtime and fails to link with +crt-static.
+    if ! grep -qE '^CMAKE_TOOLCHAIN_FILE:[A-Z]*=.*packaging[/\\]windows[/\\]static-crt\.cmake$' "$cache"; then
+      echo "llama.cpp was not configured with packaging/windows/static-crt.cmake (static C runtime);" \
+           "run: cargo clean -p llama-cpp-sys-2" >&2
+      exit 1
+    fi
     if ! grep -qx 'GGML_NATIVE:BOOL=OFF' "$cache"; then
       echo "llama.cpp was built for the build machine (GGML_NATIVE): $cache" >&2
       exit 1
