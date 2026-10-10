@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.13] - 2026-10-10
+
+- Plan for the rest of v0.2 (page provenance, layout warning, 10 MB default, setup mode and launcher, 200-question set, answer metrics, model decision, page completeness, release) and the Windows build and installer
+
 ## [0.2.0-alpha.12] - 2026-10-07
 
 - Web page is easier to use: the collection selector sits at the top with its management (create, reindex, delete) folded under *Koleksiyonu yönet*; *Sorgu yap* comes first, then *Dosya yükle* and *Belgeler*. Questions are sent with Ctrl/⌘ + Enter, can be stopped (*Durdur*, the partial answer stays) and copied (*Kopyala*); an empty collection says to upload first. Files are dropped on the page or chosen, several at once, and each gets its own line that follows its indexing; the size limit is checked before sending. Errors are explained in Turkish (unreachable server, unsupported type, size, busy, reindex needed, duplicate name, ...) with the API message below. Long source excerpts start folded. Status badges, keyboard focus rings and a dark theme that follows the system.
