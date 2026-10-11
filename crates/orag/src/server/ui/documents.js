@@ -2,7 +2,9 @@
 // up to date while documents are indexed.
 import { $, el, formatSize } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
-import { refreshCollections, selectedCollection } from "./collections.js";
+import { displayName, refreshCollections, selectedCollection } from "./collections.js";
+import { confirmAction, toast, toastError } from "./dialog.js";
+import { icon } from "./icons.js";
 
 const PAGE_SIZE = 50;
 const POLL_MS = 2000;
@@ -11,9 +13,9 @@ const WATCH_LIMIT = 10;
 
 const DOCUMENT_STATUS = {
   queued: "Sırada",
-  indexing: "İndeksleniyor",
+  indexing: "İşleniyor",
   ready: "Hazır",
-  failed: "Başarısız",
+  failed: "Hata",
 };
 
 /** A document's display name: JSON text uploads may have no file name. */
@@ -29,29 +31,27 @@ export function documentStatusView(doc) {
 
 /** Cursor of the next page, or null when the list is complete. */
 let documentsAfter = null;
-/** Only the newest document load may change the table. */
+/** Only the newest document load may change the list. */
 let documentsSeq = 0;
-/** The collection the table shows. */
+/** The collection the list shows. */
 let documentsOf = null;
 /** The document each row shows; rows are updated in place. */
 const rowDocs = new WeakMap();
 /** Documents deleted from this page: a late update must not bring them back. */
 const deletedIds = new Set();
-/** Documents an upload already polls; the table watcher skips them. */
+/** Documents an upload already polls; the list watcher skips them. */
 export const followedIds = new Set();
 
 function documentRow(collection, doc) {
-  const row = el("tr");
+  const row = el("li", undefined, "doc-item");
   row.dataset.id = String(doc.id);
-  const remove = el("button", "Sil", "small");
+  const remove = el("button", undefined, "icon-button small doc-delete");
   remove.type = "button";
-  remove.title = "Belgeyi koleksiyondan sil";
+  remove.append(icon("trash"));
   remove.addEventListener("click", () => deleteDocument(collection, row, remove));
-  const action = el("td");
-  action.append(remove);
-  const status = el("td");
-  status.append(el("span", "", "badge"));
-  row.append(el("td", "", "name"), status, el("td", "", "number"), el("td", "", "number"), action);
+  const main = el("div", undefined, "doc-main");
+  main.append(el("div", undefined, "doc-name"), el("div", undefined, "doc-meta"), el("div", undefined, "doc-notes"));
+  row.append(icon("file"), main, remove);
   fillDocumentRow(row, doc);
   return row;
 }
@@ -60,25 +60,28 @@ function documentRow(collection, doc) {
 function fillDocumentRow(row, doc) {
   rowDocs.set(row, doc);
   row.toggleAttribute("data-unfinished", doc.status === "queued" || doc.status === "indexing");
-  const [name, status, chunks, size] = row.cells;
-  name.replaceChildren(documentName(doc));
-  for (const warning of doc.warnings || []) name.append(el("div", warning, "warning"));
-  if (doc.error) name.append(el("div", doc.error, "failed"));
+  const name = row.querySelector(".doc-name");
+  name.textContent = documentName(doc);
+  row.title = documentName(doc);
+  row.querySelector(".doc-delete").setAttribute("aria-label", `Sil: ${documentName(doc)}`);
   const [label, badgeClass] = documentStatusView(doc);
-  const badge = status.firstChild;
-  badge.textContent = label;
-  badge.className = `badge ${badgeClass}`;
-  chunks.textContent = String(doc.chunk_count);
-  size.textContent = formatSize(doc.size_bytes);
+  const meta = row.querySelector(".doc-meta");
+  const parts = doc.status === "ready" ? `${doc.chunk_count} parça · ${formatSize(doc.size_bytes)}` : formatSize(doc.size_bytes);
+  meta.replaceChildren(el("span", label, `badge ${badgeClass}`), el("span", parts));
+  const notes = row.querySelector(".doc-notes");
+  notes.replaceChildren(
+    ...(doc.warnings || []).map((warning) => el("div", warning, "warning")),
+    ...(doc.error ? [el("div", doc.error, "failed")] : []),
+  );
 }
 
 /**
  * Shows a document's latest state (upload progress): updates its row, or
- * appends it when the table already shows the end of the list (ids ascend).
+ * appends it when the list already shows the end of the list (ids ascend).
  */
 export function updateDocumentRow(collection, doc) {
   if (collection.id !== documentsOf || deletedIds.has(doc.id)) return;
-  const row = $("documents").querySelector(`tr[data-id="${Number(doc.id)}"]`);
+  const row = $("documents").querySelector(`li[data-id="${Number(doc.id)}"]`);
   if (row) fillDocumentRow(row, doc);
   else if (documentsAfter == null) $("documents").append(documentRow(collection, doc));
   showDocumentsEmpty();
@@ -86,18 +89,12 @@ export function updateDocumentRow(collection, doc) {
 
 function removeDocumentRow(id) {
   deletedIds.add(id);
-  $("documents").querySelector(`tr[data-id="${Number(id)}"]`)?.remove();
+  $("documents").querySelector(`li[data-id="${Number(id)}"]`)?.remove();
   showDocumentsEmpty();
 }
 
 function showDocumentsEmpty() {
-  const empty = $("documents").children.length === 0;
-  $("documents-empty").hidden = !empty;
-  $("documents-table").hidden = empty;
-}
-
-function showListError(err, fallback) {
-  $("documents-status").replaceChildren(errorBox(err, fallback));
+  $("documents-empty").hidden = $("documents").children.length > 0;
 }
 
 /**
@@ -119,7 +116,6 @@ async function loadDocuments(reset) {
     // Never show (or offer to delete) another collection's rows meanwhile.
     $("documents").replaceChildren();
     $("documents-empty").hidden = true;
-    $("documents-table").hidden = true;
     documentsOf = collection ? collection.id : null;
   }
   if (!collection) return;
@@ -139,7 +135,9 @@ async function loadDocuments(reset) {
     more.hidden = documentsAfter == null;
     showDocumentsEmpty();
   } catch (err) {
-    if (seq === documentsSeq) showListError(err, "Belge listesi yüklenemedi.");
+    if (seq === documentsSeq) {
+      $("documents-status").replaceChildren(errorBox(err, "Belge listesi yüklenemedi."));
+    }
   } finally {
     if (seq === documentsSeq) more.disabled = false;
   }
@@ -153,7 +151,7 @@ export function refreshDocuments() {
 async function watchUnfinishedDocuments() {
   const collection = selectedCollection();
   if (collection && collection.id === documentsOf && !document.hidden) {
-    const ids = [...$("documents").querySelectorAll("tr[data-unfinished]")]
+    const ids = [...$("documents").querySelectorAll("li[data-unfinished]")]
       .map((row) => Number(row.dataset.id))
       .filter((id) => !followedIds.has(id))
       .slice(0, WATCH_LIMIT);
@@ -165,7 +163,7 @@ async function watchUnfinishedDocuments() {
       else if (result.reason.status === 404) removeDocumentRow(ids[i]);
       // Other errors: try again on the next tick.
     });
-    if (ids.length > 0 && $("documents").querySelector("tr[data-unfinished]") === null) {
+    if (ids.length > 0 && $("documents").querySelector("li[data-unfinished]") === null) {
       await refreshCollections(); // e.g. a finished reindex
     }
   }
@@ -174,33 +172,39 @@ async function watchUnfinishedDocuments() {
 
 async function deleteDocument(collection, row, button) {
   const doc = rowDocs.get(row);
-  const question = `"${documentName(doc)}" belgesi "${collection.name}" koleksiyonundan kalıcı olarak silinsin mi?`;
-  if (!window.confirm(question)) return;
+  const confirmed = await confirmAction({
+    title: "Belge silinsin mi?",
+    message: `"${documentName(doc)}" belgesi "${displayName(collection)}" koleksiyonundan kalıcı olarak silinecek.`,
+    confirmLabel: "Belgeyi sil",
+    danger: true,
+  });
+  if (!confirmed) return;
   button.disabled = true;
-  $("documents-status").replaceChildren();
   try {
     await request(`/v1/collections/${collection.id}/documents/${doc.id}`, { method: "DELETE" });
   } catch (err) {
     // 404: already deleted elsewhere, which is the wanted result too.
     if (err.status !== 404) {
-      showListError(err, "Belge silinemedi.");
+      toastError(err, "Belge silinemedi.");
       button.disabled = false;
       return;
     }
   }
   // Removed in place, so the pages the user has opened stay open.
   removeDocumentRow(doc.id);
+  toast(`"${documentName(doc)}" silindi.`);
   await refreshCollections(); // new document count
 }
 
 export function initDocuments() {
   document.addEventListener("orag:collections", ({ detail: current }) => {
-    $("documents-target").textContent = current ? current.name : "";
-    // Only another collection reloads the table: a refresh of the same one
+    $("documents-count").textContent = current ? String(current.document_count) : "";
+    // Only another collection reloads the list: a refresh of the same one
     // (new counts) keeps the pages the user has opened.
     if ((current ? current.id : null) !== documentsOf) refreshDocuments();
   });
   document.addEventListener("orag:reindexed", refreshDocuments);
+  document.addEventListener("orag:reconnected", refreshDocuments);
   $("documents-more").addEventListener("click", () => loadDocuments(false));
   watchUnfinishedDocuments();
 }

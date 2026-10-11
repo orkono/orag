@@ -562,11 +562,29 @@ the page.
   `Content-Security-Policy: default-src 'self'` (no inline script),
   `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY`. Document text
   is untrusted and rendered with `textContent` only.
+- **Layout (step 36b, 2026-10-12).** An application shell: a sidebar with the
+  collections, the upload area and the selected collection's documents; a
+  workspace with the collection's title bar and a conversation whose
+  question cards stay on screen until another collection is selected. The
+  page's own dialogs replace `window.confirm`; short results appear as
+  notifications. A *Nasıl kullanılır?* window explains what ORAG is, that
+  everything stays on this computer, and the three steps (collection, upload,
+  ask); it opens by itself on the first visit (remembered in `localStorage`)
+  and from a button afterwards. Icons are SVG elements built in script, never
+  parsed from markup.
 - **Startup and shutdown.** The UI port is bound before the models load, like
   `bind`; a busy port stops startup with an error naming `ui_bind`. So a
   second instance (another home) needs its own `ui_bind` or `"off"`, as it
   already needs its own `bind`. One shutdown signal stops both listeners
   within the existing 10 s drain.
+- **Fetch metadata (2026-10-12).** A request whose `Sec-Fetch-Site` is
+  `same-origin` passes the Origin check: the browser sets that header and no
+  page can forge it, so it is the page's own request. Found with a browser
+  that rewrote `Origin` to `http://127.0.0.1` (port dropped) on every request,
+  which made the page's files `403`. Every other request is checked as before
+  (`cross-site`/`same-site` with an Origin outside the list stay `403`), and
+  each refusal is logged (`request refused`, with Host, Origin and
+  `Sec-Fetch-Site`) so a user can see why.
 - **Links.** A cross-site `GET` without `Origin` stays `403` for the API, but
   the page's static files (no data) may be opened from a link on another
   site. Only the page's own origins are trusted, including
