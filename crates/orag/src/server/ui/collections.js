@@ -1,19 +1,21 @@
-// Collection selector and its management: create, reindex, delete.
-// Other sections follow the selection through two events on `document`:
+// Collections: the list in the sidebar, the title bar, create, reindex and
+// delete. Other sections follow the selection through events on `document`:
 // `orag:collections` (the list or the selection was shown again; detail: the
-// selected collection) and `orag:switched` (the user changed context, so an
-// answer on screen no longer applies).
+// selected collection) and `orag:switched` (the user changed context, so the
+// answers on screen no longer apply).
 import { $, el } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
+import { confirmAction, toast, toastError } from "./dialog.js";
+import { icon } from "./icons.js";
 
 export const DEFAULT_COLLECTION = "default";
 const SELECTED_KEY = "orag.collection";
-const STATUS_MS = 6000;
 
 let collections = [];
 /** The collection to select after the next load; mirrored in localStorage. */
 let preferredId = readStoredId();
-/** Only the newest list load may update the selector. */
+let selectedId = null;
+/** Only the newest list load may update the list. */
 let loadSeq = 0;
 
 // Storage may be blocked (privacy settings, embedded views): the page then
@@ -36,33 +38,55 @@ function prefer(id) {
   }
 }
 
-/** The collection chosen in the selector, or null before the list loads. */
+/** The selected collection, or null before the list loads. */
 export function selectedCollection() {
-  const id = Number($("collection").value);
-  return collections.find((c) => c.id === id) || null;
+  return collections.find((c) => c.id === selectedId) || null;
 }
 
-function switched() {
-  document.dispatchEvent(new Event("orag:switched"));
-}
+export const displayName = (c) => (c.name === DEFAULT_COLLECTION ? "Varsayılan" : c.name);
+const countLabel = (n) => `${n} belge`;
 
-/** A success message, cleared after a while unless something replaced it. */
-function showStatus(text) {
-  const message = el("p", text, "ok");
-  $("collection-status").replaceChildren(message);
-  setTimeout(() => message.remove(), STATUS_MS);
-}
-
-function showError(err, fallback, byCode) {
-  $("collection-status").replaceChildren(errorBox(err, fallback, byCode));
+function renderList() {
+  // Rebuilding the buttons must not lose keyboard focus.
+  const focusedId = document.activeElement?.closest?.("#collection-list")
+    ? Number(document.activeElement.dataset.collectionId)
+    : null;
+  $("collection-list").replaceChildren(
+    ...collections.map((c) => {
+      const button = el("button", undefined, "nav-item");
+      button.type = "button";
+      button.dataset.collectionId = String(c.id);
+      if (c.id === selectedId) button.setAttribute("aria-current", "true");
+      button.append(icon("folder"), el("span", displayName(c), "nav-name"), el("span", String(c.document_count), "nav-count"));
+      button.title = `${displayName(c)} · ${countLabel(c.document_count)}`;
+      button.addEventListener("click", () => choose(c.id));
+      const item = el("li");
+      item.append(button);
+      return item;
+    }),
+  );
+  if (focusedId) $("collection-list").querySelector(`[data-collection-id="${focusedId}"]`)?.focus();
 }
 
 function selectionShown() {
   const current = selectedCollection();
+  renderList();
+  $("collection-title").textContent = current ? displayName(current) : "ORAG";
+  $("collection-meta").textContent = current
+    ? `${countLabel(current.document_count)}${current.name === DEFAULT_COLLECTION ? " · silinemez" : ""}`
+    : "";
   $("collection-delete").disabled = !current || current.name === DEFAULT_COLLECTION;
-  $("collection-reindex").disabled = !current;
+  $("collection-reindex").disabled = !current || current.document_count === 0;
   if (current) prefer(current.id);
   document.dispatchEvent(new CustomEvent("orag:collections", { detail: current }));
+}
+
+function choose(id) {
+  if (id === selectedId) return;
+  selectedId = id;
+  $("collection-status").replaceChildren();
+  selectionShown();
+  document.dispatchEvent(new Event("orag:switched"));
 }
 
 /** Reloads the list; keeps the preferred collection, else selects the first. */
@@ -71,16 +95,11 @@ async function loadCollections() {
   const body = await getJson("/v1/collections");
   if (seq !== loadSeq) return; // a newer load is under way
   collections = body.collections;
-  const select = $("collection");
-  select.replaceChildren(
-    ...collections.map((c) => {
-      const option = el("option", `${c.name} (${c.document_count} belge)`);
-      option.value = String(c.id);
-      return option;
-    }),
-  );
-  if (collections.some((c) => c.id === preferredId)) select.value = String(preferredId);
+  const keep = collections.find((c) => c.id === preferredId) || collections[0];
+  const changed = (keep ? keep.id : null) !== selectedId;
+  selectedId = keep ? keep.id : null;
   selectionShown();
+  if (changed) document.dispatchEvent(new Event("orag:switched"));
 }
 
 /** Best-effort refresh: a failure is shown but never undoes what succeeded. */
@@ -88,8 +107,15 @@ export async function refreshCollections() {
   try {
     await loadCollections();
   } catch (err) {
-    showError(err, "Koleksiyon listesi yenilenemedi.");
+    $("collection-status").replaceChildren(errorBox(err, "Koleksiyonlar yüklenemedi."));
   }
+}
+
+function showForm(shown) {
+  $("collection-form").hidden = !shown;
+  $("collection-status").replaceChildren();
+  if (shown) $("collection-name").focus();
+  else $("collection-name").value = "";
 }
 
 async function createCollection(event) {
@@ -105,15 +131,16 @@ async function createCollection(event) {
       body: JSON.stringify({ name }),
     });
     const created = await response.json();
-    $("collection-name").value = "";
+    showForm(false);
     prefer(created.id);
-    switched();
-    showStatus(`"${created.name}" oluşturuldu ve seçildi.`);
+    toast(`"${created.name}" koleksiyonu oluşturuldu.`);
   } catch (err) {
-    showError(err, "Koleksiyon oluşturulamadı.", {
-      conflict: "Bu adla bir koleksiyon zaten var (büyük/küçük harf fark etmez).",
-      invalid_input: "Geçersiz ad: en fazla 64 harf, rakam, boşluk, \"_\", \".\" veya \"-\".",
-    });
+    $("collection-status").replaceChildren(
+      errorBox(err, "Koleksiyon oluşturulamadı.", {
+        conflict: "Bu adla bir koleksiyon zaten var (büyük/küçük harf fark etmez).",
+        invalid_input: "Geçersiz ad: en fazla 64 harf, rakam, boşluk, \"_\", \".\" veya \"-\".",
+      }),
+    );
   } finally {
     button.disabled = false;
   }
@@ -126,20 +153,23 @@ async function deleteCollection() {
   const button = $("collection-delete");
   button.disabled = true;
   try {
-    // The count shown in the list may be old: ask with the current one.
+    // The count shown may be old: ask with the current one.
     const latest = (await getJson("/v1/collections")).collections.find((c) => c.id === current.id);
-    if (!latest) throw new Error(`"${current.name}" artık yok; liste yenilendi.`);
-    const question =
-      `"${latest.name}" koleksiyonu ve içindeki ${latest.document_count} belge kalıcı olarak silinsin mi?`;
-    if (!window.confirm(question)) return;
+    if (!latest) throw new Error(`"${current.name}" artık yok.`);
+    const confirmed = await confirmAction({
+      title: "Koleksiyon silinsin mi?",
+      message: `"${latest.name}" koleksiyonu ve içindeki ${countLabel(latest.document_count)} kalıcı olarak silinecek. Bu işlem geri alınamaz.`,
+      confirmLabel: "Koleksiyonu sil",
+      danger: true,
+    });
+    if (!confirmed) return;
     await request(`/v1/collections/${current.id}`, { method: "DELETE" });
     prefer(null);
-    switched();
-    showStatus(`"${current.name}" silindi.`);
+    toast(`"${current.name}" silindi.`);
   } catch (err) {
-    showError(err, "Koleksiyon silinemedi.", { conflict: "Varsayılan koleksiyon silinemez." });
+    toastError(err, "Koleksiyon silinemedi.", { conflict: "Varsayılan koleksiyon silinemez." });
   } finally {
-    selectionShown(); // re-enables the button
+    selectionShown(); // re-enables the button even if the refresh fails
     // After success or failure (e.g. deleted elsewhere): show what exists now.
     await refreshCollections();
   }
@@ -148,21 +178,25 @@ async function deleteCollection() {
 async function reindexCollection() {
   const current = selectedCollection();
   if (!current) return;
-  const question =
-    `"${current.name}" koleksiyonundaki belgeler saklanan kopyalarından mevcut modelle ` +
-    "yeniden işlensin mi? Bitene kadar sorular eksik yanıt verebilir; dosyaları yeniden yüklemeniz gerekmez.";
-  if (!window.confirm(question)) return;
+  const confirmed = await confirmAction({
+    title: "Yeniden indekslensin mi?",
+    message:
+      `"${displayName(current)}" koleksiyonundaki belgeler, saklanan kopyalarından mevcut modelle yeniden işlenecek. ` +
+      "Dosyaları tekrar yüklemeniz gerekmez; bitene kadar yanıtlar eksik olabilir.",
+    confirmLabel: "Yeniden indeksle",
+  });
+  if (!confirmed) return;
   const button = $("collection-reindex");
   button.disabled = true;
   try {
     const response = await request(`/v1/collections/${current.id}/reindex`, { method: "POST" });
     const result = await response.json();
-    switched();
-    showStatus(`"${current.name}": ${result.queued_documents} belge yeniden indeksleniyor.`);
+    document.dispatchEvent(new Event("orag:switched"));
     document.dispatchEvent(new Event("orag:reindexed"));
+    toast(`${countLabel(result.queued_documents)} yeniden indeksleniyor.`);
   } catch (err) {
-    showError(err, "Yeniden indeksleme başlatılamadı.", {
-      conflict: "Bu koleksiyonda hâlâ indekslenen belgeler var; bitince tekrar deneyin.",
+    toastError(err, "Yeniden indeksleme başlatılamadı.", {
+      conflict: "Bu koleksiyonda hâlâ işlenen belgeler var; bitince tekrar deneyin.",
     });
   } finally {
     selectionShown(); // re-enables the button
@@ -170,13 +204,14 @@ async function reindexCollection() {
 }
 
 export function initCollections() {
-  $("collection").addEventListener("change", () => {
-    selectionShown();
-    switched();
-    $("collection-status").replaceChildren();
+  $("collection-new").addEventListener("click", () => showForm($("collection-form").hidden));
+  $("collection-cancel").addEventListener("click", () => showForm(false));
+  $("collection-name").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") showForm(false);
   });
   $("collection-form").addEventListener("submit", createCollection);
   $("collection-delete").addEventListener("click", deleteCollection);
   $("collection-reindex").addEventListener("click", reindexCollection);
+  document.addEventListener("orag:reconnected", refreshCollections);
   refreshCollections();
 }

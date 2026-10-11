@@ -47,7 +47,7 @@ export async function getJson(path) {
 const MESSAGES = {
   unreachable: "Sunucuya ulaşılamıyor. orag serve çalışıyor mu?",
   reindex_required:
-    "Bu koleksiyon başka bir modelle indekslenmiş. \"Koleksiyonu yönet\" altındaki " +
+    "Bu koleksiyon başka bir modelle indekslenmiş. Üst çubuktaki " +
     "\"Yeniden indeksle\" ile belgeleri mevcut modelle yeniden işleyin.",
   unsupported_format: "Bu dosya türü desteklenmiyor. TXT, Markdown, DOCX veya PDF yükleyin.",
   too_large: "Dosya boyut sınırını aşıyor.",
@@ -63,22 +63,35 @@ const MESSAGES = {
  * `byCode` gives sentences that depend on what was being done (a `conflict`
  * means different things for different actions); `fallback` covers the rest.
  */
+export function errorSentence(err, fallback, byCode = {}) {
+  return byCode[err.code] || MESSAGES[err.code] || fallback;
+}
+
 export function errorBox(err, fallback, byCode = {}) {
   const box = el("div", undefined, "error-box");
   box.setAttribute("role", "alert");
-  box.append(el("strong", byCode[err.code] || MESSAGES[err.code] || fallback));
+  box.append(el("strong", errorSentence(err, fallback, byCode)));
   if (err.message) box.append(el("div", err.message, "detail"));
   return box;
 }
 
-let limits = null;
+let version = null;
 
-/** The server's document size limit (`max_document_mb`), read once. */
-export async function serverLimits() {
-  if (!limits) {
-    const version = await getJson("/v1/version");
-    const maxMb = version.config.max_document_mb;
-    limits = { maxMb, maxBytes: maxMb * 1024 * 1024 };
+/**
+ * `/v1/version` (version, models, limits), read once and again on `refresh`
+ * (after a reconnect the server may run with another config). Every refresh
+ * announces the new value with `orag:version`.
+ */
+export async function versionInfo(refresh = false) {
+  if (!version || refresh) {
+    version = await getJson("/v1/version");
+    document.dispatchEvent(new CustomEvent("orag:version", { detail: version }));
   }
-  return limits;
+  return version;
+}
+
+/** The server's document size limit (`max_document_mb`). */
+export async function serverLimits() {
+  const maxMb = (await versionInfo()).config.max_document_mb;
+  return { maxMb, maxBytes: maxMb * 1024 * 1024 };
 }

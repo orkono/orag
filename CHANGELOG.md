@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.14] - 2026-10-12
+
+- Web page redesigned as an application: a sidebar with the collections (*+* creates one), the upload area and the selected collection's documents; a workspace with the collection's title bar (reindex, delete) and a conversation whose question cards stay on screen until another collection is selected. Answers show their cited sources, with the unused ones folded away. Files can be dropped anywhere on the page. The page's own confirmation dialogs replace the browser's, and results appear as notifications. Enter sends a question, Shift+Enter starts a new line. The sidebar footer shows the ORAG version and the two models; when ORAG is unreachable a banner says so and the page resumes by itself. Colours follow the icon (forest green, cream), with a dark theme that follows the system and a narrow-screen layout.
+- *Nasıl kullanılır?*: a window that explains what ORAG is, that documents, questions and answers stay on this computer, the three steps (choose a collection, upload, ask and open the sources), tips and shortcuts. It opens by itself on the first visit and from the sidebar afterwards. No API change.
+- The page's own requests are accepted when the browser marks them `Sec-Fetch-Site: same-origin`, whatever their `Origin` says. A browser that rewrote `Origin` to `http://127.0.0.1` (port dropped) on every request got `403` for the page's files. Other sites stay refused as before. Each refused request is now logged (`request refused`, with Host, Origin and `Sec-Fetch-Site`).
+
 ## [0.2.0-alpha.13] - 2026-10-10
 
 - Plan for the rest of v0.2 (page provenance, layout warning, 10 MB default, setup mode and launcher, 200-question set, answer metrics, model decision, page completeness, release) and the Windows build and installer

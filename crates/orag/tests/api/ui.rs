@@ -179,6 +179,8 @@ fn assets_load_nothing_from_the_network_and_never_parse_html() {
     let mut files = vec![("index.html", ui::INDEX_HTML), ("app.css", ui::APP_CSS)];
     files.extend(ui::SCRIPTS);
     for (name, text) in files {
+        // The SVG namespace is an identifier, not a resource that is loaded.
+        let text = text.replace("\"http://www.w3.org/2000/svg\"", "");
         assert!(
             !text.contains("http://") && !text.contains("https://") && !text.contains("//cdn"),
             "{name} references a network resource"
@@ -322,7 +324,8 @@ fn the_script_only_uses_elements_the_page_has() {
 #[test]
 fn the_page_offers_collection_management() {
     for id in [
-        "collection",
+        "collection-list",
+        "collection-new",
         "collection-form",
         "collection-name",
         "collection-delete",
@@ -391,8 +394,9 @@ fn the_page_offers_a_reindex_of_the_selected_collection() {
 
 #[test]
 fn citations_in_the_answer_link_to_their_sources() {
-    // Each source has an anchor, and markers in a finished answer link to it.
-    assert!(all_js().contains("`source-${source.number}`"));
+    // Each answer's sources have their own anchors (answers stay on screen),
+    // and markers in a finished answer link to them.
+    assert!(all_js().contains("`${turn.id}-source-${source.number}`"));
     assert!(all_js().contains("function linkCitations("));
     // The server's markers decide what a citation is: no client-side parser.
     assert!(all_js().contains("data.citation_markers"));
@@ -405,25 +409,96 @@ fn citations_in_the_answer_link_to_their_sources() {
 }
 
 #[test]
-fn the_page_is_easy_to_use() {
+fn the_page_is_a_workspace_with_a_sidebar_and_a_conversation() {
     for id in [
-        "collection-manage", // management folded away under the selector
-        "dropzone",          // drop files or click to choose
-        "upload-list",       // one line per file
-        "ask-stop",          // stop an answer
-        "answer-copy",       // copy an answer
-        "ask-empty",         // says to upload first when there is nothing to search
+        "sidebar",     // collections, upload and documents
+        "dropzone",    // drop files or click to choose
+        "upload-list", // one line per file
+        "turns",       // questions and answers stay on screen
+        "ask-form",    // the composer
+        "ask-stop",    // stop an answer
+        "ask-empty",   // says to upload first when there is nothing to search
+        "app-info",    // version and models
+        "offline-banner",
+        "confirm-dialog", // the page's own confirmation, not window.confirm
+        "toasts",
     ] {
         assert!(ui::INDEX_HTML.contains(&format!("id=\"{id}\"")), "#{id}");
     }
-    // The question comes before the upload and the document list.
-    let ask = ui::INDEX_HTML.find("id=\"ask-form\"").unwrap();
-    assert!(ask < ui::INDEX_HTML.find("id=\"dropzone\"").unwrap());
-    assert!(ask < ui::INDEX_HTML.find("id=\"documents\"").unwrap());
     assert!(ui::INDEX_HTML.contains("multiple"));
     let js = all_js();
-    // Ctrl/Cmd+Enter sends; dropped files upload; errors are explained in Turkish.
-    assert!(js.contains("event.key === \"Enter\""));
+    assert!(
+        !js.contains("window.confirm"),
+        "confirmations use #confirm-dialog"
+    );
+    // Enter sends, Shift+Enter starts a new line (plan Task 45, item 4).
+    assert!(js.contains("event.key === \"Enter\" && !event.shiftKey"));
     assert!(js.contains("\"drop\""));
     assert!(js.contains("Sunucuya ulaşılamıyor"));
+    // The page notices a stopped server and recovers (plan Task 45, item 10).
+    assert!(js.contains("/v1/health"));
+}
+
+#[test]
+fn a_help_window_explains_what_orag_is_and_how_to_use_it() {
+    let help = ui::INDEX_HTML
+        .split("<dialog id=\"help-dialog\"")
+        .nth(1)
+        .expect("a help dialog")
+        .split("</dialog>")
+        .next()
+        .unwrap();
+    // What it is, that it stays on this computer, and the three steps.
+    for text in [
+        "ORAG",
+        "bu bilgisayar",
+        "Koleksiyon",
+        "Dosya yükle",
+        "Soru sor",
+    ] {
+        assert!(help.contains(text), "help says nothing about {text}");
+    }
+    assert!(help.contains("<ol"), "the steps are numbered");
+    // It opens by itself on the first visit and from a button afterwards.
+    assert!(ui::INDEX_HTML.contains("id=\"help-open\""));
+    let js = all_js();
+    assert!(js.contains("showModal()"));
+    assert!(js.contains("orag.helpSeen"));
+}
+
+fn with_fetch_metadata(path: &str, origin: &str, site: Option<&str>) -> Request<Body> {
+    let mut builder = Request::get(path)
+        .header(header::HOST, "127.0.0.1:2442")
+        .header(header::ORIGIN, origin);
+    if let Some(site) = site {
+        builder = builder.header("sec-fetch-site", site);
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
+/// Some browsers (or their extensions) rewrite `Origin`, here without the
+/// port. `Sec-Fetch-Site` is set by the browser and no page can forge it, so
+/// `same-origin` still identifies the page's own requests.
+#[tokio::test]
+async fn the_pages_own_requests_pass_even_with_a_rewritten_origin() {
+    let app = ui_app();
+    for path in ["/app.css", "/app.js", "/favicon.svg", "/v1/collections"] {
+        let request = with_fetch_metadata(path, "http://127.0.0.1", Some("same-origin"));
+        let (status, _, body) = fetch(ui_router(app.state.clone()), request).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn other_sites_stay_refused_whatever_their_origin_says() {
+    let app = ui_app();
+    for (origin, site) in [
+        ("http://127.0.0.1", None), // no fetch metadata: Origin decides
+        ("https://evil.example", Some("cross-site")),
+        ("http://localhost:3000", Some("same-site")), // another port of this machine
+    ] {
+        let request = with_fetch_metadata("/v1/collections", origin, site);
+        let (status, _, body) = fetch(ui_router(app.state.clone()), request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{origin} {site:?}: {body}");
+    }
 }

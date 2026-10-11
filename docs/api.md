@@ -17,7 +17,10 @@ answers are placeholders; real models answer from the documents).
   built-in page (`ui_bind`, default `http://127.0.0.1:2442` and
   `http://localhost:2442`; the real port when it is `0`). With
   `ui_bind = "off"` no origin is accepted. Every other page gets
-  `403 forbidden_origin`.
+  `403 forbidden_origin`. A request the browser marks
+  `Sec-Fetch-Site: same-origin` (the page's own) is accepted whatever its
+  `Origin` says. Each refusal is logged on stderr as `request refused` with
+  the Host, Origin and `Sec-Fetch-Site` that decided it.
 - Request and response bodies are JSON (`Content-Type: application/json`),
   except multipart uploads and the SSE query stream.
 
