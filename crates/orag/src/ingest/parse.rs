@@ -83,6 +83,7 @@ fn parse_plain(text: &str) -> ParsedDocument {
         title: None,
         blocks: paragraph_blocks(text),
         warnings: Vec::new(),
+        pages: Vec::new(),
     }
 }
 
@@ -262,6 +263,7 @@ impl MarkdownState {
             title: self.title,
             blocks: self.blocks,
             warnings: Vec::new(),
+            pages: Vec::new(),
         }
     }
 }

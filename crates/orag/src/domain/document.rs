@@ -32,4 +32,21 @@ pub struct ParsedDocument {
     pub blocks: Vec<Block>,
     /// Extraction warnings surfaced on the document (e.g. `ocr_required`).
     pub warnings: Vec<String>,
+    /// The 1-based physical PDF page of each block, parallel to `blocks`;
+    /// empty for formats without pages. Provenance only: it never changes
+    /// chunk boundaries or text. Missing in the output of an older parser
+    /// child, hence the default.
+    #[serde(default)]
+    pub pages: Vec<Option<u32>>,
+}
+
+impl ParsedDocument {
+    /// The page of block `index`, if the document has a page for every block.
+    pub fn page_of(&self, index: usize) -> Option<u32> {
+        if self.pages.len() == self.blocks.len() {
+            self.pages[index]
+        } else {
+            None
+        }
+    }
 }

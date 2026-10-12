@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::support::{TestApp, app, drain_jobs, get, json_request, multipart, send};
+use crate::support::{TestApp, app, drain_jobs, fixture, get, json_request, multipart, send};
 
 #[tokio::test]
 async fn docx_upload_is_indexed_and_searchable() {
@@ -139,15 +139,6 @@ async fn json_binary_rejection_explains_multipart() {
             .contains("multipart"),
         "{body}"
     );
-}
-
-fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures")
-            .join(name),
-    )
-    .unwrap()
 }
 
 async fn upload_and_index(app: &TestApp, name: &str, mime: &str, bytes: &[u8]) -> Value {

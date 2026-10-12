@@ -149,8 +149,8 @@ fn insert_chunks(
     chunks: &[PreparedChunk],
 ) -> Result<()> {
     let mut insert_chunk = tx.prepare(
-        "INSERT INTO chunks (document_id, collection_id, ordinal, heading_path, text, token_count) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO chunks (document_id, collection_id, ordinal, heading_path, text, token_count, \
+         page_start, page_end) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     let mut insert_fts = tx.prepare("INSERT INTO chunks_fts (rowid, norm_text) VALUES (?1, ?2)")?;
     let mut insert_vec = tx.prepare(&format!(
@@ -165,6 +165,8 @@ fn insert_chunks(
             serde_json::to_string(&chunk.draft.heading_path)?,
             chunk.draft.text,
             chunk.draft.token_count as i64,
+            chunk.draft.pages.map(|(first, _)| first),
+            chunk.draft.pages.map(|(_, last)| last),
         ])?;
         let chunk_id = tx.last_insert_rowid();
         insert_fts.execute(params![chunk_id, chunk.norm_text])?;

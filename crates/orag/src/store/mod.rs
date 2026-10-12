@@ -744,6 +744,42 @@ mod tests {
     }
 
     #[test]
+    fn a_schema_2_database_gains_nullable_chunk_pages() {
+        // A schema-2 database (0.2.0-alpha.15 or older): its chunks have no pages
+        // after the upgrade, and new ones can store them.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("orag.db");
+        {
+            register_sqlite_vec().unwrap();
+            let mut conn = rusqlite::Connection::open(&path).unwrap();
+            migrations::migrate_with(&mut conn, &path, &migrations::MIGRATIONS[..2]).unwrap();
+            conn.execute_batch(
+                "INSERT INTO sources VALUES ('h', 1, x'00');
+                 INSERT INTO documents (collection_id, source_sha256, format, status)
+                     VALUES (1, 'h', 'plain_text', 'ready');
+                 INSERT INTO chunks (document_id, collection_id, ordinal, heading_path, text, token_count)
+                     VALUES (1, 1, 0, '[]', 'eski', 1);",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.schema_version(), 3);
+        let chunks = store.get_chunks(1, &[1]).unwrap();
+        assert_eq!(chunks[0].pages, None);
+        store
+            .write(|conn| {
+                conn.execute(
+                    "INSERT INTO chunks (document_id, collection_id, ordinal, heading_path, text, \
+                     token_count, page_start, page_end) VALUES (1, 1, 1, '[]', 'yeni', 1, 4, 5)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.get_chunks(1, &[2]).unwrap()[0].pages, Some((4, 5)));
+    }
+
+    #[test]
     fn every_upgrade_takes_its_own_backup() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.db");

@@ -24,6 +24,9 @@ pub struct ChunkRecord {
     pub token_count: usize,
     pub document_title: Option<String>,
     pub filename: Option<String>,
+    /// First and last physical PDF page; `None` without pages (other formats,
+    /// or chunks indexed before schema 3).
+    pub pages: Option<(u32, u32)>,
 }
 
 /// Largest candidate count either search accepts; sqlite-vec 0.1.9 rejects
@@ -56,6 +59,13 @@ fn chunk_from_row(row: &Row<'_>) -> rusqlite::Result<ChunkRecord> {
         token_count: row.get::<_, i64>(6)? as usize,
         document_title: row.get(7)?,
         filename: row.get(8)?,
+        pages: match (
+            row.get::<_, Option<u32>>(9)?,
+            row.get::<_, Option<u32>>(10)?,
+        ) {
+            (Some(first), Some(last)) => Some((first, last)),
+            _ => None,
+        },
     })
 }
 
@@ -103,7 +113,8 @@ impl Store {
         let placeholders = vec!["?"; ids.len()].join(",");
         let mut stmt = conn.prepare(&format!(
             "SELECT c.id, c.document_id, c.collection_id, c.ordinal, c.heading_path, c.text, \
-             c.token_count, d.title, d.filename FROM chunks c JOIN documents d ON d.id = c.document_id \
+             c.token_count, d.title, d.filename, c.page_start, c.page_end \
+             FROM chunks c JOIN documents d ON d.id = c.document_id \
              WHERE c.collection_id = ? AND c.id IN ({placeholders})"
         ))?;
         let params = std::iter::once(collection_id).chain(ids.iter().copied());
@@ -282,6 +293,7 @@ mod tests {
                 breadcrumb: "H".into(),
                 text: text.into(),
                 token_count: 3,
+                pages: None,
             },
             norm_text: normalize_for_lexical(text),
             embedding: crate::infer::l2_normalize(&embedding).expect("non-zero test vector"),

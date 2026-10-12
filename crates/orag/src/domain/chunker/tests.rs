@@ -12,6 +12,7 @@ fn doc(blocks: Vec<Block>) -> ParsedDocument {
         title: None,
         blocks,
         warnings: Vec::new(),
+        ..ParsedDocument::default()
     }
 }
 
@@ -635,4 +636,153 @@ fn lexical_text_is_the_full_heading_path_and_the_body() {
         "Kargo > İade Koşulları\n\n14 gün."
     );
     assert_eq!(lexical_text(&[], "14 gün."), "14 gün.");
+}
+
+#[test]
+fn page_data_never_changes_chunk_boundaries_or_text() {
+    // Page numbers are provenance only: the embedding fingerprint (D-009)
+    // must stay valid, so the chunks the embedder sees cannot change.
+    let long = "kelime ".repeat(900);
+    let mut d = doc(vec![
+        h(1, "Başlık"),
+        p("kısa giriş"),
+        p(&long),
+        h(2, "Alt"),
+        p("son paragraf"),
+        h(2, "Boş"),
+    ]);
+    let plain = chunk(&d, &ChunkerConfig::default(), &words);
+    d.pages = (0..d.blocks.len())
+        .map(|i| Some(1 + i as u32 / 2))
+        .collect();
+    let paged = chunk(&d, &ChunkerConfig::default(), &words);
+    let strip = |c: &ChunkDraft| {
+        (
+            c.ordinal,
+            c.text.clone(),
+            c.breadcrumb.clone(),
+            c.token_count,
+        )
+    };
+    assert_eq!(
+        plain.iter().map(strip).collect::<Vec<_>>(),
+        paged.iter().map(strip).collect::<Vec<_>>()
+    );
+    assert!(plain.iter().all(|c| c.pages.is_none()));
+    assert!(
+        paged
+            .iter()
+            .all(|c| matches!(c.pages, Some((a, b)) if a <= b))
+    );
+}
+
+#[test]
+fn a_chunk_that_merges_blocks_across_a_page_break_spans_both_pages() {
+    let mut d = doc(vec![p("birinci sayfanın sonu"), p("ikinci sayfanın başı")]);
+    d.pages = vec![Some(1), Some(2)];
+    let chunks = chunk(&d, &ChunkerConfig::default(), &words);
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].pages, Some((1, 2)));
+}
+
+#[test]
+fn pages_follow_headings_split_windows_and_bodiless_headings() {
+    let cfg = ChunkerConfig {
+        target_tokens: 20,
+        max_tokens: 30,
+        overlap_tokens: 0,
+    };
+    let long = "kelime ".repeat(70); // three windows, all on page 2
+    let mut d = doc(vec![
+        h(1, "Bir"), // page 1, bodiless: followed by a sibling
+        h(1, "İki"), // page 2
+        p(&long),    // page 2
+        h(1, "Üç"),  // page 3
+        p("son"),    // page 3
+    ]);
+    d.pages = vec![Some(1), Some(2), Some(2), Some(3), Some(3)];
+    let chunks = chunk(&d, &cfg, &words);
+    let first = &chunks[0];
+    assert_eq!((first.text.as_str(), first.pages), ("Bir", Some((1, 1))));
+    assert!(
+        chunks[1..chunks.len() - 1]
+            .iter()
+            .all(|c| c.pages == Some((2, 2))),
+        "{chunks:#?}"
+    );
+    assert_eq!(chunks.last().unwrap().pages, Some((3, 3)));
+}
+
+#[test]
+fn a_page_list_of_the_wrong_length_is_ignored() {
+    // An older parser child (during an upgrade) sends no pages; a corrupt
+    // list must never shift pages onto the wrong blocks.
+    let mut d = doc(vec![p("a"), p("b")]);
+    d.pages = vec![Some(4)];
+    assert!(
+        chunk(&d, &ChunkerConfig::default(), &words)
+            .iter()
+            .all(|c| c.pages.is_none())
+    );
+}
+
+/// Pages whose marker words (`p<page>w<i>`) appear in the chunk text.
+fn pages_in_text(text: &str) -> Option<(u32, u32)> {
+    let pages: Vec<u32> = text
+        .split_whitespace()
+        .filter_map(|w| w.strip_prefix('p')?.split('w').next()?.parse().ok())
+        .collect();
+    Some((*pages.iter().min()?, *pages.iter().max()?))
+}
+
+fn page_words(page: u32, count: usize) -> String {
+    (0..count)
+        .map(|i| format!("p{page}w{i}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn a_re_split_merged_chunk_cites_only_the_pages_of_each_window() {
+    // Joins cost more the more there are, so the merge estimate is too low
+    // and `flush` has to re-split the merged chunk into windows.
+    let superlinear = |t: &str| {
+        let joins = t.matches("\n\n").count();
+        t.split_whitespace().count() + 5 * joins * joins
+    };
+    let cfg = ChunkerConfig {
+        target_tokens: 30,
+        max_tokens: 30,
+        overlap_tokens: 0,
+    };
+    let mut d = doc((1..=4).map(|page| p(&page_words(page, 4))).collect());
+    d.pages = (1..=4).map(Some).collect();
+    let chunks = chunk(&d, &cfg, &superlinear);
+    assert!(
+        chunks.iter().any(|c| c.text.contains("\n\n")),
+        "the test needs a merged chunk: {chunks:?}"
+    );
+    for c in &chunks {
+        assert_eq!(c.pages, pages_in_text(&c.text), "{c:?}");
+    }
+}
+
+#[test]
+fn the_open_tail_of_a_long_block_widens_to_the_next_page() {
+    let cfg = ChunkerConfig {
+        target_tokens: 20,
+        max_tokens: 30,
+        overlap_tokens: 0,
+    };
+    let mut d = doc(vec![p(&page_words(1, 70)), p(&page_words(2, 3))]);
+    d.pages = vec![Some(1), Some(2)];
+    let chunks = chunk(&d, &cfg, &words);
+    let last = chunks.last().unwrap();
+    assert!(
+        last.text.contains("p1w") && last.text.contains("p2w"),
+        "{last:?}"
+    );
+    for c in &chunks {
+        assert_eq!(c.pages, pages_in_text(&c.text), "{c:?}");
+    }
 }

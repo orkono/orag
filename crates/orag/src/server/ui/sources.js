@@ -25,6 +25,13 @@ function dropNeedlessFolds(root) {
   }
 }
 
+/** `s. 12` or `s. 12–13` for a source's PDF pages; empty without pages. */
+function pageLabel(pages) {
+  if (!Array.isArray(pages) || pages.length !== 2) return "";
+  const [first, last] = pages;
+  return first === last ? `s. ${first}` : `s. ${first}–${last}`;
+}
+
 function sourceItem(turn, source) {
   const item = el("li", undefined, "source");
   item.id = `${turn.id}-source-${source.number}`;
@@ -32,6 +39,8 @@ function sourceItem(turn, source) {
   const head = el("div", undefined, "source-head");
   const name = source.filename || source.title || `Belge #${source.document_id}`;
   head.append(el("span", String(source.number), "source-number"), icon("file"), el("span", name, "source-name"));
+  const pages = pageLabel(source.pages);
+  if (pages) head.append(el("span", pages, "source-pages"));
   item.append(head);
   if (source.heading_path && source.heading_path.length > 0) {
     item.append(el("div", source.heading_path.join(" › "), "source-path"));

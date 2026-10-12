@@ -150,3 +150,13 @@ pub fn multipart(filename: &str, content_type: &str, body: &[u8]) -> Request<Bod
         .body(Body::from(payload))
         .unwrap()
 }
+
+/// Bytes of a file in `tests/fixtures`.
+pub fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name),
+    )
+    .unwrap()
+}
