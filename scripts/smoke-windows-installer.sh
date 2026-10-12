@@ -15,7 +15,8 @@ version=$(cargo_version)
 app="$LOCALAPPDATA/Programs/ORAG"
 app_unix=$(cygpath -u "$app")
 
-win_tool "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(cygpath -w "$RUNNER_TEMP/install.log")"
+# Turkish explicitly: setup otherwise follows the runner's (English) UI language.
+win_tool "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART /LANG=turkish "/LOG=$(cygpath -w "$RUNNER_TEMP/install.log")"
 [ -f "$app_unix/orag.exe" ] || { echo "orag.exe was not installed to $app" >&2; cat "$RUNNER_TEMP/install.log" >&2; exit 1; }
 for f in README-Windows.txt fetch-model-pack.ps1 THIRD-PARTY-LICENSES.md docs/api.md; do
   [ -f "$app_unix/$f" ] || { echo "$f was not installed" >&2; exit 1; }
