@@ -1,0 +1,5 @@
+{
+  "//": "Not served (only files listed in ui.rs are): makes node --test load the page modules as ES modules on any Node.",
+  "type": "module",
+  "private": true
+}

@@ -503,9 +503,9 @@ async fn other_sites_stay_refused_whatever_their_origin_says() {
     }
 }
 
-/// Every file the page refers to (in `index.html` and in any module's
-/// `import ... from "./x.js"`) is served: catches a module that was added
-/// without its `include_str!` in `ui.rs`.
+/// Every file the page refers to (in `index.html` and any quoted `./x.js` in a
+/// module) is served with the right content type and CSP: catches a module
+/// added without its `include_str!` in `ui.rs`.
 #[tokio::test]
 async fn every_referenced_asset_is_served() {
     let mut referenced: Vec<String> = Vec::new();
@@ -514,9 +514,15 @@ async fn every_referenced_asset_is_served() {
             referenced.push(rest.split('"').next().unwrap().to_string());
         }
     }
+    // Any quoted "./x.js" or './x.js': static, side-effect and dynamic imports.
     for (_, body) in ui::SCRIPTS {
-        for rest in body.split("from \"./").skip(1) {
-            referenced.push(rest.split('"').next().unwrap().to_string());
+        for quote in ['"', '\'', '`'] {
+            for rest in body.split(&format!("{quote}./")).skip(1) {
+                let name = rest.split(quote).next().unwrap();
+                if name.ends_with(".js") {
+                    referenced.push(name.to_string());
+                }
+            }
         }
     }
     referenced.sort();
@@ -537,6 +543,17 @@ async fn every_referenced_asset_is_served() {
         assert!(
             headers.contains_key(header::CONTENT_SECURITY_POLICY),
             "/{name} has no CSP"
+        );
+        let expected = match name.rsplit('.').next() {
+            Some("js") => "text/javascript",
+            Some("css") => "text/css",
+            Some("svg") => "image/svg+xml",
+            _ => "",
+        };
+        let content_type = headers[header::CONTENT_TYPE].to_str().unwrap();
+        assert!(
+            content_type.starts_with(expected),
+            "/{name} is served as {content_type}"
         );
     }
 }
