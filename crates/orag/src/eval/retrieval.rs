@@ -1,6 +1,6 @@
 //! Indexes a corpus into a fresh store and compares lexical, dense and hybrid retrieval.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,7 +10,10 @@ use serde::Serialize;
 use crate::domain::chunker::ChunkerConfig;
 use crate::error::{OragError, Result};
 use crate::eval::dataset::{EvalQuery, Relevant};
-use crate::eval::metrics::{label_ranks, mrr_at, ndcg_at, percentile, recall_at};
+use crate::eval::metrics::{label_ranks, percentile};
+use crate::eval::scoring::{
+    GroupReport, GroupSums, QuestionScore, group_reports, question_found, score_question,
+};
 use crate::infer::Embedder;
 use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
@@ -29,15 +32,31 @@ pub struct StrategyReport {
     pub recall_at_10: f64,
     pub mrr_at_10: f64,
     pub ndcg_at_10: f64,
-    /// Share of queries whose every label is within the first
-    /// `context_chunks` candidates: the most the answer prompt can hold
-    /// (D-005). An approximation of what the generator sees: the answer path
-    /// can still skip a candidate that does not fit its token budget.
+    /// Share of queries found within the first `context_chunks` candidates,
+    /// the most the answer prompt can hold (D-005): any one label, or every
+    /// label for `require_all` questions. An approximation of what the
+    /// generator sees: the answer path can still skip a candidate that does
+    /// not fit its token budget.
     pub in_context: f64,
     /// Ids of the queries that miss it, so one subgroup cannot hide in a mean.
     pub missed_in_context: Vec<String>,
     pub p50_ms: f64,
     pub p95_ms: f64,
+    pub by_category: BTreeMap<String, GroupReport>,
+    pub by_split: BTreeMap<String, GroupReport>,
+    /// Every question with its label ranks, so two runs can be compared per
+    /// question instead of by their means.
+    pub per_query: Vec<QueryRanks>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QueryRanks {
+    pub id: String,
+    pub category: String,
+    pub split: String,
+    /// 1-based rank of each label within the retrieved candidates.
+    pub ranks: Vec<Option<usize>>,
+    pub in_context: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -76,6 +95,54 @@ impl RetrievalReport {
                 s.in_context,
                 s.p50_ms,
                 s.p95_ms
+            ));
+        }
+        // Older sets have one group each; a breakdown of one row repeats the table.
+        let groups = |pick: fn(&StrategyReport) -> &BTreeMap<String, GroupReport>| {
+            self.strategies.first().map_or(0, |s| pick(s).len())
+        };
+        if groups(|s| &s.by_category) > 1 {
+            out.push_str(&self.breakdown("By category", "category", |s| &s.by_category));
+        }
+        if groups(|s| &s.by_split) > 1 {
+            out.push_str(&self.breakdown("By split", "split", |s| &s.by_split));
+        }
+        out
+    }
+
+    /// One row per group: in-context share for every strategy, then the
+    /// hybrid (served) recall and MRR.
+    fn breakdown(
+        &self,
+        title: &str,
+        column: &str,
+        pick: fn(&StrategyReport) -> &BTreeMap<String, GroupReport>,
+    ) -> String {
+        let names: Vec<&str> = self.strategies.iter().map(|s| s.strategy).collect();
+        let mut out = format!("\n### {title}\n\n| {column} | questions |");
+        for name in &names {
+            out.push_str(&format!(" {name} in context |"));
+        }
+        out.push_str(" hybrid recall@10 | hybrid MRR@10 |\n|---|---|");
+        out.push_str(&"---|".repeat(names.len() + 2));
+        out.push('\n');
+        let hybrid = self.strategies.iter().find(|s| s.strategy == "hybrid");
+        let Some(first) = self.strategies.first() else {
+            return out;
+        };
+        for (group, report) in pick(first) {
+            out.push_str(&format!("| {group} | {} |", report.queries));
+            for strategy in &self.strategies {
+                let value = pick(strategy).get(group).map_or(0.0, |g| g.in_context);
+                out.push_str(&format!(" {value:.3} |"));
+            }
+            let served = hybrid
+                .and_then(|h| pick(h).get(group))
+                .cloned()
+                .unwrap_or_default();
+            out.push_str(&format!(
+                " {:.3} | {:.3} |\n",
+                served.recall_at_10, served.mrr_at_10
             ));
         }
         out
@@ -299,7 +366,7 @@ pub fn candidate_ranks(candidates: &[Candidate], labels: &[Relevant]) -> Vec<Opt
 
 /// Every label found within the first `limit` candidates.
 pub fn all_in_context(ranks: &[Option<usize>], limit: usize) -> bool {
-    ranks.iter().all(|rank| rank.is_some_and(|r| r <= limit))
+    question_found(ranks, limit, true)
 }
 
 fn evaluate_strategy(
@@ -307,36 +374,52 @@ fn evaluate_strategy(
     strategy: Strategy,
     queries: &[&EvalQuery],
 ) -> Result<StrategyReport> {
-    let (mut r5, mut r10, mut mrr, mut ndcg, mut latencies) = (0.0, 0.0, 0.0, 0.0, Vec::new());
     let context = retriever.config.max_context_chunks;
-    let mut missed_in_context = Vec::new();
+    // Deep enough for both the metrics and the context check.
+    let depth = EVAL_DEPTH.max(context);
+    let mut latencies = Vec::new();
+    let mut scored: Vec<(&EvalQuery, QuestionScore, Vec<Option<usize>>)> = Vec::new();
     for query in queries {
         let started = Instant::now();
-        // Deep enough for both the metrics and the context check.
-        let depth = EVAL_DEPTH.max(context);
         let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
         let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
-        r5 += recall_at(&ranks, 5);
-        r10 += recall_at(&ranks, 10);
-        mrr += mrr_at(&ranks, 10);
-        ndcg += ndcg_at(&ranks, 10);
-        if !all_in_context(&ranks, context) {
-            missed_in_context.push(query.id.clone());
-        }
+        scored.push((
+            query,
+            score_question(&ranks, context, query.require_all),
+            ranks,
+        ));
     }
-    let n = queries.len().max(1) as f64;
+    let mut all = GroupSums::default();
+    scored.iter().for_each(|(_, score, _)| all.add(score));
+    let all = all.report();
     Ok(StrategyReport {
         strategy: strategy.as_str(),
         queries: queries.len(),
-        recall_at_5: r5 / n,
-        recall_at_10: r10 / n,
-        mrr_at_10: mrr / n,
-        ndcg_at_10: ndcg / n,
-        in_context: (queries.len() - missed_in_context.len()) as f64 / n,
-        missed_in_context,
+        recall_at_5: all.recall_at_5,
+        recall_at_10: all.recall_at_10,
+        mrr_at_10: all.mrr_at_10,
+        ndcg_at_10: all.ndcg_at_10,
+        in_context: all.in_context,
+        missed_in_context: scored
+            .iter()
+            .filter(|(_, score, _)| !score.in_context)
+            .map(|(query, _, _)| query.id.clone())
+            .collect(),
         p50_ms: percentile(&latencies, 50.0),
         p95_ms: percentile(&latencies, 95.0),
+        by_category: group_reports(scored.iter().map(|(q, s, _)| (q.category_name(), s))),
+        by_split: group_reports(scored.iter().map(|(q, s, _)| (q.split_name(), s))),
+        per_query: scored
+            .into_iter()
+            .map(|(query, score, ranks)| QueryRanks {
+                id: query.id.clone(),
+                category: query.category_name().to_string(),
+                split: query.split_name().to_string(),
+                ranks,
+                in_context: score.in_context,
+            })
+            .collect(),
     })
 }
 
@@ -439,6 +522,10 @@ mod tests {
                 contains: contains.into(),
             }],
             answerable: true,
+            category: None,
+            split: None,
+            family: None,
+            require_all: false,
         }
     }
 
@@ -587,5 +674,53 @@ mod tests {
         // The toy embedder misses some queries lexically: they are listed by id.
         assert!(!report.strategies[0].missed_in_context.is_empty());
         assert!(report.to_markdown().contains("in context"));
+    }
+
+    #[test]
+    fn report_breaks_down_by_category_and_split_and_lists_each_query() {
+        let dir = corpus(&[
+            ("a.md", DOC),
+            ("b.md", "# Kargo\n\nKargo ücreti 49,90 TL olarak uygulanır."),
+        ]);
+        let mut first = query("q-a", "a.md", "14 gün");
+        first.category = Some("factual".into());
+        first.split = Some("dev".into());
+        let mut second = query("q-b", "b.md", "49,90 TL");
+        second.query = "kargo ücreti".into();
+        second.category = Some("table".into());
+        second.split = Some("holdout".into());
+        let mut both = query("q-ab", "a.md", "14 gün");
+        both.relevant.push(crate::eval::dataset::Relevant {
+            document: "b.md".into(),
+            contains: "49,90 TL".into(),
+        });
+        both.query = "iade kargo ücreti".into();
+        both.category = Some("multi_document".into());
+        both.require_all = true;
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            dir.path(),
+            &[first, second, both],
+            work.path(),
+        )
+        .unwrap();
+        let lexical = &report.strategies[0];
+        assert_eq!(
+            lexical.by_category.keys().collect::<Vec<_>>(),
+            vec!["factual", "multi_document", "table"]
+        );
+        assert_eq!(
+            lexical.by_split.keys().collect::<Vec<_>>(),
+            vec!["dev", "holdout", "unsplit"]
+        );
+        assert_eq!(lexical.by_category["table"].queries, 1);
+        let ids: Vec<&str> = lexical.per_query.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids, vec!["q-a", "q-b", "q-ab"]);
+        assert_eq!(lexical.per_query[2].ranks.len(), 2);
+        assert_eq!(lexical.per_query[2].category, "multi_document");
+        let markdown = report.to_markdown();
+        assert!(markdown.contains("By category") && markdown.contains("| multi_document |"));
+        assert!(markdown.contains("By split") && markdown.contains("| holdout |"));
     }
 }

@@ -166,7 +166,7 @@ HTTP/1.1 200 OK
 {"api":"v1","config":{"bind":"127.0.0.1:7613","embedding_model":"qwen3-embedding-0.6b-q8_0","generation_model":"qwen3.5-4b-q4_k_m","log_level":"info","max_document_mb":5,"ui_bind":"127.0.0.1:2442"},"git_sha":"239d9e66c70d","schema_version":1,"version":"0.1.0"}
 ```
 
-Captured from 0.1.0. Since 0.2.0-alpha.18 the default `max_document_mb` is
+Captured from 0.1.0. Since 0.2.0-alpha.19 the default `max_document_mb` is
 `10` (an install whose `config.toml` pins `5` keeps 5), and `schema_version`
 follows the database schema.
 
