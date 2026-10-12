@@ -4,9 +4,10 @@
 # uninstalls it and checks that program files go and data stays (Task 47).
 # Windows only (Git Bash). Usage: scripts/smoke-windows-installer.sh <setup.exe>
 set -euo pipefail
-# Git Bash (MSYS2) rewrites arguments that start with '/' into paths; the
-# Windows tools here take /SWITCHES, so turn that off for this script.
-export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
+# Git Bash (MSYS2) rewrites arguments that start with '/' into paths. The
+# Windows tools here take /SWITCHES, so `win_tool` turns that off for their
+# calls only (other tools, such as python, still need the conversion).
+win_tool() { MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 "$@"; }
 cd "$(dirname "$0")/.."
 . scripts/version-lib.sh
 setup="${1:?usage: $0 <setup.exe>}"
@@ -14,7 +15,7 @@ version=$(cargo_version)
 app="$LOCALAPPDATA/Programs/ORAG"
 app_unix=$(cygpath -u "$app")
 
-"$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(cygpath -w "$RUNNER_TEMP/install.log")"
+win_tool "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(cygpath -w "$RUNNER_TEMP/install.log")"
 [ -f "$app_unix/orag.exe" ] || { echo "orag.exe was not installed to $app" >&2; cat "$RUNNER_TEMP/install.log" >&2; exit 1; }
 for f in README-Windows.txt fetch-model-pack.ps1 THIRD-PARTY-LICENSES.md docs/api.md; do
   [ -f "$app_unix/$f" ] || { echo "$f was not installed" >&2; exit 1; }
@@ -42,7 +43,7 @@ body=$(ORAG_HOME="$(cygpath -w "$home")" target/release/examples/ctrl_break.exe 
 echo "$body"
 grep -q '"mode":"setup"' <<<"$body" || { echo "expected setup mode without models" >&2; exit 1; }
 
-"$app_unix/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+win_tool "$app_unix/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 for i in $(seq 1 60); do [ -f "$app_unix/orag.exe" ] || break; sleep 1; done
 [ ! -f "$app_unix/orag.exe" ] || { echo "orag.exe is still installed after uninstall" >&2; exit 1; }
 [ -f "$marker" ] || { echo "uninstall removed data in $data" >&2; exit 1; }

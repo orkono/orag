@@ -3,9 +3,10 @@
 # binary. Windows only (Git Bash); used by CI (smoke test) and release.yml.
 # Usage: scripts/build-windows-installer.sh <output-dir>
 set -euo pipefail
-# Git Bash (MSYS2) rewrites arguments that start with '/' into paths; the
-# Windows tools here take /SWITCHES, so turn that off for this script.
-export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
+# Git Bash (MSYS2) rewrites arguments that start with '/' into paths. The
+# Windows tools here take /SWITCHES, so `win_tool` turns that off for their
+# calls only (other tools, such as python, still need the conversion).
+win_tool() { MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 "$@"; }
 cd "$(dirname "$0")/.."
 . scripts/version-lib.sh
 out="${1:?usage: $0 <output-dir>}"
@@ -29,6 +30,6 @@ cp assets/orag-icon.ico packaging/windows/README-Windows.txt scripts/fetch-model
 scripts/third-party-licenses.sh "$stage/THIRD-PARTY-LICENSES.md"
 
 win() { cygpath -w "$1"; }
-"$iscc" /Q "/DAppVersion=$version" "/DSourceDir=$(win "$stage")" "/DOutputDir=$(win "$out")" \
+win_tool "$iscc" /Q "/DAppVersion=$version" "/DSourceDir=$(win "$stage")" "/DOutputDir=$(win "$out")" \
   "$(win packaging/windows/orag.iss)"
 ls -l "$out/ORAG-Setup-$version.exe"
