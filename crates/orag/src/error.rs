@@ -18,6 +18,13 @@ pub enum OragError {
     InvalidInput(String),
     #[error("model error: {0}")]
     Model(String),
+    /// The model's folder (`<models_dir>/<id>/orag-model.toml`) does not
+    /// exist; a bad id, manifest or role stay `InvalidInput`.
+    #[error("model `{id}` is not installed; run `orag models import <pack-dir>`")]
+    ModelNotInstalled { id: String },
+    /// Setup mode (D-023): the work needs models that are not installed.
+    #[error("{0}")]
+    ModelsMissing(String),
     #[error("interrupted by shutdown; the job will be retried after restart")]
     Interrupted,
     #[error(

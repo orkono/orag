@@ -4,13 +4,16 @@ pub mod collections;
 pub mod documents;
 pub mod errors;
 pub mod jobs;
+pub mod models;
 pub mod query;
 pub mod security;
 pub mod system;
 pub mod ui;
 
 use std::future::{Future, IntoFuture};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use axum::Router;
@@ -48,6 +51,17 @@ pub fn upload_body_limit(max_upload_bytes: usize) -> DefaultBodyLimit {
     )
 }
 
+/// Process exit code that asks `orag start` to run `serve` again (D-023).
+pub const EXIT_RESTART: u8 = 75;
+
+/// The configured model packs and where they are installed.
+#[derive(Debug, Clone, Default)]
+pub struct ModelsInfo {
+    pub models_dir: PathBuf,
+    pub embedding: String,
+    pub generation: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<Store>,
@@ -61,6 +75,15 @@ pub struct AppState {
     pub allowed_origins: Arc<Vec<String>>,
     /// `Config::effective()` of the running process; `app.rs` sets it.
     pub effective_config: Arc<serde_json::Value>,
+    pub models: Arc<ModelsInfo>,
+    /// Setup mode (D-023): the configured models are not installed, so
+    /// upload, query and reindex answer `503 models_missing`.
+    pub setup: bool,
+    /// Running under `orag start`, which restarts `serve` on `EXIT_RESTART`.
+    pub supervised: bool,
+    /// One model import at a time.
+    pub imports: Arc<Semaphore>,
+    restart: Arc<AtomicBool>,
     /// The single shutdown signal: `true` once shutdown starts. Private, so
     /// `begin_shutdown()` is the only way to set it.
     shutdown: Arc<tokio::sync::watch::Sender<bool>>,
@@ -73,6 +96,8 @@ impl AppState {
         generator: Arc<dyn Generator>,
         max_upload_bytes: usize,
     ) -> AppState {
+        let embedder_id = embedder.descriptor().model_id.clone();
+        let generator_id = generator.model_id().to_string();
         let retriever = Retriever {
             index: Arc::new(SqliteVecIndex::new(store.clone())),
             store: store.clone(),
@@ -93,8 +118,55 @@ impl AppState {
             allowed_origins: Arc::new(Vec::new()),
             // Set by `app.rs` from `Config::effective()` with the actual bound address.
             effective_config: Arc::new(serde_json::json!({})),
+            models: Arc::new(ModelsInfo {
+                models_dir: PathBuf::new(),
+                embedding: embedder_id,
+                generation: generator_id,
+            }),
+            setup: false,
+            supervised: false,
+            imports: Arc::new(Semaphore::new(1)),
+            restart: Arc::new(AtomicBool::new(false)),
             shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         }
+    }
+
+    /// Sets the configured models, setup mode and supervision.
+    pub fn with_models(self, models: ModelsInfo, setup: bool, supervised: bool) -> AppState {
+        AppState {
+            models: Arc::new(models),
+            setup,
+            supervised,
+            ..self
+        }
+    }
+
+    /// `503 models_missing` in setup mode; work that needs models calls this
+    /// first, before reading a body or touching an embedding space.
+    pub fn require_models(&self) -> ApiResult<()> {
+        if !self.setup {
+            return Ok(());
+        }
+        Err(ApiError::from(OragError::ModelsMissing(format!(
+            "the models are not installed yet ({}, {}); import the model packs from the page or with `orag models import`",
+            self.models.embedding, self.models.generation
+        ))))
+    }
+
+    /// Ends this process so `orag start` runs `serve` again (exit code 75).
+    pub fn request_restart(&self) {
+        self.restart.store(true, Ordering::SeqCst);
+        self.begin_shutdown();
+    }
+
+    /// The exit code the process must end with, if it is not the usual one.
+    pub fn exit_code(&self) -> Option<u8> {
+        self.restart.load(Ordering::SeqCst).then_some(EXIT_RESTART)
+    }
+
+    /// Whether shutdown has started.
+    pub fn shutdown_started(&self) -> bool {
+        *self.shutdown.borrow()
     }
 
     /// Starts shutdown for this server: generation callbacks, queued queries and
@@ -167,6 +239,8 @@ fn api_routes(state: &AppState) -> Router<AppState> {
             post(collections::reindex),
         )
         .route("/v1/jobs/{job_id}", get(jobs::get_one))
+        .route("/v1/models", get(models::status))
+        .route("/v1/models/import", post(models::import))
         .route("/v1/collections/{collection_id}/query", post(query::query))
 }
 

@@ -4,6 +4,7 @@
 pub mod fake;
 #[cfg(feature = "llama")]
 pub mod llama;
+pub mod missing;
 pub mod models;
 pub mod prompt;
 pub mod stream;

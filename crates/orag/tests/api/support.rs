@@ -6,7 +6,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use orag::infer::fake::{FakeEmbedder, FakeGenerator};
-use orag::server::{AppState, router};
+use orag::infer::missing::{MissingEmbedder, MissingGenerator};
+use orag::server::{AppState, ModelsInfo, router};
 use orag::store::Store;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -30,6 +31,11 @@ pub fn app_with(generator: FakeGenerator, max_upload_bytes: usize) -> TestApp {
         generator.clone(),
         max_upload_bytes,
     );
+    let models = ModelsInfo {
+        models_dir: dir.path().join("models"),
+        ..(*state.models).clone()
+    };
+    let state = state.with_models(models, false, false);
     TestApp {
         _dir: dir,
         state,
@@ -159,4 +165,62 @@ pub fn fixture(name: &str) -> Vec<u8> {
             .join(name),
     )
     .unwrap()
+}
+
+/// Configured model ids of the setup-mode apps below.
+pub const SETUP_EMBEDDING: &str = "emb-setup";
+pub const SETUP_GENERATION: &str = "gen-setup";
+
+/// An app in setup mode: no models are installed, `models_dir` is empty.
+pub fn setup_app() -> TestApp {
+    setup_app_over(app(), false)
+}
+
+/// Like `setup_app`, but running under `orag start` (`ORAG_SUPERVISED=1`).
+pub fn setup_app_supervised() -> TestApp {
+    setup_app_over(app(), true)
+}
+
+/// Serves `app`'s store (with whatever it has indexed) in setup mode.
+pub fn setup_app_over(app: TestApp, supervised: bool) -> TestApp {
+    let models = ModelsInfo {
+        models_dir: app._dir.path().join("models"),
+        embedding: SETUP_EMBEDDING.into(),
+        generation: SETUP_GENERATION.into(),
+    };
+    let state = AppState::new(
+        app.state.store.clone(),
+        Arc::new(MissingEmbedder::new(SETUP_EMBEDDING)),
+        Arc::new(MissingGenerator::new(SETUP_GENERATION)),
+        app.state.max_upload_bytes,
+    )
+    .with_models(models, true, supervised);
+    TestApp {
+        _dir: app._dir,
+        state,
+        generator: app.generator,
+    }
+}
+
+/// A valid model pack at `dir` (tiny fake weights, SHA-256 matching).
+pub fn write_fixture_pack(dir: &std::path::Path, role: &str, id: &str) {
+    use sha2::Digest;
+    std::fs::create_dir_all(dir).unwrap();
+    let payload = format!("weights of {id}");
+    std::fs::write(dir.join("model.gguf"), &payload).unwrap();
+    std::fs::write(dir.join("LICENSE"), "Apache-2.0 text").unwrap();
+    let sha = hex::encode(sha2::Sha256::digest(payload.as_bytes()));
+    let section = if role == "embedding" {
+        "[embedding]\ndimensions = 16\npooling = \"mean\"\nmax_tokens = 128\n"
+    } else {
+        "[generation]\ncontext_tokens = 2048\nmax_output_tokens = 256\n"
+    };
+    std::fs::write(
+        dir.join("orag-model.toml"),
+        format!(
+            "id = \"{id}\"\nrole = \"{role}\"\nfile = \"model.gguf\"\nsha256 = \"{sha}\"\n\
+             license = \"Apache-2.0\"\nlicense_file = \"LICENSE\"\nsource = \"test\"\nrevision = \"r1\"\n\n{section}"
+        ),
+    )
+    .unwrap();
 }

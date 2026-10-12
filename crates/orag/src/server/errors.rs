@@ -98,6 +98,11 @@ impl From<OragError> for ApiError {
                 err.to_string(),
             ),
             OragError::InvalidInput(_) => Self::invalid(err.to_string()),
+            OragError::ModelsMissing(_) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "models_missing",
+                err.to_string(),
+            ),
             _ => {
                 tracing::error!(error = %err, "internal error");
                 Self::internal()

@@ -96,8 +96,17 @@ orag models list
 ## Run
 
 ```bash
-orag serve
+orag start   # starts the service and opens the page in your browser
+orag serve   # the service alone (for scripts, services and the desktop app)
 ```
+
+`orag start` runs `orag serve`, opens <http://127.0.0.1:2442> once it is up,
+and restarts it after models are imported from the page; if ORAG already runs,
+it only opens the page. Without installed models ORAG starts in **setup
+mode**: the page shows *Modelleri kur*, where you type the folder you copied
+the packs to (for example `~/orag-packs`); after the import ORAG restarts by
+itself under `orag start` (under `orag serve`, restart it yourself). Until
+then uploading and asking are refused with `models_missing`.
 
 It prints `orag listening on http://127.0.0.1:7613` (the API) and then
 `orag ui on http://127.0.0.1:2442`, and stops on Ctrl-C or SIGTERM. Indexing

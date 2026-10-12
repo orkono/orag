@@ -403,11 +403,32 @@ fn load_installed(dir: &Path, name: &str) -> Result<InstalledModel> {
 
 /// Looks up an installed model by id, refusing anything that is not a plain id.
 fn locate(models_dir: &Path, id: &str) -> Result<InstalledModel> {
-    let dir = models_dir.join(id);
-    if !is_plain_file_name(id) || !dir.join(MANIFEST_FILE).is_file() {
+    if !is_plain_file_name(id) {
         return Err(OragError::InvalidInput(format!(
             "model `{id}` is not installed; run `orag models import <pack-dir>`"
         )));
+    }
+    let dir = models_dir.join(id);
+    let manifest = dir.join(MANIFEST_FILE);
+    // Only a missing file means "not installed" (setup mode, D-023); a folder
+    // that cannot be read (permissions, an offline drive) is a real error.
+    match std::fs::metadata(&manifest) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => {
+            return Err(OragError::InvalidInput(format!(
+                "{} is not a file",
+                manifest.display()
+            )));
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(OragError::ModelNotInstalled { id: id.to_string() });
+        }
+        Err(err) => {
+            return Err(OragError::InvalidInput(format!(
+                "cannot read {}: {err}",
+                manifest.display()
+            )));
+        }
     }
     load_installed(&dir, id)
 }
@@ -537,6 +558,66 @@ pub(crate) mod tests {
             .unwrap_err()
             .to_string();
         assert!(missing.contains("orag models import"), "{missing}");
+    }
+
+    #[test]
+    fn only_a_missing_model_folder_is_model_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = dir.path().join("models");
+        import_pack(
+            &write_pack(dir.path(), "gen-a", "generation", b"w"),
+            &models,
+        )
+        .unwrap();
+        assert!(matches!(
+            find_model(&models, "nope", ModelRole::Generation),
+            Err(OragError::ModelNotInstalled { id }) if id == "nope"
+        ));
+        // A wrong role, a corrupt manifest or a bad id is not "missing":
+        // setup mode must not hide them (D-023).
+        assert!(matches!(
+            find_model(&models, "gen-a", ModelRole::Embedding),
+            Err(OragError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            find_model(&models, "../pack-gen-a", ModelRole::Generation),
+            Err(OragError::InvalidInput(_))
+        ));
+        std::fs::write(models.join("gen-a").join(MANIFEST_FILE), "id = ").unwrap();
+        assert!(matches!(
+            find_model(&models, "gen-a", ModelRole::Generation),
+            Err(OragError::InvalidInput(_))
+        ));
+        // A manifest path that is a folder is broken, not missing.
+        std::fs::create_dir_all(models.join("odd").join(MANIFEST_FILE)).unwrap();
+        assert!(matches!(
+            find_model(&models, "odd", ModelRole::Generation),
+            Err(OragError::InvalidInput(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_model_folder_is_an_error_not_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let models = dir.path().join("models");
+        import_pack(
+            &write_pack(dir.path(), "gen-a", "generation", b"w"),
+            &models,
+        )
+        .unwrap();
+        let folder = models.join("gen-a");
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let result = find_model(&models, "gen-a", ModelRole::Generation);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Root reads anything; the case only exists for other users.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(
+                matches!(result, Err(OragError::InvalidInput(_))),
+                "{result:?}"
+            );
+        }
     }
 
     #[test]
