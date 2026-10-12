@@ -16,7 +16,10 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 # .NET file calls resolve relative paths against the process directory, not
 # the PowerShell location: make the output folder absolute once.
-$OutDir = [IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $OutDir))
+if (-not [IO.Path]::IsPathRooted($OutDir)) {
+  $OutDir = Join-Path (Get-Location).ProviderPath $OutDir
+}
+$OutDir = [IO.Path]::GetFullPath($OutDir)
 
 $Presets = [ordered]@{
   'qwen3-embedding-0.6b-q8_0' = @{
