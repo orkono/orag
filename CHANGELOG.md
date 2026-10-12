@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.23] - 2026-10-12
+
+- **Web page finished for v0.2 (Task 45).** A busy answer slot (`429`) shows *Başka bir yanıt üretiliyor* and retries once after `Retry-After`; a dropped stream or an unreachable server offers *Tekrar sor*. The page's pure logic (page labels, warning labels, finish notices, the retry delay) lives in `format.js` with `node --test` tests, run in CI on Ubuntu, and a router test checks that every module the page imports is served with the CSP header.
+- The acceptance checklist passed 11 of 11 in headless Chrome against `orag serve` with real models from an empty home: setup → import → restart → ready; seven files at once (four indexed, an oversized `.txt`, an `.xlsx` and a renamed fake `.pdf` each refused with the server's message); a streamed answer with linked citations and PDF page labels; *Durdur* frees the slot for the next question; an abstained answer; delete with confirmation; labelled inputs and live regions; version and models in the footer; the page notices a stopped server and recovers.
+
 ## [0.2.0-alpha.22] - 2026-10-12
 
 - **Model decision for v0.2 (Task 44, D-007): no change.** Qwen3-Embedding-0.6B and Qwen3.5-4B stay the defaults. The rule was written into `.docs/benchmarks/v0.2-model-decision.md` before scoring. BGE-M3 is better on every hybrid and dense headline number (hybrid recall@10 0.937 vs 0.891, and the only challenger that helps cross-language questions) but wins only +3 net questions on `dev`, where the rule asks for +6; it is the first candidate for the next review. multilingual-e5-large-instruct is rejected (worse on holdout and on multi-document questions); Qwen3-4B-Instruct-2507 stays the fallback generator (faster, but four expected facts fewer and a lower abstention F1).
