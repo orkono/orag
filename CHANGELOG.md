@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.20] - 2026-10-12
+
+- **Setup mode (D-023).** Without installed model packs, `orag serve` no longer stops: it starts in setup mode, logs which models are missing, and runs the API and the page without a worker. Upload, query and reindex answer `503 models_missing` (before any body is read or any embedding space is checked, so an indexed collection never offers a reindex that would empty it). A broken install (a bad manifest, the wrong role, a folder that cannot be read) still stops startup, and a build without an inference backend fails at once.
+- `GET /v1/models` reports `mode` (`setup` or `ready`), the configured models and whether each is installed. `POST /v1/models/import` (setup mode only) installs packs from a local folder given as a full path (`~/` allowed), verifying each by SHA-256; pack files must be regular files owned by ORAG's user, one import runs at a time, and a broken leftover install is named instead of skipped.
+- Once both models are installed, ORAG restarts to load them: under the new `orag start` the server exits with code 75 and the launcher runs it again; under plain `orag serve` the page asks the user to restart.
+- **`orag start`** runs `orag serve`, opens the page in the browser, restarts it after a model import (at most 3 times in 60 s), and on Ctrl-C lets it stop gracefully. If ORAG already runs, it only opens the page. `orag serve` is unchanged for scripts, services and the desktop sidecar (D-016).
+- The page shows *Modelleri kur* in setup mode: what is missing, where packs come from, a folder field and *İçe aktar*; uploading and asking are disabled until the models are installed, and the page reloads once ORAG is back.
+
 ## [0.2.0-alpha.19] - 2026-10-12
 
 - The default `max_document_mb` is now 10 (was 5); the allowed range stays 1–10. Uploads of up to 10 MB pass the JSON-escape and multipart body limits (tested with a 9.5 MB upload both ways).
