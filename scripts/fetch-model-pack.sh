@@ -7,10 +7,12 @@ set -euo pipefail
 preset="${1:-}"
 out_parent="${2:-}"
 if [ -z "$preset" ] || [ -z "$out_parent" ]; then
-  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m> <output-dir>" >&2
+  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m|bge-m3-q8_0|multilingual-e5-large-instruct-q8_0> <output-dir>" >&2
   exit 1
 fi
 
+license_name="Apache-2.0"
+mit_holder=""
 case "$preset" in
   qwen3-embedding-0.6b-q8_0)
     repo="Qwen/Qwen3-Embedding-0.6B-GGUF"
@@ -41,6 +43,32 @@ case "$preset" in
     license_sha="832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
     role_section=$'[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = "chatml"'
     role="generation"
+    ;;
+  # Embedding challengers of the v0.2 model decision (D-007); not defaults.
+  # Neither repository ships a LICENSE file; both model cards (MIT) are kept.
+  bge-m3-q8_0)
+    repo="ggml-org/bge-m3-Q8_0-GGUF"
+    revision="9eba04c5d75ba5a1595e45de734d36bef4e5cb98"
+    file="bge-m3-q8_0.gguf"
+    sha="aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173"
+    card_url="https://huggingface.co/BAAI/bge-m3/resolve/5617a9f61b028005a4858fdac845db406aefb181/README.md"
+    card_sha="0b81ccf9134e5874d620a86e6905062ea999e779c34eb1a7e65eaeb7fe00e450"
+    role_section=$'[embedding]\ndimensions = 1024\npooling = "cls"\nmax_tokens = 1024\nquery_prefix = ""\ndocument_prefix = ""'
+    role="embedding"
+    license_name="MIT"
+    mit_holder="the authors of BAAI/bge-m3"
+    ;;
+  multilingual-e5-large-instruct-q8_0)
+    repo="Ralriki/multilingual-e5-large-instruct-GGUF"
+    revision="f43c843a00e7c3bdd087cbaf481464c1fa7fb37d"
+    file="multilingual-e5-large-instruct-q8_0.gguf"
+    sha="2fa4f519b83ecd31a35265b9dd43790bf0abd1ff942e7b982861ee674dc7bec8"
+    card_url="https://huggingface.co/intfloat/multilingual-e5-large-instruct/resolve/274baa43b0e13e37fafa6428dbc7938e62e5c439/README.md"
+    card_sha="41676700d80691ac2f4397ee2b546ef58f9e3236af2f3d0770ab0fa61940ce51"
+    role_section=$'[embedding]\ndimensions = 1024\npooling = "mean"\nmax_tokens = 512\nquery_prefix = "Instruct: Given a search query, retrieve relevant passages that answer the query\\nQuery: "\ndocument_prefix = ""'
+    role="embedding"
+    license_name="MIT"
+    mit_holder="the authors of intfloat/multilingual-e5-large-instruct"
     ;;
   *)
     echo "unknown preset: $preset" >&2
@@ -81,14 +109,45 @@ mkdir -p "$dest"
 # The manifest is written last, so a pack without one was never finished.
 rm -f "$dest/orag-model.toml"
 download "https://huggingface.co/$repo/resolve/$revision/$file" "$sha" "$dest/$file"
-download "$license_url" "$license_sha" "$dest/LICENSE"
+if [ -n "$mit_holder" ]; then
+  # Upstream declares MIT only in the model card's front matter and has no
+  # LICENSE file: ship the card as is, plus the MIT text naming its authors.
+  download "$card_url" "$card_sha" "$dest/MODEL_CARD.md"
+  cat > "$dest/LICENSE" <<MIT
+MIT License
+
+Copyright (c) $mit_holder
+(declared as "license: mit" in MODEL_CARD.md, revision $revision of the GGUF
+conversion; see https://huggingface.co/$repo)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+MIT
+else
+  download "$license_url" "$license_sha" "$dest/LICENSE"
+fi
 
 cat > "$dest/orag-model.toml" <<EOF
 id = "$preset"
 role = "$role"
 file = "$file"
 sha256 = "$sha"
-license = "Apache-2.0"
+license = "$license_name"
 license_file = "LICENSE"
 source = "https://huggingface.co/$repo"
 revision = "$revision"
