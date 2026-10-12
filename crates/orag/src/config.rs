@@ -207,6 +207,7 @@ fn create_home(home: &Path) -> std::io::Result<()> {
     if let Some(parent) = home.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -326,6 +327,25 @@ pub fn parse_loopback_bind(text: &str) -> Result<SocketAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An absolute path on this platform (`/home/u`, `C:\\home\\u`).
+    fn abs(relative: &str) -> PathBuf {
+        let root = if cfg!(windows) { "C:\\" } else { "/" };
+        PathBuf::from(root).join(relative)
+    }
+
+    #[test]
+    fn home_with_turkish_letters_and_spaces() {
+        // A Windows profile such as `C:\Users\Öznur Şahin` must work for the
+        // config file and the SQLite database alike.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("Öznur Şahin").join("ORAG verileri");
+        let config = Config::load(&home).unwrap();
+        assert_eq!(config.home, home);
+        assert!(home.join(CONFIG_FILE).is_file());
+        let store = crate::store::Store::open(&config.db_path()).unwrap();
+        assert_eq!(store.list_collections().unwrap().len(), 1);
+    }
 
     fn home_with(config: Option<&str>) -> tempfile::TempDir {
         let home = tempfile::tempdir().unwrap();
@@ -477,17 +497,11 @@ mod tests {
 
     #[test]
     fn home_resolution_prefers_orag_home() {
-        let env = |key: &str| (key == "ORAG_HOME").then(|| OsString::from("/tmp/x"));
-        let user = Some(PathBuf::from("/home/u"));
-        assert_eq!(
-            home_from(&env, user.clone()).unwrap(),
-            PathBuf::from("/tmp/x")
-        );
+        let env = |key: &str| (key == "ORAG_HOME").then(|| OsString::from(abs("tmp/x")));
+        let user = Some(abs("home/u"));
+        assert_eq!(home_from(&env, user.clone()).unwrap(), abs("tmp/x"));
         let none = |_: &str| None;
-        assert_eq!(
-            home_from(&none, user).unwrap(),
-            PathBuf::from("/home/u/.orag")
-        );
+        assert_eq!(home_from(&none, user).unwrap(), abs("home/u").join(".orag"));
     }
 
     #[test]
@@ -640,7 +654,7 @@ mod tests {
         let none = |_: &str| None;
         assert!(home_from(&none, Some(PathBuf::from("relative/dir"))).is_err());
         assert!(
-            home_from(&none, Some(PathBuf::from("/home/u")))
+            home_from(&none, Some(abs("home/u")))
                 .unwrap()
                 .ends_with(".orag")
         );

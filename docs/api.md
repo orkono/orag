@@ -293,6 +293,11 @@ characters. ORAG retrieves passages (BM25 + dense, fused), answers only from
 them and cites them as `[n]`, where `n` is a source `number`. When the
 documents do not support an answer it abstains (`"abstained": true`).
 
+`pages` is the first and last physical page of a PDF source, 1-based
+(`[12, 13]`); it is `null` for TXT, Markdown and DOCX (their place is
+`heading_path`) and for PDF chunks indexed before 0.2.0-alpha.16, until the
+collection is reindexed.
+
 `rank_score` is a ranking signal (reciprocal rank fusion), **not** a
 confidence or a probability. Candidates are taken in fused order, except that
 the top hit of the lexical list and of the dense list are offered first (a
@@ -307,9 +312,9 @@ curl -s -H 'Content-Type: application/json' \
 ```json
 {"answer":"This is a development answer from fake models [1].",
  "sources":[
-  {"number":1,"chunk_id":2,"document_id":2,"title":"sample-tr.pdf","filename":"sample-tr.pdf","heading_path":[],"ordinal":0,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. Iğdır,\n\nşık, çay, öğün.","rank_score":0.03278688524590164,"lexical_rank":1,"dense_rank":1},
-  {"number":2,"chunk_id":3,"document_id":3,"title":"İade","filename":"iade.md","heading_path":["İade"],"ordinal":0,"excerpt":"14 gün içinde iade.","rank_score":0.03225806451612903,"lexical_rank":2,"dense_rank":2},
-  {"number":3,"chunk_id":1,"document_id":1,"title":"Kargo Politikası","filename":"sample.docx","heading_path":["Kargo Politikası","İade Koşulları"],"ordinal":0,"excerpt":"Ürünler 14 gün içinde iade edilebilir. …","rank_score":0.031746031746031744,"lexical_rank":3,"dense_rank":3}],
+  {"number":1,"chunk_id":2,"document_id":2,"title":"sample-tr.pdf","filename":"sample-tr.pdf","heading_path":[],"pages":[1,1],"ordinal":0,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. Iğdır,\n\nşık, çay, öğün.","rank_score":0.03278688524590164,"lexical_rank":1,"dense_rank":1},
+  {"number":2,"chunk_id":3,"document_id":3,"title":"İade","filename":"iade.md","heading_path":["İade"],"pages":null,"ordinal":0,"excerpt":"14 gün içinde iade.","rank_score":0.03225806451612903,"lexical_rank":2,"dense_rank":2},
+  {"number":3,"chunk_id":1,"document_id":1,"title":"Kargo Politikası","filename":"sample.docx","heading_path":["Kargo Politikası","İade Koşulları"],"pages":null,"ordinal":0,"excerpt":"Ürünler 14 gün içinde iade edilebilir. …","rank_score":0.031746031746031744,"lexical_rank":3,"dense_rank":3}],
  "citations":[1],"invalid_citations":[],"citation_markers":[{"start":46,"end":49,"numbers":[1]}],"abstained":false,"finish_reason":"stop",
  "trace":{"retrieval":{"strategy":"hybrid","lexical_hits":3,"dense_hits":3,"fused_hits":3,"embed_ms":0,"lexical_ms":0,"dense_ms":0,"embedding_space":"2f000b84a7e48cb77669bd94a0b120ec9445c6c04e11c293ce13a142a9499e41"},
   "context_chunks":3,"skipped_chunks":0,"prompt_tokens":174,"completion_tokens":9,"generation_ms":0,"generator":"fake-generator"}}
@@ -364,7 +369,7 @@ curl -N -s -H 'Content-Type: application/json' \
 
 ```text
 event: sources
-data: {"sources":[{"chunk_id":2,"dense_rank":1,"document_id":2,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. …","filename":"sample-tr.pdf","heading_path":[],"lexical_rank":1,"number":1,"ordinal":0,"rank_score":0.03278688524590164,"title":"sample-tr.pdf"}, …]}
+data: {"sources":[{"chunk_id":2,"dense_rank":1,"document_id":2,"excerpt":"Kargo Politikasi\n\nİade süresi 14 gündür. …","filename":"sample-tr.pdf","heading_path":[],"lexical_rank":1,"number":1,"ordinal":0,"pages":[1,1],"rank_score":0.03278688524590164,"title":"sample-tr.pdf"}, …]}
 
 event: token
 data: {"text":"This "}

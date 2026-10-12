@@ -40,6 +40,8 @@ pub struct SourceRef {
     pub title: Option<String>,
     pub filename: Option<String>,
     pub heading_path: Vec<String>,
+    /// First and last physical PDF page (`[12, 13]`), `null` without pages.
+    pub pages: Option<[u32; 2]>,
     pub ordinal: u32,
     pub excerpt: String,
     /// RRF rank score; a ranking signal, not a confidence probability.
@@ -469,6 +471,7 @@ fn source_refs(context: &[Candidate]) -> Vec<SourceRef> {
             title: c.chunk.document_title.clone(),
             filename: c.chunk.filename.clone(),
             heading_path: c.chunk.heading_path.clone(),
+            pages: c.chunk.pages.map(|(first, last)| [first, last]),
             ordinal: c.chunk.ordinal,
             excerpt: c.chunk.text.chars().take(EXCERPT_CHARS).collect(),
             rank_score: c.hit.score,

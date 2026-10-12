@@ -627,6 +627,23 @@ pub(crate) mod tests {
         assert!(err.contains("model.gguf"), "{err}");
     }
 
+    /// A directory handle that can change its times: Windows opens a
+    /// directory only with FILE_FLAG_BACKUP_SEMANTICS and needs write access.
+    fn open_dir_for_times(dir: &Path) -> std::fs::File {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(dir)
+                .unwrap()
+        }
+        #[cfg(not(windows))]
+        std::fs::File::open(dir).unwrap()
+    }
+
     #[test]
     fn stale_staging_directories_are_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -635,10 +652,7 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&stale).unwrap();
         let old =
             std::time::SystemTime::now() - STALE_STAGING_AGE - std::time::Duration::from_secs(60);
-        std::fs::File::open(&stale)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
+        open_dir_for_times(&stale).set_modified(old).unwrap();
         let fresh = models.join(".emb-b.importing-1-2-0");
         std::fs::create_dir_all(&fresh).unwrap();
         import_pack(&write_pack(dir.path(), "emb-c", "embedding", b"w"), &models).unwrap();

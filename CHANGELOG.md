@@ -5,6 +5,22 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.16] - 2026-10-12
+
+- PDF sources carry their physical pages: every source in a query answer has `pages`, the first and last 1-based page of its chunk (`[12, 13]`), or `null` for TXT, Markdown and DOCX (whose place is `heading_path`). The web page shows them after the file name (`s. 12–13`).
+- The PDF parser records each block's page; the chunker keeps the page range of the blocks in a chunk (a window of a split block has that block's page; a heading with no body keeps its own). Pages are provenance only: chunk boundaries and texts are unchanged, so the embedding space (D-009) and the lexical index stay valid; tested by chunking the same document with and without pages.
+- **Upgrade note:** schema 3 adds `chunks.page_start` and `chunks.page_end` (nullable; the usual pre-upgrade backup is taken). PDF chunks indexed before this version have no pages until their collection is reindexed (*Yeniden indeksle*); nothing else needs a reindex. Older binaries refuse schema 3; to go back, restore the pre-upgrade backup.
+- New fixture `tests/fixtures/two-pages.pdf` (`scripts/make-fixtures.sh`).
+
+## [0.2.0-alpha.15] - 2026-10-12
+
+- Windows x86-64 (`x86_64-pc-windows-msvc`) builds and is tested in CI next to macOS and Linux (D-001). `orag.exe` links the C runtime statically (no Visual C++ redistributable; llama.cpp gets the same runtime through `packaging/windows/static-crt.cmake`, because its CMake appends its own runtime flag after `/MT`; `check-llama-build.sh` checks it and names `cargo clean -p llama-cpp-sys-2` for a build directory configured before) and imports only system DLLs (`check-binary-deps.sh` reads its import table); llama.cpp is built for the CPU floor AVX2/FMA/F16C/BMI2 (Intel 2013+, AMD Zen), checked in its CMake cache by `check-llama-build.sh`.
+- The DOCX/PDF parser child runs in a Windows Job Object: it dies with `orag serve`, is capped at 4 GiB of memory, shows no error dialog, and is killed together with anything it started. A crash (an exception status such as an access violation, stack overflow or abort) blames the file; plain exit codes and statuses from the host (a blocked or failing start, a console Ctrl-C) are host problems, as on unix. `orag serve` stops gracefully on Ctrl-C, Ctrl-Break, closing the console and (as a service) system shutdown; logoff is ignored.
+- Process isolation is split into `isolate/unix.rs` and `isolate/windows.rs` behind one interface that keeps the rule "probe without reaping, kill the whole group, then reap".
+- CI also runs for `step/**` branches (pushed before their merge, no pull request; D-020 rule 10). The parser test that sends stop signals now waits for the child to report that its signal dispositions are installed, instead of a fixed 0.5 s, which failed on a cold start of a freshly built binary.
+- On Windows, backups (`orag backup`, and the copy taken before a schema upgrade) flush the finished copy through a writable handle, because Windows refuses to flush a read-only one; unix keeps the read handle.
+- README: Windows 10 22H2 / 11 x86-64 with AVX2 in the system requirements.
+
 ## [0.2.0-alpha.14] - 2026-10-12
 
 - Web page redesigned as an application: a sidebar with the collections (*+* creates one), the upload area and the selected collection's documents; a workspace with the collection's title bar (reindex, delete) and a conversation whose question cards stay on screen until another collection is selected. Answers show their cited sources, with the unused ones folded away. Files can be dropped anywhere on the page. The page's own confirmation dialogs replace the browser's, and results appear as notifications. Enter sends a question, Shift+Enter starts a new line. The sidebar footer shows the ORAG version and the two models; when ORAG is unreachable a banner says so and the page resumes by itself. Colours follow the icon (forest green, cream), with a dark theme that follows the system and a narrow-screen layout.
