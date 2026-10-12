@@ -4,4 +4,5 @@ pub mod answers;
 pub mod dataset;
 pub mod metrics;
 pub mod retrieval;
+pub mod scoring;
 pub mod vector_scale;

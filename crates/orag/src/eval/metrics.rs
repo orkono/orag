@@ -23,22 +23,6 @@ pub fn label_ranks(ranked: &[(String, String)], labels: &[Relevant]) -> Vec<Opti
         .collect()
 }
 
-pub fn recall_at(ranks: &[Option<usize>], k: usize) -> f64 {
-    if ranks.is_empty() {
-        return 0.0;
-    }
-    ranks.iter().filter(|r| r.is_some_and(|r| r <= k)).count() as f64 / ranks.len() as f64
-}
-
-pub fn mrr_at(ranks: &[Option<usize>], k: usize) -> f64 {
-    ranks
-        .iter()
-        .flatten()
-        .filter(|r| **r <= k)
-        .min()
-        .map_or(0.0, |r| 1.0 / *r as f64)
-}
-
 /// Evidence-coverage nDCG@k over labels (not chunks), so one label found in
 /// two overlapping chunks counts once and one chunk covering two labels cannot
 /// exceed the ideal. Sorted label ranks r₁ ≤ r₂ ≤ … are placed at effective
@@ -95,13 +79,7 @@ mod tests {
     }
 
     #[test]
-    fn recall_mrr_ndcg_and_percentile() {
-        let ranks = [Some(1), Some(2), None];
-        assert!((recall_at(&ranks, 1) - 1.0 / 3.0).abs() < 1e-9);
-        assert!((recall_at(&ranks, 5) - 2.0 / 3.0).abs() < 1e-9);
-        assert_eq!(mrr_at(&ranks, 10), 1.0);
-        assert!((mrr_at(&[None, Some(3)], 10) - 1.0 / 3.0).abs() < 1e-9);
-        assert_eq!(mrr_at(&[Some(3)], 2), 0.0);
+    fn ndcg_and_percentile() {
         assert!((ndcg_at(&[Some(2)], 10) - 1.0 / 3f64.log2()).abs() < 1e-9);
         assert_eq!(ndcg_at(&[Some(1)], 10), 1.0);
         assert_eq!(ndcg_at(&[None], 10), 0.0);

@@ -474,6 +474,19 @@ Metrics reported separately: recall@5/10, MRR@10, nDCG@10 per strategy
 (lexical, dense, hybrid), and latency p50/p95. Answer-level metrics
 (citation correctness, faithfulness, abstention) arrive with v0.2.
 
+**Amendment (Task 42, 2026-10-12): the v0.2 set.** `eval/datasets/v02-retrieval.jsonl`
+(200 questions: factual 40, cross-language 25, multi-document 20, identifiers 25,
+tables 25, accentless 20, inflection 20, unanswerable 25) and `v02-answers.jsonl`
+(60 probes) over `eval/corpus/v02`. Each row has a `category`, a `split`
+(`dev` tunes, `holdout` only confirms) and a `family`; paraphrases of one fact
+share a family and never cross splits. Multi-document questions use
+`require_all`. The set is **model-authored, not human-checked**: the owner
+orchestrates and does not audit, so a second model run that did not write the
+rows reviewed every row instead (`v02-audit.md` records how). Release notes
+say so. Settings are chosen on `dev`; a change is adopted only when `holdout`
+does not get worse. After this task the set is frozen: an edit needs a
+CHANGELOG line and never happens inside a model or fusion decision.
+
 ## D-019 — Configuration file, read once at startup (owner decision, 2026-10-01)
 
 **Decision.** `$ORAG_HOME/config.toml` (default `~/.orag/config.toml`) is the
@@ -486,7 +499,7 @@ reloaded. After editing it, restart the application. Keys:
 |---|---|---|
 | `bind` | `127.0.0.1:7613` | loopback IP:port only |
 | `ui_bind` | `127.0.0.1:2442` | loopback IP:port of the built-in page (D-021), or `"off"` |
-| `max_document_mb` | `10` (was `5` until 0.2.0-alpha.18) | integer 1–10; values above 10 are not supported |
+| `max_document_mb` | `10` (was `5` until 0.2.0-alpha.19) | integer 1–10; values above 10 are not supported |
 | `embedding_model` | `qwen3-embedding-0.6b-q8_0` | installed model pack id |
 | `generation_model` | `qwen3.5-4b-q4_k_m` | installed model pack id |
 | `log_level` | `info` | error, warn, info, debug, trace |
