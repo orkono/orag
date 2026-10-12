@@ -79,7 +79,7 @@ const CHILD_GRACE: Duration = Duration::from_secs(10);
 const STDERR_LOG_BYTES: usize = 2048;
 /// Upper bound on the child's result. A parse that produces more is rejected,
 /// so a hostile file cannot grow the model-holding parent's memory.
-pub const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_OUTPUT_BYTES: usize = 128 * 1024 * 1024;
 /// Debug builds only: integration tests set this (milliseconds) to slow the child down.
 pub const TEST_DELAY_ENV: &str = "ORAG_TEST_PARSE_DELAY_MS";
 /// Debug builds only: written to stderr when the delay starts, after the

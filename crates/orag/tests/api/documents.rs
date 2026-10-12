@@ -484,3 +484,33 @@ async fn a_multipart_file_over_the_limit_is_413_without_reading_it_all() {
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(body["error"]["code"], "too_large");
 }
+
+#[tokio::test]
+async fn a_nine_and_a_half_mb_upload_is_accepted_under_the_default_limit() {
+    let limit = orag::config::DEFAULT_MAX_DOCUMENT_MB as usize * 1024 * 1024;
+    let app = app_with(FakeGenerator::new("x"), limit);
+    // JSON with every "ş" escaped as `\u015f`: 9.5 MB decoded, 3x on the wire,
+    // so the body limit's escape headroom is what lets it through.
+    let letters = 9_500_000 / 2;
+    let body = format!(
+        r#"{{"filename":"big.txt","content":"{}"}}"#,
+        "\\u015f".repeat(letters)
+    );
+    assert!(body.len() > 3 * 9_500_000, "{}", body.len());
+    let request = local(Request::post("/v1/collections/1/documents"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body))
+        .unwrap();
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // Multipart at the exact limit is accepted; one byte more is not.
+    let exact = vec![b'a'; limit];
+    let (status, body) = send(&app, multipart("exact.txt", "text/plain", &exact)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let over = vec![b'b'; limit + 1];
+    let (status, body) = send(&app, multipart("over.txt", "text/plain", &over)).await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::PAYLOAD_TOO_LARGE, json!("too_large"))
+    );
+}

@@ -83,7 +83,7 @@ fn serve_starts_on_ephemeral_port_without_credentials() {
     assert!(http_get(&addr, "/v1/health", &addr).starts_with("HTTP/1.1 200"));
     let version = http_get(&addr, "/v1/version", &addr);
     assert!(version.starts_with("HTTP/1.1 200"), "{version}");
-    assert!(version.contains("\"max_document_mb\":5"), "{version}");
+    assert!(version.contains("\"max_document_mb\":10"), "{version}");
     assert!(
         version.contains(&format!("\"bind\":\"{addr}\"")),
         "reports the real port: {version}"
@@ -129,13 +129,13 @@ fn config_is_read_only_at_startup() {
     let (_server, addr) = start_server(home.path());
     std::fs::write(
         home.path().join("config.toml"),
-        "bind = \"127.0.0.1:0\"\nmax_document_mb = 10\n",
+        "bind = \"127.0.0.1:0\"\nmax_document_mb = 3\n",
     )
     .unwrap();
     std::thread::sleep(std::time::Duration::from_millis(300));
     let version = http_get(&addr, "/v1/version", &addr);
     assert!(
-        version.contains("\"max_document_mb\":5"),
+        version.contains("\"max_document_mb\":10"),
         "a running server must not reload config: {version}"
     );
 }

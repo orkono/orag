@@ -29,7 +29,7 @@ answers are placeholders; real models answer from the documents).
 | Item | Value |
 |---|---|
 | Supported formats | TXT (`.txt`), Markdown (`.md`, `.markdown`), DOCX (`.docx`), PDF (`.pdf`) |
-| Document size | `max_document_mb` in `config.toml`: default 5, allowed 1–10 |
+| Document size | `max_document_mb` in `config.toml`: default 10, allowed 1–10 |
 | Concurrent uploads | 4; the next one gets `429 busy` |
 | Upload body time | 60 s; a slower body gets `408 upload_timeout` |
 | Answers | one at a time; a query waits up to 120 s for the slot, then `429 busy` |
@@ -77,7 +77,7 @@ commented out, so built-in defaults apply until a line is uncommented.
 |---|---|---|
 | `bind` | `"127.0.0.1:7613"` | Loopback address; port `0` picks a free port |
 | `ui_bind` | `"127.0.0.1:2442"` | Loopback address of the built-in web page (port `0` picks a free port), or `"off"` |
-| `max_document_mb` | `5` | Largest document accepted, 1–10 MB |
+| `max_document_mb` | `10` | Largest document accepted, 1–10 MB |
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding pack id |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation pack id |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace` (stderr) |
@@ -164,6 +164,10 @@ HTTP/1.1 200 OK
 HTTP/1.1 200 OK
 {"api":"v1","config":{"bind":"127.0.0.1:7613","embedding_model":"qwen3-embedding-0.6b-q8_0","generation_model":"qwen3.5-4b-q4_k_m","log_level":"info","max_document_mb":5,"ui_bind":"127.0.0.1:2442"},"git_sha":"239d9e66c70d","schema_version":1,"version":"0.1.0"}
 ```
+
+Captured from 0.1.0. Since 0.2.0-alpha.19 the default `max_document_mb` is
+`10` (an install whose `config.toml` pins `5` keeps 5), and `schema_version`
+follows the database schema.
 
 ### `GET /v1/collections`
 

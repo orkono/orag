@@ -14,7 +14,7 @@ use crate::ingest::parse::paragraph_blocks;
 pub const MAX_PDF_PAGES: usize = 2000;
 /// Upper bound on extracted text; far above any document within the upload
 /// limit, so only a decompression trick reaches it.
-pub const MAX_PDF_TEXT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_PDF_TEXT_BYTES: usize = 96 * 1024 * 1024;
 /// Checked between pages; below the 120 s isolation deadline, so in-process
 /// callers (eval, tests) stop too. One page can still take longer: under
 /// `orag serve` the isolation deadline covers that.
