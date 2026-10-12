@@ -52,10 +52,13 @@ answers are placeholders; real models answer from the documents).
   - `ocr_required`: PDF pages without a text layer (scanned) were skipped;
     ORAG does not OCR;
   - `extraction_failed`: PDF pages that could not be read were skipped;
-  - `suspicious_layout`: PDF pages whose extracted text looks garbled (many
-    U+FFFD replacement characters, or mostly single letters split apart by
-    positioning) — one warning per reason, listing the pages. Advisory only:
-    the pages are indexed, but answers drawn from them can be wrong;
+  - `suspicious_layout`: PDF pages whose extracted text looks garbled — one
+    warning per reason, listing the pages: `unmapped characters` (U+FFFD or
+    control characters from a font without a usable ToUnicode map; they are
+    removed before indexing) or `words split into single letters` (runs of
+    four or more one-letter tokens). Advisory only: the pages are indexed,
+    but answers drawn from them can be wrong. Not detected: words run
+    together, and columns read in the wrong order;
   - `styles_unreadable`: a DOCX's styles could not be read, so headings and
     lists set by styles were not detected (the text is indexed);
   - `no_text`: the document has no extractable text at all (for example a

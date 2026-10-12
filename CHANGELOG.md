@@ -7,8 +7,9 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.2.0-alpha.17] - 2026-10-12
 
-- PDF pages whose extracted text looks garbled get an advisory `suspicious_layout` warning listing them: U+FFFD replacement characters at 1 % or more (missing ToUnicode maps), or at least 40 % one-letter tokens (letters split apart by positioning). A page needs 200 non-space characters before it is judged, and short lines alone are no sign (tables, poems and code lists have them). The pages are still indexed; the warning says answers from them can be wrong.
-- The web page shows document warnings with Turkish labels ("Taranmış sayfalar okunamadı", "Bazı sayfalar okunamadı", "Bazı sayfaların metni bozuk olabilir", "Başlık stilleri okunamadı", "Metin bulunamadı"); the full server text is in the tooltip.
+- PDF pages whose extracted text looks garbled get an advisory `suspicious_layout` warning, one per reason, listing the pages: `unmapped characters` (U+FFFD or control characters at 1 % or more: a font without a usable ToUnicode map) or `words split into single letters` (at least 40 % of tokens in runs of four or more one-letter tokens). A page needs 200 non-space characters before it is judged; short lines, answer keys (`1. A 2. C`), formulas and icon-font bullets are no sign. The pages are still indexed; the warning says answers from them can be wrong.
+- pdf_oxide's U+FFFD preservation is switched on so the unmapped-characters rule can see them; the characters are removed again before indexing, so indexed text is unchanged.
+- The web page shows document warnings with Turkish labels plus the pages and reason they name ("Taranmış sayfalar okunamadı (s. 3–5)", "Bazı sayfaların metni bozuk olabilir (s. 2–3; harflere bölünmüş kelimeler)"); the full server text is the tooltip.
 
 ## [0.2.0-alpha.16] - 2026-10-12
 
