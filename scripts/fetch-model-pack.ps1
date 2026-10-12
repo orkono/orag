@@ -146,7 +146,7 @@ function New-Pack([string]$Id) {
   if ($p.Contains('mit_holder')) {
     Get-Pinned $p.card_url $p.card_sha (Join-Path $dest 'MODEL_CARD.md')
     $mit = $MitText -f $p.mit_holder, $p.revision, $p.repo
-    [System.IO.File]::WriteAllText((Join-Path $dest 'LICENSE'), ($mit -replace "`r`n", "`n"))
+    [System.IO.File]::WriteAllText((Join-Path $dest 'LICENSE'), ($mit -replace "`r`n", "`n") + "`n")
   } else {
     Get-Pinned $p.license_url $p.license_sha (Join-Path $dest 'LICENSE')
   }

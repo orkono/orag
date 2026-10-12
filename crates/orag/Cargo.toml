@@ -51,5 +51,6 @@ llama = ["dep:llama-cpp-2"]
 libc = "0.2.189"
 
 [target.'cfg(windows)'.dependencies]
-# Already in the tree (via tokio/mio); job objects contain the parser child.
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# Already in the tree (via tokio/mio); job objects contain the parser child,
+# and Console sends Ctrl-Break in the installer smoke test (examples/ctrl_break.rs).
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }

@@ -55,13 +55,17 @@ runner); a 16 GB M-series laptop is measured after v0.1.0
 
 ## Windows
 
-Download `orag-<version>-x86_64-pc-windows-msvc.zip` from the release, unzip
-it anywhere you can write to (for example `%LOCALAPPDATA%\ORAG`), and run
-`orag.exe start` from that folder: the page opens at <http://127.0.0.1:2442>
-in setup mode until the models are installed. Data lives in
-`%USERPROFILE%\.orag` (or `%ORAG_HOME%`). Model packs are built on a machine
-with internet access by `scripts/fetch-model-pack.sh` from this repository
-(bash: macOS, Linux or Git Bash; it is not in the release zip); copy them to
+Run `ORAG-Setup-<version>.exe` from the release (per user, no administrator
+rights; it installs to `%LOCALAPPDATA%\Programs\ORAG`) and open **ORAG** from
+the Start menu; or unzip `orag-<version>-x86_64-pc-windows-msvc.zip` anywhere
+you can write to and run `orag.exe start`. The page opens at
+<http://127.0.0.1:2442> in setup mode until the models are installed. The
+Start menu also has *ORAG modellerini indir (internet)*, which downloads the
+two default packs (about 3.3 GB, after asking) into
+`%USERPROFILE%\ORAG-paketleri` with `fetch-model-pack.ps1`. Data lives in
+`%USERPROFILE%\.orag` (or `%ORAG_HOME%`); uninstalling keeps it. Without
+internet on the PC, build packs elsewhere with `scripts/fetch-model-pack.sh`
+(bash) or `fetch-model-pack.ps1` (PowerShell, also in the installer); copy them to
 the PC and type their folder into *Modelleri kur*, or run
 `orag.exe models import <folder>\<pack>`. Windows runs on the CPU (no GPU
 offload), so answers are expected to be slower than on Apple Silicon; CPU
