@@ -486,7 +486,7 @@ reloaded. After editing it, restart the application. Keys:
 |---|---|---|
 | `bind` | `127.0.0.1:7613` | loopback IP:port only |
 | `ui_bind` | `127.0.0.1:2442` | loopback IP:port of the built-in page (D-021), or `"off"` |
-| `max_document_mb` | `5` | integer 1–10; the next milestone raises the default to 10; values above 10 are not supported |
+| `max_document_mb` | `10` (was `5` until 0.2.0-alpha.18) | integer 1–10; values above 10 are not supported |
 | `embedding_model` | `qwen3-embedding-0.6b-q8_0` | installed model pack id |
 | `generation_model` | `qwen3.5-4b-q4_k_m` | installed model pack id |
 | `log_level` | `info` | error, warn, info, debug, trace |
@@ -499,8 +499,15 @@ binaries ignore it). Uploads above the limit get `413 too_large` before they are
 stored. `GET /v1/version` reports the settings in effect.
 
 **Resource budget.** `max_document_mb` limits each document, not the
-service. A 5 MB DOCX/PDF can expand a lot when decompressed, and the HTTP
-body may be up to ~6× the limit (JSON escaping). Mitigations:
+service. A 10 MB DOCX/PDF can expand a lot when decompressed (a text-only
+DOCX holds up to ~150 MB of XML), and the HTTP body may be up to ~6× the
+limit (JSON escaping): four parallel JSON uploads can hold ~60 MB of body plus
+the decoded text each, about 0.5 GB in all before the size check rejects
+them. The parser limits (decompressed part, XML nodes, extracted text, child
+output) are sized for the largest allowed document and pinned by a test
+(`parser_limits_leave_room_for_the_largest_document`). One large text-only
+document can keep the single ingest worker busy for many minutes (millions
+of tokens to embed); other uploads wait `queued`. Mitigations:
 - only the upload route accepts document-sized bodies; every other route is
   limited to 64 KiB;
 - at most 4 uploads are accepted at once (`429 busy` beyond that);

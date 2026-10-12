@@ -21,11 +21,13 @@ const STYLES_RELS: [&str; 2] = [
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
     "http://purl.oclc.org/ooxml/officeDocument/relationships/styles",
 ];
-/// Decompressed size cap per XML part (ZIP-bomb guard).
-pub const MAX_PART_BYTES: u64 = 64 * 1024 * 1024;
+/// Decompressed size cap per XML part (ZIP-bomb guard). Word XML of plain
+/// text deflates 7-15x, so a 10 MB (the largest `max_document_mb`) text-only
+/// DOCX can hold a ~150 MB `document.xml`.
+pub const MAX_PART_BYTES: u64 = 192 * 1024 * 1024;
 /// XML node cap per part, so a small part of tiny elements cannot grow the
-/// parsed tree to gigabytes (far above any real document).
-pub const MAX_XML_NODES: u32 = 2_000_000;
+/// parsed tree to gigabytes; a 10 MB text-only DOCX has a few million nodes.
+pub const MAX_XML_NODES: u32 = 8_000_000;
 /// Element nesting cap: the XML parser and the walk below recurse once per
 /// level, so deeper input would overflow the stack and abort the process.
 /// Real documents stay well under 100 even with nested tables.

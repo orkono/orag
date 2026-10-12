@@ -360,7 +360,17 @@ mod tests {
         let home = home_with(Some("max_document_mb = 5\n"));
         let cfg = Config::load(home.path()).unwrap();
         assert_eq!(cfg.max_document_mb, 5);
-        assert_eq!(DEFAULT_MAX_DOCUMENT_MB, 10);
+    }
+
+    #[test]
+    fn parser_limits_leave_room_for_the_largest_document() {
+        // A text-only document of the largest allowed size must parse: Word
+        // XML deflates up to ~15x, and extracted text can approach 5x the
+        // compressed size. Raising MAX_DOCUMENT_MB_LIMIT means raising these.
+        let largest = MAX_DOCUMENT_MB_LIMIT as u64 * 1024 * 1024;
+        assert!(crate::ingest::docx::MAX_PART_BYTES >= 15 * largest);
+        assert!(crate::ingest::pdf::MAX_PDF_TEXT_BYTES as u64 >= 5 * largest);
+        assert!(crate::ingest::isolate::MAX_OUTPUT_BYTES as u64 >= 5 * largest);
     }
 
     #[test]

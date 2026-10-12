@@ -13,9 +13,11 @@ from offline packs (D-001, D-012).
 
 ## Status
 
-`v0.1.0`: the first usable release.
+`v0.1.0`: the first usable release. `main` is on the 0.2 alpha line; where
+it differs from v0.1.0, the 0.2 behavior is noted.
 
-- Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default.
+- Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default
+  (5 MB in v0.1.0).
   Scanned PDFs are not OCRed; pages without a text layer are reported with the
   warning `ocr_required`.
 - Retrieval: BM25 + dense vectors fused with reciprocal rank fusion, each
@@ -153,7 +155,9 @@ embedding space says so, and collections indexed before it then answer
 
 ## Limits
 
-- `max_document_mb` per document: 10 MB by default, configurable 1–10.
+- `max_document_mb` per document: 10 MB by default, configurable 1–10. A
+  large text-only document (millions of words) can keep indexing busy for
+  many minutes; other uploads wait `queued` meanwhile.
 - At most 4 uploads at once; one answer is generated at a time (a query waits
   up to 120 s for its turn).
 - A `ready` document with an `ocr_required` or `extraction_failed` warning is

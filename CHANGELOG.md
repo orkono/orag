@@ -8,7 +8,9 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 ## [0.2.0-alpha.18] - 2026-10-12
 
 - The default `max_document_mb` is now 10 (was 5); the allowed range stays 1–10. Uploads of up to 10 MB pass the JSON-escape and multipart body limits (tested with a 9.5 MB upload both ways).
-- **Upgrade note:** an install whose `config.toml` leaves `max_document_mb` commented out follows the new default of 10 MB after a restart; one that pins `max_document_mb = 5` keeps 5.
+- Parser limits are sized for the largest allowed document: a DOCX part may decompress to 192 MiB (was 64), with up to 8 million XML nodes (was 2 million); a PDF may yield 96 MiB of text (was 64); a parser child may return 128 MiB (was 64). Measured: a 10 MB text-only DOCX holds ~72 MB of XML at a 7x deflate ratio, and real Word markup deflates up to ~15x. A test pins these limits against `MAX_DOCUMENT_MB_LIMIT`.
+- **Upgrade note:** an install whose `config.toml` leaves `max_document_mb` commented out follows the new default of 10 MB after a restart; one that pins `max_document_mb = 5` keeps 5. An existing `config.toml` still shows the old comment `# max_document_mb = 5` (the file is only written when missing): that comment is stale, so uncommenting it pins 5 MB. `GET /v1/version` shows the limit in effect.
+- With 10 MB documents, four parallel JSON uploads can hold about 0.5 GB before the size check, and one large text-only document can keep the single ingest worker busy for many minutes (D-019 resource budget).
 
 ## [0.2.0-alpha.17] - 2026-10-12
 
