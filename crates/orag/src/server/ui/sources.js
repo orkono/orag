@@ -26,7 +26,7 @@ function dropNeedlessFolds(root) {
 }
 
 /** `s. 12` or `s. 12–13` for a source's PDF pages; empty without pages. */
-export function pageLabel(pages) {
+function pageLabel(pages) {
   if (!Array.isArray(pages) || pages.length !== 2) return "";
   const [first, last] = pages;
   return first === last ? `s. ${first}` : `s. ${first}–${last}`;

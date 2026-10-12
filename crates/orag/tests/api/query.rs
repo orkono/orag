@@ -11,8 +11,8 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use crate::support::{
-    TestApp, app, app_with, drain_jobs, get, index_with_previous_model, json_request, local,
-    multipart, send, send_full,
+    TestApp, app, app_with, drain_jobs, fixture, get, index_with_previous_model, json_request,
+    local, multipart, send, send_full,
 };
 
 async fn seed(app: &TestApp) {
@@ -439,10 +439,7 @@ async fn sources_report_pdf_pages() {
     // Small pages merge into one chunk across the break (chunk boundaries do
     // not change, D-009), so the range must end on page 2, not equal [2, 2].
     let app = app();
-    let pdf = std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-pages.pdf"),
-    )
-    .unwrap();
+    let pdf = fixture("two-pages.pdf");
     let (status, body) = send(&app, multipart("two-pages.pdf", "application/pdf", &pdf)).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     drain_jobs(&app);

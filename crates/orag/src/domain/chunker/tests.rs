@@ -725,3 +725,64 @@ fn a_page_list_of_the_wrong_length_is_ignored() {
             .all(|c| c.pages.is_none())
     );
 }
+
+/// Pages whose marker words (`p<page>w<i>`) appear in the chunk text.
+fn pages_in_text(text: &str) -> Option<(u32, u32)> {
+    let pages: Vec<u32> = text
+        .split_whitespace()
+        .filter_map(|w| w.strip_prefix('p')?.split('w').next()?.parse().ok())
+        .collect();
+    Some((*pages.iter().min()?, *pages.iter().max()?))
+}
+
+fn page_words(page: u32, count: usize) -> String {
+    (0..count)
+        .map(|i| format!("p{page}w{i}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn a_re_split_merged_chunk_cites_only_the_pages_of_each_window() {
+    // Joins cost more the more there are, so the merge estimate is too low
+    // and `flush` has to re-split the merged chunk into windows.
+    let superlinear = |t: &str| {
+        let joins = t.matches("\n\n").count();
+        t.split_whitespace().count() + 5 * joins * joins
+    };
+    let cfg = ChunkerConfig {
+        target_tokens: 30,
+        max_tokens: 30,
+        overlap_tokens: 0,
+    };
+    let mut d = doc((1..=4).map(|page| p(&page_words(page, 4))).collect());
+    d.pages = (1..=4).map(Some).collect();
+    let chunks = chunk(&d, &cfg, &superlinear);
+    assert!(
+        chunks.iter().any(|c| c.text.contains("\n\n")),
+        "the test needs a merged chunk: {chunks:?}"
+    );
+    for c in &chunks {
+        assert_eq!(c.pages, pages_in_text(&c.text), "{c:?}");
+    }
+}
+
+#[test]
+fn the_open_tail_of_a_long_block_widens_to_the_next_page() {
+    let cfg = ChunkerConfig {
+        target_tokens: 20,
+        max_tokens: 30,
+        overlap_tokens: 0,
+    };
+    let mut d = doc(vec![p(&page_words(1, 70)), p(&page_words(2, 3))]);
+    d.pages = vec![Some(1), Some(2)];
+    let chunks = chunk(&d, &cfg, &words);
+    let last = chunks.last().unwrap();
+    assert!(
+        last.text.contains("p1w") && last.text.contains("p2w"),
+        "{last:?}"
+    );
+    for c in &chunks {
+        assert_eq!(c.pages, pages_in_text(&c.text), "{c:?}");
+    }
+}

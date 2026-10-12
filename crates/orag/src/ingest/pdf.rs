@@ -338,6 +338,26 @@ pub(crate) mod tests {
         assert_eq!(join_hyphenated("gün-\r\ndür"), "gündür");
     }
 
+    fn fixture(name: &str) -> ParsedDocument {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        parse_pdf(&std::fs::read(path.join(name)).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn fixture_blocks_carry_their_physical_page() {
+        let one = fixture("sample-tr.pdf");
+        assert!(!one.blocks.is_empty());
+        assert!(
+            (0..one.blocks.len()).all(|i| one.page_of(i) == Some(1)),
+            "{one:?}"
+        );
+        let two = fixture("two-pages.pdf");
+        let pages: Vec<Option<u32>> = (0..two.blocks.len()).map(|i| two.page_of(i)).collect();
+        assert_eq!(pages.first(), Some(&Some(1)), "{two:?}");
+        assert_eq!(pages.last(), Some(&Some(2)), "{two:?}");
+        assert!(pages.windows(2).all(|w| w[0] <= w[1]), "{pages:?}");
+    }
+
     #[test]
     fn page_lists_are_compact() {
         assert_eq!(page_list(&[1, 2, 3, 5, 7, 8]), "1-3, 5, 7-8");

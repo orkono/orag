@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn a_schema_2_database_gains_nullable_chunk_pages() {
-        // A database of 0.2.0-alpha.14 or older: its chunks have no pages
+        // A schema-2 database (0.2.0-alpha.15 or older): its chunks have no pages
         // after the upgrade, and new ones can store them.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("orag.db");

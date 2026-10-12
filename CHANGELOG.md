@@ -9,7 +9,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 - PDF sources carry their physical pages: every source in a query answer has `pages`, the first and last 1-based page of its chunk (`[12, 13]`), or `null` for TXT, Markdown and DOCX (whose place is `heading_path`). The web page shows them after the file name (`s. 12–13`).
 - The PDF parser records each block's page; the chunker keeps the page range of the blocks in a chunk (a window of a split block has that block's page; a heading with no body keeps its own). Pages are provenance only: chunk boundaries and texts are unchanged, so the embedding space (D-009) and the lexical index stay valid; tested by chunking the same document with and without pages.
-- **Upgrade note:** schema 3 adds `chunks.page_start` and `chunks.page_end` (nullable; the usual pre-upgrade backup is taken). PDF chunks indexed before this version have no pages until their collection is reindexed (*Yeniden indeksle*); nothing else needs a reindex.
+- **Upgrade note:** schema 3 adds `chunks.page_start` and `chunks.page_end` (nullable; the usual pre-upgrade backup is taken). PDF chunks indexed before this version have no pages until their collection is reindexed (*Yeniden indeksle*); nothing else needs a reindex. Older binaries refuse schema 3; to go back, restore the pre-upgrade backup.
 - New fixture `tests/fixtures/two-pages.pdf` (`scripts/make-fixtures.sh`).
 
 ## [0.2.0-alpha.15] - 2026-10-12

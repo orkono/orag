@@ -113,8 +113,7 @@ pub fn chunk_document(
         join_cost: join_cost(count_tokens),
         call_cost: count_tokens(""),
         chunks: Vec::new(),
-        page: None,
-        open_pages: None,
+        open_pages: Vec::new(),
         bodiless_page: None,
     };
     for (index, block) in doc.blocks.iter().enumerate() {
@@ -122,10 +121,10 @@ pub fn chunk_document(
         if block.text().trim().is_empty() {
             continue;
         }
-        builder.page = doc.page_of(index);
+        let page = doc.page_of(index);
         match block {
-            Block::Heading { level, text } => builder.enter_heading(*level, text)?,
-            other => builder.add_text(other.text())?,
+            Block::Heading { level, text } => builder.enter_heading(*level, text, page)?,
+            other => builder.add_text(other.text(), page)?,
         }
     }
     builder.finish()?;
@@ -149,12 +148,23 @@ struct ChunkBuilder<'a> {
     /// Tokens the tokenizer adds to every string (BOS/EOS), measured once.
     call_cost: usize,
     chunks: Vec<ChunkDraft>,
-    /// Page of the block being added, the page range of the open chunk, and
-    /// the page of a heading that has no body yet. Provenance only: nothing
+    /// Where each block of the open chunk starts in `current` and its page,
+    /// and the page of a heading that has no body yet. Provenance only: nothing
     /// here decides where a chunk ends.
-    page: Option<u32>,
-    open_pages: Option<(u32, u32)>,
+    open_pages: Vec<(usize, Option<u32>)>,
     bodiless_page: Option<u32>,
+}
+
+/// Page range of the bytes `start..end` of the open chunk, from the offsets
+/// where its blocks start.
+fn pages_between(open: &[(usize, Option<u32>)], start: usize, end: usize) -> Option<(u32, u32)> {
+    open.iter()
+        .enumerate()
+        .filter(|(i, (from, _))| {
+            let to = open.get(i + 1).map_or(usize::MAX, |next| next.0);
+            *from < end && start < to
+        })
+        .fold(None, |range, (_, (_, page))| widen(range, *page))
 }
 
 /// `range` widened to include `page`.
@@ -181,7 +191,7 @@ impl ChunkBuilder<'_> {
         self.breadcrumb_cost = (self.count_tokens)(&self.breadcrumb);
     }
 
-    fn enter_heading(&mut self, level: u8, text: &str) -> Result<()> {
+    fn enter_heading(&mut self, level: u8, text: &str, page: Option<u32>) -> Result<()> {
         self.flush()?;
         // A heading followed directly by a sibling or a higher heading has no
         // body and no subsections; it becomes a chunk so its words are indexed.
@@ -196,7 +206,7 @@ impl ChunkBuilder<'_> {
         self.headings.push((level, text.to_string()));
         self.set_breadcrumb(&self.heading_path());
         self.bodiless_heading = Some(level);
-        self.bodiless_page = self.page;
+        self.bodiless_page = page;
         Ok(())
     }
 
@@ -208,10 +218,9 @@ impl ChunkBuilder<'_> {
         };
         self.set_breadcrumb(parents);
         // The heading's own page, not the page of the block that ended it.
-        let page = std::mem::replace(&mut self.page, self.bodiless_page);
-        self.add_text(last)?;
+        let page = self.bodiless_page;
+        self.add_text(last, page)?;
         self.flush()?;
-        self.page = page;
         self.set_breadcrumb(&path);
         Ok(())
     }
@@ -253,22 +262,22 @@ impl ChunkBuilder<'_> {
         prefix(last_fitting(0, graphemes.len(), |n| fits(&prefix(n))))
     }
 
-    fn add_text(&mut self, text: &str) -> Result<()> {
+    fn add_text(&mut self, text: &str, page: Option<u32>) -> Result<()> {
         self.bodiless_heading = None;
         let cost = self.cost(text);
         if cost > self.cfg.max_tokens {
             self.flush()?;
-            // Every window of one block lies on that block's page.
-            self.open_pages = widen(None, self.page);
             let mut pieces = self.split_oversized(text)?;
             // The last window stays open, so following small blocks merge into it.
             let tail = pieces.pop();
-            for (piece, cost) in pieces {
-                self.push_chunk(piece, cost)?;
+            for (piece, cost, _) in pieces {
+                // Every window of one block lies on that block's page.
+                self.push_chunk(piece, cost, widen(None, page))?;
             }
-            if let Some((tail, cost)) = tail {
+            if let Some((tail, cost, _)) = tail {
                 self.current = tail;
                 self.current_estimate = cost;
+                self.open_pages = vec![(0, page)];
             }
             return Ok(());
         }
@@ -285,15 +294,15 @@ impl ChunkBuilder<'_> {
         };
         if !self.current.is_empty() && self.current_estimate + added <= self.cfg.target_tokens {
             self.current.push_str("\n\n");
+            self.open_pages.push((self.current.len(), page));
             self.current.push_str(text);
             self.current_estimate += added;
-            self.open_pages = widen(self.open_pages, self.page);
             return Ok(());
         }
         self.flush()?;
         self.current = text.to_string();
         self.current_estimate = cost;
-        self.open_pages = widen(None, self.page);
+        self.open_pages = vec![(0, page)];
         Ok(())
     }
 
@@ -305,20 +314,27 @@ impl ChunkBuilder<'_> {
             return Ok(());
         }
         let text = std::mem::take(&mut self.current);
+        let open = std::mem::take(&mut self.open_pages);
         self.current_estimate = 0;
         let cost = self.cost(&text);
         if cost <= self.cfg.max_tokens {
-            self.push_chunk(text, cost)?;
+            self.push_chunk(text, cost, pages_between(&open, 0, usize::MAX))?;
         } else {
-            for (piece, cost) in self.split_oversized(&text)? {
-                self.push_chunk(piece, cost)?;
+            for (piece, cost, start) in self.split_oversized(&text)? {
+                // Each window cites only the pages of the blocks it covers.
+                let pages = pages_between(&open, start, start + piece.len());
+                self.push_chunk(piece, cost, pages)?;
             }
         }
-        self.open_pages = None;
         Ok(())
     }
 
-    fn push_chunk(&mut self, text: String, token_count: usize) -> Result<()> {
+    fn push_chunk(
+        &mut self,
+        text: String,
+        token_count: usize,
+        pages: Option<(u32, u32)>,
+    ) -> Result<()> {
         let ordinal = u32::try_from(self.chunks.len())
             .map_err(|_| OragError::InvalidInput("document has too many chunks".into()))?;
         self.chunks.push(ChunkDraft {
@@ -327,7 +343,7 @@ impl ChunkBuilder<'_> {
             breadcrumb: self.breadcrumb.clone(),
             text,
             token_count,
-            pages: self.open_pages,
+            pages,
         });
         Ok(())
     }
@@ -336,7 +352,8 @@ impl ChunkBuilder<'_> {
     /// invented spaces), each with its exact cost, whose composed text fits
     /// `max_tokens`. Words longer than 16 graphemes are cut into units; a unit
     /// that alone exceeds the budget is halved in place until it fits.
-    fn split_oversized(&self, text: &str) -> Result<Vec<(String, usize)>> {
+    /// Each window comes with its exact cost and its byte offset in `text`.
+    fn split_oversized(&self, text: &str) -> Result<Vec<(String, usize, usize)>> {
         let mut units = unit_spans(text);
         let mut pieces = Vec::new();
         let mut start = 0;
@@ -368,7 +385,7 @@ impl ChunkBuilder<'_> {
                 window_cost = cost(start, end, &units);
             }
             let piece = &text[units[start].0..units[end - 1].1];
-            pieces.push((piece.to_string(), window_cost));
+            pieces.push((piece.to_string(), window_cost, units[start].0));
             if end == units.len() {
                 break;
             }

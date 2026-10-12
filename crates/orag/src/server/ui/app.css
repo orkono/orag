@@ -240,7 +240,7 @@ a.citation:hover { background: var(--accent-soft); }
 .source-head .icon { color: var(--subtle); width: 16px; height: 16px; }
 .source-number { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--accent); border-radius: 6px; }
 .source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.source-pages { flex: none; color: var(--muted, #6b7280); font-size: 0.85em; white-space: nowrap; }
+.source-pages { flex: none; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .source-path { margin-top: 2px; color: var(--subtle); font-size: 12.5px; }
 .excerpt { margin: 8px 0 4px; padding-left: 10px; color: var(--muted); font-size: 13.5px; white-space: pre-wrap; border-left: 2px solid var(--line-strong); }
 .excerpt.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
