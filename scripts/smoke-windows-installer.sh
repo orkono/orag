@@ -41,7 +41,8 @@ echo keep > "$marker"
 
 home=$(mktemp -d)
 printf 'bind = "127.0.0.1:7623"\nui_bind = "127.0.0.1:2442"\n' > "$home/config.toml"
-body=$(ORAG_HOME="$(cygpath -w "$home")" target/release/examples/ctrl_break.exe \
+# win_tool: "/v1/models" is a URL path, not a file to convert.
+body=$(ORAG_HOME="$(cygpath -w "$home")" win_tool target/release/examples/ctrl_break.exe \
   127.0.0.1:2442 /v1/models -- "$(cygpath -w "$app_unix/orag.exe")" serve)
 echo "$body"
 grep -q '"mode":"setup"' <<<"$body" || { echo "expected setup mode without models" >&2; exit 1; }
