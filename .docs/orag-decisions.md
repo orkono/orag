@@ -283,8 +283,8 @@ Notes:
 **Decided for v0.2 (Task 44, 2026-10-12): no change.** Qwen3-Embedding-0.6B
 and Qwen3.5-4B stay the defaults; no challenger met the rule written before
 scoring (`.docs/benchmarks/v0.2-model-decision.md`). Both embedder
-challengers qualified at llama-cpp-2 0.1.158. BGE-M3 is better on every
-average (hybrid recall@10 0.937 vs 0.891) and the only one that helps
+challengers qualified at llama-cpp-2 0.1.158. BGE-M3 is better on every hybrid and dense
+headline number (hybrid recall@10 0.937 vs 0.891) and the only one that helps
 cross-language questions, but it wins only +3 net questions on `dev` where
 the rule asks for +6; it is the first candidate for the next review.
 multilingual-e5-large-instruct is rejected (worse on holdout and on
