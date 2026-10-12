@@ -4,7 +4,8 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-# Read-only token: the workflow builds and uploads artifacts; it publishes nothing.
+# Read-only token: the build job uploads artifacts; only the draft job below may
+# write, and it creates a draft the owner publishes.
 permissions:
   contents: read
 
@@ -15,19 +16,25 @@ jobs:
       matrix:
         # ubuntu-22.04: the oldest supported Linux, so libstdc++/glibc symbol versions stay
         # compatible (Task 22). The macOS deployment target comes from .cargo/config.toml.
-        os: [macos-15, ubuntu-22.04]
+        os: [macos-15, ubuntu-22.04, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     env:
       CARGO_TERM_COLOR: always
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: rustup toolchain install   # reads rust-toolchain.toml
+      - if: startsWith(matrix.os, 'windows')
+        run: rustup component add llvm-tools
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: scripts/check-version.sh
       # Builds the release binary and checks Metal (macOS) and no OpenMP.
       - run: scripts/check-llama-build.sh --release
-      - run: scripts/check-binary-deps.sh target/release/orag --release-floor
+      - run: scripts/check-binary-deps.sh "target/release/orag$EXE" --release-floor
       # Only the binary that passed the checks above, in this run, is uploaded.
       - name: Name the artifact
         id: name
@@ -40,15 +47,43 @@ jobs:
         run: |
           dir="${{ steps.name.outputs.artifact }}"
           mkdir -p "dist/$dir/docs" "dist/$dir/assets"
-          cp target/release/orag "dist/$dir/orag"
+          cp "target/release/orag$EXE" "dist/$dir/orag$EXE"
           cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "dist/$dir/"
           cp docs/api.md "dist/$dir/docs/"
           cp assets/orag-icon.svg "dist/$dir/assets/"   # the README's header image
           scripts/third-party-licenses.sh "dist/$dir/THIRD-PARTY-LICENSES.md"
-          tar -C dist -czf "dist/$dir.tar.gz" "$dir"
-          tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag$' | grep -q '^-rwx'
+          if [ -n "$EXE" ]; then
+            # Windows: a zip, which Explorer opens without extra tools.
+            (cd dist && 7z a -tzip -bso0 "$dir.zip" "$dir")
+            echo "file=$dir.zip" >> "$GITHUB_ENV"
+          else
+            tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+            tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag$' | grep -q '^-rwx'
+            echo "file=$dir.tar.gz" >> "$GITHUB_ENV"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.name.outputs.artifact }}
-          path: dist/${{ steps.name.outputs.artifact }}.tar.gz
+          path: dist/${{ env.file }}
           if-no-files-found: error
+
+  # On a version tag, a draft release with every artifact; the owner reviews
+  # and publishes it. Manual runs only build.
+  draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l dist
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft \
+            --title "ORAG ${TAG#v}" --notes "Draft for ${TAG}: see CHANGELOG.md. Published by the owner."

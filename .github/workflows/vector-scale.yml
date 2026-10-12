@@ -2,9 +2,13 @@ name: vector-scale
 # The D-003 gate on the Linux reference class (Task 21): x86-64, 16 GB.
 # GitHub's standard ubuntu-22.04 runner for public repositories has 4 vCPUs and
 # 16 GB; exact k-NN in sqlite-vec runs on one core, so it stands in for the
-# 8-core reference. Manual only: it is a measurement, not a per-push check.
+# 8-core reference. A measurement, not a per-push check: run by hand, or by
+# pushing a `bench/**` branch (the orchestrator's token cannot dispatch it; the
+# branch is deleted after the run).
 on:
   workflow_dispatch:
+  push:
+    branches: ["bench/**"]
 
 permissions:
   contents: read
