@@ -484,3 +484,27 @@ async fn a_multipart_file_over_the_limit_is_413_without_reading_it_all() {
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(body["error"]["code"], "too_large");
 }
+
+#[tokio::test]
+async fn a_nine_and_a_half_mb_upload_is_accepted_under_the_default_limit() {
+    let limit = orag::config::DEFAULT_MAX_DOCUMENT_MB as usize * 1024 * 1024;
+    let app = app_with(FakeGenerator::new("x"), limit);
+    let text = "kelime ".repeat(9 * 1024 * 1024 / 7 + 1024 * 1024 / 14);
+    assert!(
+        text.len() > 9_500_000 && text.len() < limit,
+        "{}",
+        text.len()
+    );
+    let (status, body) = send(&app, multipart("big.txt", "text/plain", text.as_bytes())).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let (status, body) = send(
+        &app,
+        json_request(
+            "POST",
+            "/v1/collections/1/documents",
+            json!({"filename": "big.md", "content": format!("# Büyük\n\n{text}")}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}

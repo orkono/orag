@@ -19,7 +19,7 @@ pub const DEFAULT_UI_BIND: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), DEFAULT_UI_PORT);
 /// `ui_bind` value that turns the built-in web UI off.
 pub const UI_OFF: &str = "off";
-pub const DEFAULT_MAX_DOCUMENT_MB: u32 = 5;
+pub const DEFAULT_MAX_DOCUMENT_MB: u32 = 10;
 pub const MAX_DOCUMENT_MB_LIMIT: u32 = 10;
 pub const DEFAULT_EMBEDDING_MODEL: &str = "qwen3-embedding-0.6b-q8_0";
 pub const DEFAULT_GENERATION_MODEL: &str = "qwen3.5-4b-q4_k_m";
@@ -40,7 +40,7 @@ pub const DEFAULT_CONFIG_TOML: &str = r#"# ORAG configuration.
 # ui_bind = "127.0.0.1:2442"
 
 # Maximum size of one uploaded document, in MB (1-10).
-# max_document_mb = 5
+# max_document_mb = 10
 
 # Installed model pack ids (see `orag models list`).
 # embedding_model = "qwen3-embedding-0.6b-q8_0"
@@ -356,16 +356,24 @@ mod tests {
     }
 
     #[test]
+    fn a_pinned_five_mb_limit_is_kept_after_the_default_moved_to_ten() {
+        let home = home_with(Some("max_document_mb = 5\n"));
+        let cfg = Config::load(home.path()).unwrap();
+        assert_eq!(cfg.max_document_mb, 5);
+        assert_eq!(DEFAULT_MAX_DOCUMENT_MB, 10);
+    }
+
+    #[test]
     fn missing_file_is_created_with_documented_defaults() {
         let home = home_with(None);
         let cfg = Config::load(home.path()).unwrap();
         assert_eq!(cfg.bind, "127.0.0.1:7613".parse().unwrap());
-        assert_eq!(cfg.max_document_mb, 5);
-        assert_eq!(cfg.max_document_bytes(), 5 * 1024 * 1024);
+        assert_eq!(cfg.max_document_mb, 10);
+        assert_eq!(cfg.max_document_bytes(), 10 * 1024 * 1024);
         assert_eq!(cfg.embedding_model, DEFAULT_EMBEDDING_MODEL);
         assert_eq!(cfg.generation_model, DEFAULT_GENERATION_MODEL);
         let written = std::fs::read_to_string(home.path().join(CONFIG_FILE)).unwrap();
-        assert!(written.contains("# max_document_mb = 5"), "{written}");
+        assert!(written.contains("# max_document_mb = 10"), "{written}");
         assert!(
             written.contains("restart"),
             "the file must say changes need a restart"

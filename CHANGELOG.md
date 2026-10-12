@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.18] - 2026-10-12
+
+- The default `max_document_mb` is now 10 (was 5); the allowed range stays 1–10. Uploads of up to 10 MB pass the JSON-escape and multipart body limits (tested with a 9.5 MB upload both ways).
+- **Upgrade note:** an install whose `config.toml` leaves `max_document_mb` commented out follows the new default of 10 MB after a restart; one that pins `max_document_mb = 5` keeps 5.
+
 ## [0.2.0-alpha.17] - 2026-10-12
 
 - PDF pages whose extracted text looks garbled get an advisory `suspicious_layout` warning, one per reason, listing the pages: `unmapped characters` (U+FFFD or control characters at 1 % or more: a font without a usable ToUnicode map) or `words split into single letters` (at least 40 % of tokens in runs of four or more one-letter tokens). A page needs 200 non-space characters before it is judged; short lines, answer keys (`1. A 2. C`), formulas and icon-font bullets are no sign. The pages are still indexed; the warning says answers from them can be wrong.

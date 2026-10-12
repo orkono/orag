@@ -15,7 +15,7 @@ from offline packs (D-001, D-012).
 
 `v0.1.0`: the first usable release.
 
-- Formats: TXT, Markdown, DOCX and PDF, up to 5 MB per document by default.
+- Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default.
   Scanned PDFs are not OCRed; pages without a text layer are reported with the
   warning `ocr_required`.
 - Retrieval: BM25 + dense vectors fused with reciprocal rank fusion, each
@@ -58,7 +58,7 @@ uncomment a line. It is read **once at startup**; after editing it, restart
 |---|---|---|
 | `bind` | `"127.0.0.1:7613"` | Address of the HTTP API. Loopback only (`127.0.0.1` or `::1`); port `0` picks a free port |
 | `ui_bind` | `"127.0.0.1:2442"` | Address of the built-in web page, loopback only, or `"off"` |
-| `max_document_mb` | `5` | Largest document accepted, in MB (1–10) |
+| `max_document_mb` | `10` | Largest document accepted, in MB (1–10) |
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding model pack (`orag models list`) |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace`, on stderr |
@@ -153,7 +153,7 @@ embedding space says so, and collections indexed before it then answer
 
 ## Limits
 
-- `max_document_mb` per document: 5 MB by default, configurable 1–10.
+- `max_document_mb` per document: 10 MB by default, configurable 1–10.
 - At most 4 uploads at once; one answer is generated at a time (a query waits
   up to 120 s for its turn).
 - A `ready` document with an `ocr_required` or `extraction_failed` warning is
