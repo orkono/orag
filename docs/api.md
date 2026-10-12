@@ -120,6 +120,7 @@ Every error, including unknown routes, has the same shape:
 | 429 | `busy` | 4 uploads in progress, or the answer slot stayed taken for 120 s. Carries `Retry-After: 5` |
 | 500 | `internal` | A server-side failure; details are in the server log, not the response |
 | 503 | `shutting_down` | The service is stopping and starts no new work |
+| 503 | `models_missing` | Setup mode: the configured models are not installed, so upload, query and reindex are refused (see `GET /v1/models`) |
 
 Client timeouts for queries should exceed 120 s plus the answer time, because
 a query waits for the single answer slot before it gets `busy`.
@@ -261,6 +262,49 @@ curl -s -X POST http://127.0.0.1:7613/v1/collections/1/reindex
 ```text
 HTTP/1.1 202 Accepted
 {"collection_id":1,"queued_documents":3}
+```
+
+### `GET /v1/models`
+
+The configured models and whether they are installed. `mode` is `setup` when
+the server started without one of them (D-023): then upload, query and reindex
+answer `503 models_missing` until the packs are imported and ORAG restarts.
+
+```text
+HTTP/1.1 200 OK
+{"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
+```
+
+### `POST /v1/models/import`
+
+Setup mode only: a server that has its models answers `409 conflict` (import
+more with `orag models import` and restart). Body
+`{"path": "<full folder path on this computer>"}`: a model pack (a folder with
+`orag-model.toml`) or a folder of pack folders; `~/` at the start means the
+home folder, and a relative path is refused. Each pack is copied into
+`models_dir` and verified by SHA-256; one already installed and working is
+skipped. The pack folder and its files must be regular files, not symbolic
+links, and (on Linux and macOS) owned by the user ORAG runs as. One import
+runs at a time (`409 conflict` otherwise), also when the client leaves before
+it ends. `400 invalid_input` names the folder or pack when it does not exist,
+holds no pack, fails verification, or `models_dir` holds a broken earlier copy
+of the same model (delete that folder and import again); a host failure (a
+full disk) is `500 internal`.
+
+`restart` says what happens next: `"automatic"` (both models now installed,
+the server runs under `orag start`: it exits with code 75 and is started
+again), `"manual"` (the same, but nothing restarts it: restart ORAG yourself),
+or `"none"` (a configured model is still missing). The server never loads a
+model while running.
+
+```bash
+curl -s -H 'Content-Type: application/json' -d '{"path":"~/orag-packs"}' \
+  http://127.0.0.1:7613/v1/models/import
+```
+
+```text
+HTTP/1.1 200 OK
+{"imported":["qwen3-embedding-0.6b-q8_0","qwen3.5-4b-q4_k_m"],"restart":"automatic"}
 ```
 
 ### `GET /v1/jobs/{job_id}`

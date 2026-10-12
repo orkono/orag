@@ -81,6 +81,20 @@
       <span>ORAG'a ulaşılamıyor. Sunucu kapalı ya da yeniden başlıyor olabilir; geri geldiğinde sayfa kendiliğinden devam eder.</span>
     </div>
 
+    <section id="setup-panel" class="setup-panel" aria-labelledby="setup-title" hidden>
+      <h2 id="setup-title">Modelleri kur</h2>
+      <p>ORAG'ın çalışması için iki model paketi gerekiyor. Şu modeller henüz kurulu değil: <strong id="setup-missing"></strong>.</p>
+      <p class="hint">Model paketlerini internete bağlı bir bilgisayarda <code>fetch-model-pack</code> ile hazırlayın, klasörü bu bilgisayara kopyalayın ve yolunu aşağıya yazın. Paketler <span id="setup-models-dir"></span> klasörüne kurulur.</p>
+      <form id="setup-form" class="setup-form">
+        <label for="setup-path">Model paketleri klasörü</label>
+        <div class="setup-row">
+          <input id="setup-path" type="text" required autocomplete="off" spellcheck="false">
+          <button id="setup-import" type="submit" class="button primary">İçe aktar</button>
+        </div>
+      </form>
+      <div id="setup-status" aria-live="polite"></div>
+    </section>
+
     <div id="conversation" class="conversation">
       <div id="welcome" class="welcome">
         <img src="/favicon.svg" alt="" width="56" height="56">

@@ -35,6 +35,8 @@ pub async fn upload(
     ApiPath(collection_id): ApiPath<i64>,
     request: Request,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    // Setup mode (D-023) first: no model, so nothing can be indexed.
+    state.require_models()?;
     // Cheap rejections first: a bad Content-Type gets 415 even when busy.
     // (Filename-based 415s need the body, so they come after the permit.)
     let kind = UploadKind::of(&request)?;

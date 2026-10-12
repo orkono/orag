@@ -10,9 +10,11 @@ use tokio::net::TcpListener;
 use crate::config::Config;
 use crate::domain::chunker::ChunkerConfig;
 use crate::infer::fake::{FakeEmbedder, FakeGenerator};
+use crate::infer::missing::{MissingEmbedder, MissingGenerator};
+use crate::infer::models::{ModelRole, find_model};
 use crate::infer::{Embedder, Generator};
 use crate::ingest::worker::{IngestContext, spawn_worker};
-use crate::server::{AppState, serve_with_ui};
+use crate::server::{AppState, ModelsInfo, serve_with_ui};
 use crate::store::Store;
 
 pub const LISTENING_PREFIX: &str = "orag listening on ";
@@ -22,18 +24,29 @@ pub const UI_PREFIX: &str = "orag ui on ";
 /// batch, a generation inside the model) get before the process exits anyway.
 const TASK_STOP_LIMIT: Duration = Duration::from_secs(5);
 const DEV_REPLY: &str = "This is a development answer from fake models [1].";
+/// Set by `orag start` in the environment of the `serve` it supervises, so an
+/// import that ends setup mode can restart the process (D-023).
+pub const SUPERVISED_ENV: &str = "ORAG_SUPERVISED";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ServeOptions {
     pub dev_fake_models: bool,
 }
 
-pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
+/// Runs `orag serve`; returns the process exit code (`EXIT_RESTART` when an
+/// import asked `orag start` to run it again).
+pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     init_logging(&config.log_level);
     tracing::info!(config = %config.config_path().display(), settings = %config.effective(), "configuration loaded (changes need a restart)");
     // Exclusive ownership of the data directory for the whole process lifetime:
     // job recovery and the worker must never run twice against one database.
-    let _instance_lock = acquire_instance_lock(&config.home)?;
+    let supervised = std::env::var(SUPERVISED_ENV).is_ok_and(|v| v == "1");
+    let lock_wait = if supervised {
+        SUPERVISED_LOCK_WAIT
+    } else {
+        Duration::ZERO
+    };
+    let _instance_lock = acquire_instance_lock(&config.home, lock_wait)?;
     crate::ingest::isolate::enable(
         crate::ingest::isolate::self_executable().context("locating the orag executable")?,
     );
@@ -53,14 +66,36 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
     if requeued > 0 {
         tracing::info!(requeued, "resuming interrupted ingestion jobs");
     }
+    // A build without an inference backend fails at the load below with its
+    // own message: setup mode would only lead to importing packs it cannot use.
+    let missing = if options.dev_fake_models || cfg!(not(feature = "llama")) {
+        Vec::new()
+    } else {
+        missing_models(&config)?
+    };
+    let setup = !missing.is_empty();
     let (embedder, generator) = if options.dev_fake_models {
         tracing::warn!("serving with fake models (--dev-fake-models): answers are not real");
         (
             Arc::new(FakeEmbedder::new()) as Arc<dyn Embedder>,
             Arc::new(FakeGenerator::new(DEV_REPLY)) as Arc<dyn Generator>,
         )
+    } else if setup {
+        tracing::warn!(
+            "starting in setup mode: models {} are not installed; import them from the page or with `orag models import`",
+            missing.join(", ")
+        );
+        (
+            Arc::new(MissingEmbedder::new(&config.embedding_model)) as Arc<dyn Embedder>,
+            Arc::new(MissingGenerator::new(&config.generation_model)) as Arc<dyn Generator>,
+        )
     } else {
         load_models(&config)?
+    };
+    let models = ModelsInfo {
+        models_dir: config.models_dir(),
+        embedding: config.embedding_model.clone(),
+        generation: config.generation_model.clone(),
     };
     // Only weak handles stay here: once serving ends, a live model means a
     // detached blocking task (an embedding batch, a prefill) still uses it.
@@ -71,7 +106,8 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
     let served = runtime.block_on(async move {
         let listener = TcpListener::from_std(listener)?;
         let local_addr = listener.local_addr()?;
-        let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes());
+        let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes())
+            .with_models(models, setup, supervised);
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0
         let ui_listener = ui_listener.map(TcpListener::from_std).transpose()?;
@@ -85,23 +121,30 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         }
         state.effective_config = Arc::new(effective);
         let ingest = Arc::new(IngestContext { store, embedder, chunker: ChunkerConfig::default() });
-        ingest.check()?;
+        // Setup mode runs no worker: there is no model to index with.
+        if !setup {
+            ingest.check()?;
+        }
         // Registered before the listening line: a signal sent as soon as the
         // line appears is a graceful shutdown, not the default kill.
         // A running parser child stops through the worker's own shutdown
         // signal (AppState), which `serve` starts when this future completes.
         let shutdown = shutdown_signal()?;
-        let worker = spawn_worker(ingest, state.ingest_wake.clone(), state.subscribe_shutdown());
+        let worker = (!setup)
+            .then(|| spawn_worker(ingest, state.ingest_wake.clone(), state.subscribe_shutdown()));
+        let exit = state.clone();
         // The listening line stays first: the desktop sidecar and tests read it.
         crate::cli::print_stdout(&format!("{LISTENING_PREFIX}http://{local_addr}"))?;
         if let Some(ui_addr) = ui_addr {
             crate::cli::print_stdout(&format!("{UI_PREFIX}http://{ui_addr}"))?;
         }
         serve_with_ui(state, listener, ui_listener, shutdown).await?;
-        if tokio::time::timeout(TASK_STOP_LIMIT, worker).await.is_err() {
+        if let Some(worker) = worker
+            && tokio::time::timeout(TASK_STOP_LIMIT, worker).await.is_err()
+        {
             tracing::warn!("the ingest worker did not stop within {TASK_STOP_LIMIT:?}; its job resumes on the next start");
         }
-        anyhow::Ok(())
+        anyhow::Ok(exit.exit_code().unwrap_or(0))
     });
     // Never wait without bound for a blocking task: an unfinished job is
     // requeued on the next start, and the instance lock is released on exit.
@@ -110,7 +153,10 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<()> {
         tracing::warn!(
             "a model is still in use by a task that did not stop; exiting without native teardown"
         );
-        crate::exit::exit_without_native_teardown(if served.is_ok() { 0 } else { 1 });
+        crate::exit::exit_without_native_teardown(match &served {
+            Ok(code) => i32::from(*code),
+            Err(_) => 1,
+        });
     }
     served
 }
@@ -141,24 +187,43 @@ impl ModelsInUse {
     }
 }
 
-fn acquire_instance_lock(home: &std::path::Path) -> anyhow::Result<std::fs::File> {
+/// How long a supervised `serve` retries a held lock: Windows releases the
+/// lock of a process that just ended (or a closed handle) asynchronously, so
+/// the restart after exit code 75 can find it still held for a moment.
+const SUPERVISED_LOCK_WAIT: Duration = Duration::from_secs(5);
+
+/// The instance lock of `home`, or `None` when another process holds it.
+/// Any other failure (unwritable home, a filesystem without locks) is an error.
+pub(crate) fn try_instance_lock(home: &std::path::Path) -> anyhow::Result<Option<std::fs::File>> {
     let path = home.join("orag.lock");
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(&path)?;
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
     match file.try_lock() {
-        Ok(()) => Ok(file),
-        Err(std::fs::TryLockError::WouldBlock) => {
-            anyhow::bail!(
-                "another orag instance is already serving {}",
-                home.display()
-            )
-        }
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
         Err(std::fs::TryLockError::Error(err)) => {
             Err(err).with_context(|| format!("locking {}", path.display()))
         }
+    }
+}
+
+fn acquire_instance_lock(home: &std::path::Path, wait: Duration) -> anyhow::Result<std::fs::File> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if let Some(file) = try_instance_lock(home)? {
+            return Ok(file);
+        }
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "another orag instance is already serving {}",
+                home.display()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -174,7 +239,7 @@ fn init_logging(level: &str) {
 /// completes on the first signal. A handler that cannot be installed stops
 /// startup: a server that cannot be stopped gracefully must not start.
 #[cfg(unix)]
-fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static> {
+pub(crate) fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static> {
     use tokio::signal::unix::{SignalKind, signal};
     let mut interrupt = signal(SignalKind::interrupt()).context("installing the SIGINT handler")?;
     let mut terminate =
@@ -197,7 +262,7 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
 /// still apply but the process may be ended before they run out; an
 /// unfinished job is requeued on the next start.
 #[cfg(windows)]
-fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static> {
+pub(crate) fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static> {
     use tokio::signal::windows;
     let mut ctrl_c = windows::ctrl_c().context("installing the Ctrl-C handler")?;
     let mut ctrl_break = windows::ctrl_break().context("installing the Ctrl-Break handler")?;
@@ -224,14 +289,25 @@ fn shutdown_signal() -> anyhow::Result<impl Future<Output = ()> + Send + 'static
     })
 }
 
+/// Configured models whose folder does not exist (setup mode, D-023). Both
+/// are checked before any (slow) load, so every missing id is named; a
+/// broken manifest or a wrong role still stops startup.
+fn missing_models(config: &Config) -> anyhow::Result<Vec<String>> {
+    let mut missing = Vec::new();
+    for (id, role) in [
+        (&config.embedding_model, ModelRole::Embedding),
+        (&config.generation_model, ModelRole::Generation),
+    ] {
+        match find_model(&config.models_dir(), id, role) {
+            Ok(_) => {}
+            Err(crate::error::OragError::ModelNotInstalled { id }) => missing.push(id),
+            Err(err) => return Err(err).with_context(|| format!("model `{id}`")),
+        }
+    }
+    Ok(missing)
+}
+
 fn load_models(config: &Config) -> anyhow::Result<(Arc<dyn Embedder>, Arc<dyn Generator>)> {
-    // Both models must be installed before either (slow) load starts.
-    #[cfg(feature = "llama")]
-    crate::infer::models::find_model(
-        &config.models_dir(),
-        &config.generation_model,
-        crate::infer::models::ModelRole::Generation,
-    )?;
     let embedder = load_embedder(config)?;
     let generator = load_generator(config)?;
     Ok((embedder, generator))

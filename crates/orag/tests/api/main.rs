@@ -3,6 +3,7 @@
 
 mod binary;
 mod documents;
+mod models;
 mod query;
 mod support;
 mod system;

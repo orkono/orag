@@ -9,6 +9,7 @@ pub mod eval;
 mod exit;
 pub mod infer;
 pub mod ingest;
+pub mod launcher;
 pub mod retrieval;
 pub mod server;
 pub mod store;

@@ -69,6 +69,9 @@ pub async fn query(
     ApiPath(collection_id): ApiPath<i64>,
     body: Result<Json<QueryBody>, JsonRejection>,
 ) -> ApiResult<Response> {
+    // Before `check_queryable`: in setup mode the placeholder embedder matches
+    // no space, which would wrongly answer `409 reindex_required` (D-023).
+    state.require_models()?;
     let Json(body) = body.map_err(|e| ApiError::json_rejection(e.status(), e.body_text()))?;
     let question = validate_question(&body.query)?.to_string();
     check_queryable(&state, collection_id).await?;

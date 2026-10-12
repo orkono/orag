@@ -40,6 +40,8 @@ pub async fn reindex(
     State(state): State<AppState>,
     ApiPath(collection_id): ApiPath<i64>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    // No worker runs in setup mode: a reindex would empty the collection (D-023).
+    state.require_models()?;
     let store = state.store.clone();
     let queued = blocking(move || store.reindex_collection(collection_id)).await?;
     state.ingest_wake.notify_one();

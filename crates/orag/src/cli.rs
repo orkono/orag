@@ -23,6 +23,8 @@ pub enum Command {
         #[command(subcommand)]
         command: ModelsCommand,
     },
+    /// Start ORAG and open its web page; restarts it after a model import.
+    Start,
     /// Run the HTTP service.
     Serve {
         /// Serve with deterministic fake models (development and UI work only).
@@ -112,6 +114,16 @@ pub enum ModelsCommand {
     Verify { id: String },
 }
 
+/// Ends the process with `code` when it is not 0 (`serve` asking `start` to
+/// restart it, or `start` passing on the code of `serve`). Everything the
+/// command owned has been dropped by then.
+fn exit_with(code: i32) -> anyhow::Result<()> {
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
 pub fn run() -> ExitCode {
     match execute(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -130,8 +142,13 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             print_stdout(&serde_json::to_string_pretty(&info)?)
         }
         Command::Models { command } => run_models(command),
+        Command::Start => exit_with(crate::launcher::run(&load_config()?)?),
         Command::Serve { dev_fake_models } => {
-            crate::app::run_server(load_config()?, crate::app::ServeOptions { dev_fake_models })
+            let code = crate::app::run_server(
+                load_config()?,
+                crate::app::ServeOptions { dev_fake_models },
+            )?;
+            exit_with(i32::from(code))
         }
         Command::Eval {
             command:

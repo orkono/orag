@@ -5,6 +5,7 @@ import { initCollections } from "./collections.js";
 import { initDocuments } from "./documents.js";
 import { initHelp } from "./help.js";
 import { applyIcons } from "./icons.js";
+import { initSetup } from "./setup.js";
 import { initStatus } from "./status.js";
 import { initUpload } from "./upload.js";
 
@@ -16,3 +17,4 @@ initDocuments();
 initCollections();
 initStatus();
 initHelp();
+initSetup();

@@ -379,20 +379,6 @@ fn backup_while_serving_is_a_usable_copy() {
     assert!(collection_names(&dest).contains(&"default".to_string()));
 }
 
-#[cfg(feature = "llama")]
-#[test]
-fn serve_without_installed_models_explains_how_to_fix() {
-    let home = ephemeral_home();
-    let out = orag()
-        .env("ORAG_HOME", home.path())
-        .arg("serve")
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("orag models import"), "{stderr}");
-}
-
 #[test]
 fn eval_retrieval_runs_on_seed_set() {
     let home = tempfile::tempdir().unwrap();

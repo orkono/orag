@@ -679,6 +679,53 @@ indexes them as usual; the first publish binds the current space.
 - The built-in page (D-021) offers it as *Yeniden indeksle* and points to it
   when an error is `reindex_required`.
 
+## D-023 — Setup mode and `orag start` (owner request, 2026-10-12)
+
+**Decision.** When a configured model pack is not installed (its folder
+`<models_dir>/<id>/` has no `orag-model.toml`), `orag serve` starts in
+**setup mode** instead of stopping: the API and the page run, no worker runs,
+and upload, query and reindex answer `503 models_missing` before they read a
+body or touch an embedding space. `GET /v1/models` reports the mode and which
+models are installed; `POST /v1/models/import` imports packs from a local
+folder (each verified by SHA-256). Once both configured models are installed,
+setup ends with a **restart**: under `orag start` the server exits with code
+**75** and the launcher runs it again; otherwise (plain `orag serve`, a
+service, a D-016 sidecar) it keeps running and the page asks the user to
+restart. A bad id, a corrupt manifest or a pack with the wrong role still stops
+startup: setup mode hides only "not installed".
+
+- **Why.** A first start on Windows (or any machine) has no models; D-012 rules
+  out downloading them, so the page must be able to take a copied folder. A
+  server that only prints "run `orag models import`" and exits is a dead end for
+  a user who double-clicked an icon.
+- **Why restart, not hot-load.** One load path for models (the same as every
+  normal start), and the configuration is read once (D-019). A model swapped
+  under running queries and workers would need locking everywhere models are
+  used.
+- **Why 503 before the space check.** The placeholder embedder's descriptor
+  (`missing:<id>`) matches no bound space, so a query on an indexed collection
+  would otherwise answer `409 reindex_required`, and the page would offer a
+  reindex that empties the collection while no worker runs.
+- **Import is local and narrow.** Only in setup mode; the folder must be a
+  full path whose pack files are regular files (no symbolic links) owned by
+  the server's user, so another local account cannot make ORAG read its files
+  or plant a model through the page (D-013 trusts local clients with ORAG's
+  data, not with other users' files). The import runs in its own task, so a
+  client that leaves mid-copy keeps neither a second import out nor the
+  restart from happening. Only a missing `orag-model.toml` (NotFound) means
+  "not installed"; a folder that cannot be read is an error, and a build
+  without an inference backend fails at once instead of offering setup.
+- **`orag start`** is for people: it runs `orag serve` with `ORAG_SUPERVISED=1`,
+  passes its stdout through (the first line is unchanged, so D-016 holds),
+  opens the page once on the `orag ui on` line, restarts the server on exit
+  code 75 (at most 3 restarts within 60 s, then it stops with an error), and
+  on Ctrl-C lets the server stop gracefully instead of dying first. If another
+  `orag serve` already owns the home, it only opens that page (any other lock
+  error is reported). A supervised `serve` retries the instance lock for 5 s,
+  because Windows releases the lock of a process that just ended
+  asynchronously; the page is opened again only if a restart moved it. Sidecars and
+  services keep running `orag serve`.
+
 ---
 
 ## Rejected or deferred, with reason
