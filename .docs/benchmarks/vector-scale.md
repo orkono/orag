@@ -106,6 +106,33 @@ The `0.1.0` bump after it changed only documentation and workflows. The
 GitHub runner (x86-64, 4 vCPU, 16 GB) is the Linux reference for v0.1.0 by
 owner decision (D-003); it does not replace the 8-core measurement below.
 
+## v0.2.0 release candidate
+
+The Task 46 gate: both references on the release candidate `0.2.0-alpha.23`
+(release build); the bump to `0.2.0` after it changes only documentation and
+workflows.
+
+macOS reference (Apple M5 Max, 128 GB RAM; 2026-10-12):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.2.0-alpha.23 | 100000 | 1024 | 50 | 50 | 9.7 | 95.0 | 98.1 | 107.8 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, AMD EPYC 7763, 4 vCPU,
+MemTotal 16 372 472 kB; 2026-10-12, workflow `vector-scale` run 38258515248,
+started by pushing `bench/v0.2.0-rc`, deleted after the run):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.2.0-alpha.23 | 100000 | 1024 | 50 | 50 | 27.5 | 224.0 | 226.4 | 235.7 | 250 | PASS |
+
+300k (informational): p95 662.0 ms, FAIL, as expected.
+
+Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
+0.2.0-alpha.23`). The Linux margin stays thin (226.4 ms against 250 ms, the
+same as v0.1.0's 225.3 ms); the 8-core follow-up below still decides whether
+D-003's "Revisit" path is needed.
+
 ## Follow-up after v0.1.0
 
 - Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux

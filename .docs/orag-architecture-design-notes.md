@@ -2,9 +2,11 @@
 
 > **Status:** Long-term vision. Binding decisions for the current release
 > live in `.docs/orag-decisions.md`; where the two disagree, the decision
-> record wins. Implementation plan:
-> `.docs/plans/2026-10-01-orag-v0.1-implementation-plan.md`. Released in
-> v0.1.0: the HTTP API in `docs/api.md` (it supersedes section 15) and
+> record wins. Implementation plans:
+> `.docs/plans/2026-10-01-orag-v0.1-implementation-plan.md` (v0.1) and
+> `.docs/plans/2026-10-10-orag-v0.2-completion-and-windows-plan.md` (v0.2).
+> Released in v0.2.0: the HTTP API and the built-in web page in
+> `docs/api.md` (it supersedes section 15), Windows x86-64 builds, and
 > measurements in `.docs/benchmarks/`.\
 > **Project:** ORAG\
 > **Repository:** `orkono/orag`\

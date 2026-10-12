@@ -13,21 +13,24 @@ from offline packs (D-001, D-012).
 
 ## Status
 
-`v0.1.0`: the first usable release. `main` is on the 0.2 alpha line; where
-it differs from v0.1.0, the 0.2 behavior is noted.
+`v0.2.0`: the engine and the built-in web page are complete for now; the
+desktop application arrives in v0.3.
 
 - Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default
-  (5 MB in v0.1.0).
-  Scanned PDFs are not OCRed; pages without a text layer are reported with the
-  warning `ocr_required`.
+  (5 MB in v0.1.0). Scanned PDFs are not OCRed: pages without a text layer
+  are reported with the warning `ocr_required`, and pages whose text looks
+  garbled with `suspicious_layout`. Sources from a PDF carry their page
+  numbers (`pages`, shown as *s. 12–13* on the page).
 - Retrieval: BM25 + dense vectors fused with reciprocal rank fusion, each
-  list's top hit offered to the answer context first; answers
-  cite their sources as `[n]` and abstain when the documents do not support an
-  answer. Answers can be streamed (SSE).
-- A desktop application arrives in v0.3; v0.1 is an HTTP API.
-- **The default models and retrieval settings are provisional (D-007).** A
-  200-question evaluation in v0.2 decides them; v0.1's small seed set only
-  proves that the pipeline works.
+  list's top hit offered to the answer context first; answers cite their
+  sources as `[n]` and abstain when the documents do not support an answer.
+  Answers can be streamed (SSE).
+- Models: the v0.2 evaluation kept Qwen3-Embedding-0.6B and Qwen3.5-4B as
+  the defaults (D-007, `.docs/benchmarks/v0.2-model-decision.md`).
+- **The 200-question evaluation set is synthetic and its human audit is
+  pending (D-018);** its numbers compare builds and models, they are not a
+  quality guarantee. Cross-language questions (a Turkish question about an
+  English document, or the reverse) are the weakest group.
 
 ## System requirements
 
@@ -42,12 +45,28 @@ it differs from v0.1.0, the 0.2 behavior is noted.
 
 Measured speed with the default models on an Apple M5 Max (Metal), for a
 ~600-token prompt: the first answer token arrives in about 0.2 s, then tokens
-stream at roughly 110–130 per second (`.docs/benchmarks/v0.1-seed-eval.md`). A 16 GB
-M-series laptop and a CPU-only Linux machine are slower; v0.2 measures them.
+stream at roughly 110–130 per second (`.docs/benchmarks/v0.2-seed-eval.md`). A 16 GB
+M-series laptop and CPU-only machines (Linux, Windows) are slower and are not
+measured yet.
 Dense search over 100 000 chunks stays below 250 ms (p95), measured on an
 Apple M5 Max and on an x86-64 Linux machine with 16 GB RAM (a GitHub-hosted
 runner); a 16 GB M-series laptop is measured after v0.1.0
 (`.docs/benchmarks/vector-scale.md`, D-003).
+
+## Windows
+
+Download `orag-<version>-x86_64-pc-windows-msvc.zip` from the release, unzip
+it anywhere you can write to (for example `%LOCALAPPDATA%\ORAG`), and run
+`orag.exe start` from that folder: the page opens at <http://127.0.0.1:2442>
+in setup mode until the models are installed. Data lives in
+`%USERPROFILE%\.orag` (or `%ORAG_HOME%`). Copy the model packs (built with
+`scripts/fetch-model-pack.sh` on any machine with internet access) to the PC
+and type their folder into *Modelleri kur*, or run
+`orag.exe models import <folder>\<pack>`. Windows runs on the CPU (no GPU
+offload); a ~4B model answers several times slower than on Apple Silicon.
+Ctrl-C, Ctrl-Break and closing the console window stop ORAG gracefully.
+The binary is not code-signed yet, so SmartScreen may ask once before it
+runs.
 
 ## Configuration
 
@@ -183,7 +202,10 @@ orag eval retrieval --corpus eval/corpus/seed --dataset eval/datasets/seed.jsonl
 orag eval vector-scale --chunks 100000 --dimensions 1024 --queries 50
 ```
 
-See [`eval/README.md`](eval/README.md) and `.docs/benchmarks/`.
+The v0.2 sets are `eval/datasets/v02-retrieval.jsonl` (200 questions over
+12 documents, dev and holdout split) and `v02-answers.jsonl` (60 answer
+probes, scored with `orag eval answers`). See [`eval/README.md`](eval/README.md)
+and `.docs/benchmarks/`.
 
 ## Versioning
 
