@@ -154,6 +154,20 @@ alternatives (`600|altıyüz`).
 | length stops | answers cut by `max_output_tokens` (`finish_reason: length`) |
 | repetition stops | answers stopped by the repeated-line guard (`finish_reason: repetition`) |
 | distinct lines | mean share of unique non-empty lines per answer |
+| expected facts | answerable probes whose answer holds every `expect` text (`expected_fact_rate`) |
+| cited evidence | answerable probes where an `expect` text occurs in a chunk the answer **cites** (`cited_evidence_coverage`). Evidence coverage, not faithfulness: the cited chunk can hold the fact while the answer says something else |
+| valid citations | answered (not refused) probes whose every `[n]` names a source that was given (`valid_citation_rate`) |
+| abstention P / R | refusals as a confusion matrix with "no answer in the corpus" as positive: precision = refused unanswerable / all refusals, recall = refused unanswerable / all unanswerable |
+
+The JSON report also has `finish_reasons` (`stop`, `length`, `repetition`),
+the same metrics per `category` and per `split` (`by_category`, `by_split`),
+and each probe's `valid_citations`, `cited_evidence` and answer.
+
+`--judge` (experimental, off by default) asks the local generator, per
+answered answerable probe that cites a source, "Does the answer only state
+what the cited sources say? Answer YES or NO." The share of YES is reported
+as `experimental.judge_yes_rate`. No gate uses it: a model judging answers of
+its own kind is a weak signal (D-018).
 
 Refusals are counted from `abstained` (see `docs/api.md`): the refusal
 sentence, or an uncited first sentence that says the sources do not answer.

@@ -474,6 +474,16 @@ Metrics reported separately: recall@5/10, MRR@10, nDCG@10 per strategy
 (lexical, dense, hybrid), and latency p50/p95. Answer-level metrics
 (citation correctness, faithfulness, abstention) arrive with v0.2.
 
+**Amendment (Task 43, 2026-10-12): answer-level metrics.** `orag eval
+answers` reports, per sampler profile and per category and split: valid
+citations (answered probes whose every `[n]` names a given source), cited
+evidence coverage (an expected text in a **cited** chunk; evidence coverage,
+not faithfulness), the expected-fact rate, abstention as a confusion matrix
+(unanswerable = positive, with precision and recall) and finish reasons. An
+experimental `--judge` asks the local generator whether an answer only states
+what its cited sources say; it is reported and never gates anything, since a
+model judging answers of its own kind is a weak signal.
+
 **Amendment (Task 42, 2026-10-12): the v0.2 set.** `eval/datasets/v02-retrieval.jsonl`
 (200 questions: factual 40, cross-language 25, multi-document 20, identifiers 25,
 tables 25, accentless 20, inflection 20, unanswerable 25) and `v02-answers.jsonl`
