@@ -23,6 +23,8 @@ done
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/docs" "$out"
+# Inno Setup resolves a relative OutputDir against the .iss file's folder.
+out=$(cd "$out" && pwd)
 cp "$exe" "$stage/orag.exe"
 cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "$stage/"
 cp docs/api.md "$stage/docs/"
@@ -30,6 +32,6 @@ cp assets/orag-icon.ico packaging/windows/README-Windows.txt scripts/fetch-model
 scripts/third-party-licenses.sh "$stage/THIRD-PARTY-LICENSES.md"
 
 win() { cygpath -w "$1"; }
-win_tool "$iscc" /Q "/DAppVersion=$version" "/DSourceDir=$(win "$stage")" "/DOutputDir=$(win "$out")" \
+win_tool "$iscc" "/DAppVersion=$version" "/DSourceDir=$(win "$stage")" "/DOutputDir=$(win "$out")" \
   "$(win packaging/windows/orag.iss)"
 ls -l "$out/ORAG-Setup-$version.exe"
