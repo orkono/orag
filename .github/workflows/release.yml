@@ -2,6 +2,10 @@ name: release
 on:
   push:
     tags: ["v*"]
+    # A `release-check/**` branch builds and packages every platform without a
+    # release, so the packaging path is proven before a tag is pushed (the
+    # orchestrator's token cannot dispatch workflows).
+    branches: ["release-check/**"]
   workflow_dispatch:
 
 # Read-only token: the build job uploads artifacts; only the draft job below may
@@ -24,6 +28,8 @@ jobs:
         shell: bash
     env:
       CARGO_TERM_COLOR: always
+      # Python reads cargo metadata and licence files as UTF-8 on Windows too.
+      PYTHONUTF8: "1"
       EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -55,6 +61,8 @@ jobs:
           if [ -n "$EXE" ]; then
             # Windows: a zip, which Explorer opens without extra tools.
             (cd dist && 7z a -tzip -bso0 "$dir.zip" "$dir")
+            # 7-Zip lists Windows paths with backslashes and CRLF line ends.
+            7z l "dist/$dir.zip" | tr -d '\r' | tr '\\' / | grep -qE " $dir/orag\.exe$"
             echo "file=$dir.zip" >> "$GITHUB_ENV"
           else
             tar -C dist -czf "dist/$dir.tar.gz" "$dir"
@@ -67,10 +75,10 @@ jobs:
           path: dist/${{ env.file }}
           if-no-files-found: error
 
-  # On a version tag, a draft release with every artifact; the owner reviews
-  # and publishes it. Manual runs only build.
+  # On a pushed version tag, a draft release with every artifact; the owner
+  # reviews and publishes it. Manual runs and release-check branches only build.
   draft:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-22.04
     permissions:
@@ -85,5 +93,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           ls -l dist
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists; nothing to do" >&2
+            exit 1
+          fi
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft \
             --title "ORAG ${TAG#v}" --notes "Draft for ${TAG}: see CHANGELOG.md. Published by the owner."

@@ -16,9 +16,11 @@ mkdir -p "$tmp/v01"
 git archive v0.1.0 | tar -x -C "$tmp/v01"
 # A separate, kept target dir so reruns do not rebuild v0.1.0 from scratch.
 (cd "$tmp/v01" && CARGO_TARGET_DIR="$root/target/compare-v01" cargo build -q --release --locked)
-cargo build -q --release --locked
+# The current build in its own target dir too, so a CARGO_TARGET_DIR in the
+# caller's environment cannot make the gate score a stale binary.
+CARGO_TARGET_DIR="$root/target/compare-current" cargo build -q --release --locked
 v01="$root/target/compare-v01/release/orag"
-cur="$root/target/release/orag"
+cur="$root/target/compare-current/release/orag"
 
 mkdir -p "$tmp/subset/corpus"
 for f in eval/corpus/v02/*; do
@@ -67,8 +69,16 @@ for name in ("seed", "subset"):
     print("| metric | v0.1.0 | current |\n|---|---|---|")
     for m in ("recall_at_10", "mrr_at_10", "in_context"):
         print(f"| hybrid {m} | {o[m]:.3f} | {n[m]:.3f} |")
-    if name == "subset" and n["queries"] < min_subset:
-        print(f"subset has {n['queries']} questions, fewer than {min_subset}")
+    # Both builds must score the same questions with the same context depth.
+    for key in ("answerable", "context_chunks"):
+        if old[key] != new[key]:
+            print(f"{name}: {key} differs (v0.1.0 {old[key]}, current {new[key]})")
+            failed = True
+    if o["queries"] != n["queries"]:
+        print(f"{name}: scored questions differ (v0.1.0 {o['queries']}, current {n['queries']})")
+        failed = True
+    if name == "subset" and min(o["queries"], n["queries"]) < min_subset:
+        print(f"subset has fewer than {min_subset} scored questions")
         failed = True
     for m in ("recall_at_10", "mrr_at_10"):
         if n[m] + 1e-9 < o[m]:
