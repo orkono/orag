@@ -1,0 +1,226 @@
+DENİZ SULAMA SİSTEMLERİ A.Ş.
+DAMLA SULAMA ÜRÜN KATALOĞU - 2026 DÖRDÜNCÜ ÇEYREK
+
+HAKKIMIZDA
+
+Deniz Sulama Sistemleri A.Ş., 2009 yılında İzmir'in Torbalı ilçesinde kurulmuş bir damla sulama ekipmanı üreticisidir. Üretim tesisimiz Torbalı Organize Sanayi Bölgesi'nde 14.000 m² kapalı alanda faaliyet göstermektedir. Boru ve şerit ürünlerimiz TS EN ISO 9261 standardına göre test edilir; her üretim partisinin numarası boru üzerine iki metrede bir basılır.
+
+Bu katalogdaki fiyatlar 1 Ekim 2026 ile 31 Aralık 2026 tarihleri arasında geçerlidir. Her ürün için KDV hariç ve KDV dahil fiyat ayrı ayrı yazılmıştır. Uygulanan KDV oranı yüzde yirmidir.
+
+Satış ve teknik destek hattımız 0 (232) 555 18 60 numarasından hafta içi 08:30-18:00 saatleri arasında hizmet verir. Sipariş ve teklif talepleri için satis@denizsulama.example adresine yazabilirsiniz.
+
+Kataloğumuz beş ürün grubundan oluşur: damla sulama boruları ve şeritleri, bağlantı parçaları, filtreler, vanalar ile zamanlayıcı ve kontrol üniteleri. Ürün kodlarının ilk rakamı ürün grubunu gösterir; örneğin 1 ile başlayan kodlar boru ve şeritleri, 3 ile başlayan kodlar filtreleri ifade eder.
+
+SEÇİM REHBERİ
+
+Çok yıllık bitkilerde (bağ, meyve bahçesi, zeytin) kalın cidarlı yuvarlak damla borusu tercih edilmelidir. Tek sezonluk sebzelerde ince cidarlı yassı şerit daha ekonomiktir.
+
+Kuyu suyunda kum sorunu varsa filtre dizisi hidrosiklon ile başlamalı, ardından disk filtre gelmelidir. Gölet ve kanal sularında yosun ve organik yük nedeniyle disk filtre zorunludur; elek filtre bu sularda hızla tıkanır.
+
+Toprak tipine göre damlatıcı seçimi: ağır (kil) topraklarda düşük debili ve seyrek aralıklı damlatıcılar, kumlu topraklarda yüksek debili ve sık aralıklı damlatıcılar önerilir.
+
+BÖLÜM 1 - DAMLA SULAMA BORULARI VE ŞERİTLERİ
+
+Bu bölümdeki dört ürünün teknik değerleri aşağıdaki tabloda karşılaştırmalı olarak verilmiştir. Damlatıcı debileri 1 bar çalışma basıncında ölçülmüştür.
+
+Kod | Dış çap (mm) | Et kalınlığı (mm) | Damlatıcı debisi (l/h) | Damlatıcı aralığı (cm) | Maks. basınç (bar) | Malzeme
+DS-1600 | 16 | 1,00 | 2,0 | 33 | 2,5 | LLDPE
+DS-1610 | 16 | 1,00 | 4,0 | 50 | 2,5 | LLDPE
+DS-1620 | 16 | 0,15 | 1,2 | 20 | 1,0 | LDPE
+DS-1640 | 16 | 0,20 | 1,6 | 30 | 1,2 | LDPE
+
+DS-1600 YUVARLAK DAMLA SULAMA BORUSU 16 MM, 2 L/H
+
+DS-1600, labirent akış yollu içten damlatıcılı yuvarlak damla sulama borusudur. Bağ, meyve bahçesi ve çok yıllık bitkilerde kalıcı kurulum için tasarlanmıştır. Siyah renkli boru UV stabilizatörü içerir ve açık arazide en az sekiz sezon kullanılabilir.
+
+Düz arazide DS-1600 için önerilen en uzun lateral boyu 110 metredir.
+
+DS-1600 birim fiyatı 4,20 TL/m KDV hariç, 5,04 TL/m KDV dahildir. Ürün 400 metrelik rulolar halinde sevk edilir; bir rulonun ağırlığı yaklaşık 21 kg'dır.
+
+DS-1600 damla borusu için 2 yıl garanti verilmektedir. Garanti koşulları, ihracat müşterilerimiz için ayrıca yayımlanan garanti şartnamesinde açıklanmıştır.
+
+DS-1610 YUVARLAK DAMLA SULAMA BORUSU 16 MM, 4 L/H
+
+DS-1610, DS-1600 ile aynı boru gövdesini kullanır ancak damlatıcı debisi iki kat yüksektir. Kumlu topraklarda ve yüksek su ihtiyacı olan sebze yetiştiriciliğinde tercih edilir. Damlatıcılar kahverengi renktedir ve boru üzerinden kolayca ayırt edilir.
+
+Düz arazide DS-1610 laterali en fazla 75 metre çekilmelidir.
+
+DS-1610 satış fiyatı 4,60 TL/m KDV hariç ve 5,52 TL/m KDV dahildir. Her rulo 400 metredir ve rulo ağırlığı yaklaşık 21 kg'dır.
+
+DS-1620 YASSI DAMLA SULAMA ŞERİDİ 16 MM, 6 MİL
+
+DS-1620, tek sezonluk sebze üretimi için geliştirilmiş ince cidarlı yassı damla sulama şerididir. Et kalınlığı 6 mil olup domates, biber ve çilek gibi sıra bitkilerinde yaygın kullanılır. Şerit boşken yassı durur, su verildiğinde yuvarlaklaşır.
+
+DS-1620 şeridi için fiyat 1,85 TL/m KDV hariç, 2,22 TL/m KDV dahildir. Rulo uzunluğu 2.000 metredir.
+
+Basınç regülatörü kullanılmadan DS-1620 ana hatta bağlanmamalıdır. Şerit, toprak yüzeyine serilebilir veya 5 cm derinliğe gömülebilir.
+
+DS-1640 YASSI DAMLA SULAMA ŞERİDİ 16 MM, 8 MİL
+
+DS-1640, DS-1620'nin kalın cidarlı kardeş ürünüdür. 8 mil et kalınlığı sayesinde taşlı topraklarda ve iki sezon kullanımda daha dayanıklıdır. DS-1640 şeridi UV stabilizatörlü hammaddeden üretilir ve bu özellik ürün üzerine mavi çizgiyle işaretlenir.
+
+DS-1640 fiyatı metre başına 2,15 TL KDV hariç, 2,58 TL KDV dahildir. Rulolar 1.500 metre olarak sarılır.
+
+DS-1640 şeridi on iki ay garanti kapsamındadır.
+
+DS-1800 SERİSİ PE 100 ANA HAT BORUSU
+
+DS-1800 serisi, damla sulama sistemlerinde ana ve yan hat olarak kullanılan düz PE 100 borulardır. Borular 100 metrelik kangallar halinde satılır; 63 mm ve üzeri çaplar 50 metrelik kangal olarak sevk edilir. Boru siyah renkli olup üzerinde mavi tanım çizgisi bulunur. Aşağıdaki tablodaki fiyatlar metre bazındadır ve KDV hariçtir.
+
+Kod | Çap (mm) | Basınç sınıfı | Metre fiyatı (TL, KDV hariç)
+DS-1825 | 25 | PN 6 | 11,90
+DS-1832 | 32 | PN 10 | 18,40
+DS-1840 | 40 | PN 10 | 27,60
+DS-1850 | 50 | PN 10 | 41,80
+DS-1863 | 63 | PN 10 | 66,50
+DS-1875 | 75 | PN 16 | 112,00
+
+PE 100 borular sıkıştırma (kompresyon) tipi bağlantı parçalarıyla veya alın kaynağı ile birleştirilir. Toprak altına döşenen ana hatların en az 60 cm derinliğe gömülmesi önerilir.
+
+BÖLÜM 2 - BAĞLANTI PARÇALARI
+
+Kod | Ürün | Boru çapı (mm) | Maks. basınç (bar) | Malzeme | Torba adedi
+DS-2050 | Geçmeli birleştirici | 16 | 6 | Polipropilen | 100
+DS-2070 | Hat başı mini vana | 16 | 6 | Polipropilen | 50
+
+DS-2050 GEÇMELİ BİRLEŞTİRİCİ 16 MM
+
+DS-2050, iki damla borusunu veya şeridi uç uca birleştirmek için kullanılan çift taraflı geçmeli bağlantı parçasıdır. Tırtıklı yüzeyi sayesinde kelepçe gerektirmez ve elle takılır. Birleştirici, DS-1600, DS-1610, DS-1620 ve DS-1640 ürünlerinin tümüyle uyumludur.
+
+DS-2050 birleştiricinin adet fiyatı 3,90 TL KDV hariç, 4,68 TL KDV dahildir.
+
+DS-2070 HAT BAŞI MİNİ VANA 16 MM
+
+DS-2070, ana hattan lateral çıkışında kullanılan kauçuk contalı mini vanadır. Ana hatta açılan deliğe takılır ve lateralin tek tek açılıp kapatılmasını sağlar. DS-2070 tam açık konumda 1 bar'da 1.400 l/h debi geçirir.
+
+DS-2070 mini vananın fiyatı 7,80 TL KDV hariç, 9,36 TL KDV dahildir.
+
+Mini vana montajı için 16 mm delme aparatı kullanılması önerilir; matkapla açılan delikler conta sızdırmasına yol açar.
+
+BÖLÜM 3 - FİLTRELER
+
+Kod | Tip | Bağlantı | Maks. basınç (bar) | Nominal debi (m³/h) | Gövde malzemesi
+DS-3100 | Disk filtre | 2" | 10 | 25 | Cam elyaf takviyeli poliamid
+DS-3120 | Elek filtre | 1 1/2" | 8 | 15 | Polipropilen
+DS-3140 | Hidrosiklon | 2" | 10 | 30 | Epoksi kaplı galvanizli çelik
+
+DS-3100 DİSK FİLTRE 2"
+
+DS-3100, organik kirlilik içeren kuyu ve gölet sularında damlatıcıları korumak için tasarlanmış disk filtredir. Filtre elemanı, yüzeyinde çapraz oluklar bulunan renkli polipropilen disklerden oluşur. Disk filtre 120 mesh elek inceliği ile standart olarak teslim edilir; farklı mesh değerleri için yedek disk setleri ayrıca sipariş edilebilir.
+
+Elek inceliği (mesh) | Mikron | Maks. debi (m³/h)
+80 | 200 | 30
+120 | 130 | 25
+150 | 100 | 20
+200 | 75 | 15
+
+Disk renkleri mesh değerini gösterir: 80 mesh mavi, 120 mesh kırmızı, 150 mesh siyah, 200 mesh yeşildir.
+
+DS-3100 disk filtrenin fiyatı 2.450,00 TL KDV hariç, 2.940,00 TL KDV dahildir. Tek adet olarak kolide sevk edilir ve koli ağırlığı 4,8 kg'dır.
+
+DS-3100 disk filtre gövdesi 3 yıl garantilidir.
+
+DS-3120 ELEK FİLTRE 1 1/2"
+
+DS-3120, inorganik kirlilik (kum, silt) için uygun elek filtredir. Elek elemanı 304 kalite paslanmaz çeliktir ve 80 mesh inceliktedir. Gövde, kapak vidası sökülerek elle temizlenebilir.
+
+DS-3120 elek filtre 1.180,00 TL KDV hariç, 1.416,00 TL KDV dahil fiyatla satılır. Kolide 1 adet bulunur.
+
+DS-3140 HİDROSİKLON KUM AYIRICI 2"
+
+DS-3140, kum ve ağır partikülleri merkezkaç kuvvetiyle ayıran hidrosiklondur. Disk filtrenin önüne ön filtre olarak bağlanır. Hidrosiklonun kum tutma oranı 75 mikron üzeri partiküllerde yüzde doksan sekizdir. Alt kısımdaki toplama haznesi 6 litre kapasitelidir ve manuel tahliye vanası bulunur.
+
+DS-3140 hidrosiklonun fiyatı 6.900,00 TL KDV hariç, 8.280,00 TL KDV dahildir. Ahşap palet üzerinde tek adet sevk edilir; ürün ağırlığı 38 kg'dır.
+
+DS-3140 hidrosiklon gövdesi için garanti süresi 5 yıldır.
+
+BÖLÜM 4 - VANALAR
+
+Kod | Ürün | Bağlantı | Çalışma basıncı (bar) | Debi aralığı (m³/h) | Malzeme
+DS-4200 | Küresel vana | 2" | 0-10 | - | PVC-U
+DS-4210 | Solenoid vana | 1" | 1-10 | 0,5-6,8 | Poliamid gövde, EPDM diyafram
+
+DS-4200 PVC KÜRESEL VANA 2"
+
+DS-4200, ana hat üzerinde kesme vanası olarak kullanılan tam geçişli PVC-U küresel vanadır. İki taraflı yapıştırma muflu bağlantıya sahiptir ve kolu çeyrek tur döndürülerek kapatılır. Küresel vananın conta malzemesi PTFE'dir.
+
+DS-4200 küresel vananın fiyatı 285,00 TL KDV hariç, 342,00 TL KDV dahildir. Kolide 12 adet bulunur.
+
+DS-4210 SOLENOİD VANA 1" 24 VAC
+
+DS-4210, zamanlayıcı veya kontrol ünitesiyle çalışan, 24 VAC bobinli elektrikli solenoid vanadır. Bobin çekme akımı 0,30 A, tutma akımı 0,19 A'dır. Vana üzerinde elle açma için manuel kol ve debi ayar vidası bulunur.
+
+DS-4210 solenoid vananın fiyatı 1.350,00 TL KDV hariç, 1.620,00 TL KDV dahildir. Her vana tekli kutuda sevk edilir.
+
+Solenoid vana DS-4210 için garanti süresi iki yıldır.
+
+BÖLÜM 5 - ZAMANLAYICILAR VE KONTROL ÜNİTELERİ
+
+Model | İstasyon sayısı | Besleme | Pil ömrü | Maks. basınç (bar) | Program sayısı
+DS-5000 | 1 | 2 x AA alkalin pil | 1 sulama sezonu | 8 | 1
+DS-5010 | 4 | 1 x 9 V alkalin pil | 12 ay | 8 | 4
+DS-5020 | 8 | 230 V şebeke, 24 VAC çıkış | - | - | 4
+
+DS-5000 MUSLUK TİPİ ZAMANLAYICI, 1 İSTASYON
+
+DS-5000, bahçe musluğuna doğrudan takılan tek istasyonlu pilli zamanlayıcıdır. 3/4" dişli musluk girişi ve 3/4" hortum çıkışı vardır. Sulama süresi 1 dakika ile 120 dakika arasında, sulama sıklığı 6 saat ile 7 gün arasında ayarlanır.
+
+DS-5000 zamanlayıcının fiyatı 980,00 TL KDV hariç, 1.176,00 TL KDV dahildir. Kolide 6 adet bulunur.
+
+DS-5000 zamanlayıcı 2 yıl garantilidir; piller garanti kapsamı dışındadır.
+
+DS-5010 PİLLİ KONTROL ÜNİTESİ, 4 İSTASYON
+
+DS-5010, dört adet 9 V DC darbe (latch) tipi solenoid sürebilen pilli kontrol ünitesidir. Şebeke elektriği olmayan tarlalarda vana kutusu içine monte edilir. DS-5010 gövdesi IP68 koruma sınıfındadır ve su altında kalmaya dayanıklıdır.
+
+DS-5010 kontrol ünitesinin fiyatı 2.650,00 TL KDV hariç, 3.180,00 TL KDV dahildir. Tekli kutuda satılır.
+
+DS-5020 ŞEBEKE BESLEMELİ KONTROL ÜNİTESİ, 8 İSTASYON
+
+DS-5020, seralar ve sabit bahçe tesisatları için 230 V şebeke beslemeli, 8 istasyonlu kontrol ünitesidir. Her istasyona en fazla iki adet DS-4210 solenoid vana bağlanabilir. Üzerinde yağmur sensörü girişi ve ana vana çıkışı bulunur. Elektrik kesintisinde programlar dahili lityum pil ile 30 gün korunur.
+
+DS-5020 kontrol ünitesinin fiyatı 4.900,00 TL KDV hariç, 5.880,00 TL KDV dahildir. Duvar montaj aparatı ile birlikte tekli kutuda teslim edilir.
+
+DS-5020 için garanti süresi 3 yıldır.
+
+SİPARİŞ VE ÖDEME KOŞULLARI
+
+Yurt içi siparişlerde minimum sipariş tutarı KDV hariç 2.500 TL'dir. Boru ve şerit ürünleri yalnızca tam rulo olarak satılır; rulo kesilerek metre bazında satış yapılmaz.
+
+İlk siparişlerde ödeme peşin veya havale ile yapılır. Cari hesap açılmış bayilerimiz için vade 45 gündür.
+
+Fiyatlar haber verilmeksizin değiştirilebilir; teklif edilen fiyatlar teklif tarihinden itibaren 15 gün geçerlidir.
+
+TESLİMAT VE SEVKİYAT
+
+Stokta bulunan ürünler, siparişin onaylanmasından sonra en geç 3 iş günü içinde sevk edilir. Stokta olmayan ürünler için teslim süresi sipariş teyidinde ayrıca bildirilir.
+
+KDV hariç 25.000 TL ve üzerindeki siparişlerde Türkiye içi nakliye ücretsizdir. Bu tutarın altındaki siparişlerde nakliye bedeli desi hesabıyla faturaya eklenir.
+
+Boru ve şerit ruloları yalnızca ambar (yük taşıma) ile gönderilir; kargo ile boru sevkiyatı yapılmaz. Bağlantı parçaları, filtreler ve zamanlayıcılar kargo ile gönderilebilir.
+
+Teslimat sırasında hasarlı görülen koliler teslim alınmadan kargo görevlisine tutanakla iade edilmelidir. Gizli hasar bildirimleri teslimattan sonraki 2 iş günü içinde yapılmalıdır.
+
+Açılmamış ve hasarsız ambalajındaki ürünler fatura tarihinden itibaren 14 gün içinde iade edilebilir. Kesilmiş boru ve şerit ruloları iade kapsamı dışındadır.
+
+İhracat siparişleri İzmir Alsancak Limanı'ndan FOB olarak yüklenir. Minimum ihracat sipariş tutarı 5.000 EUR'dur.
+
+BAKIM ÖNERİLERİ
+
+Sezon başında ve sonunda tüm lateral hatların uç tapaları açılarak hatlar en az iki dakika boşa akıtılmalıdır.
+
+Filtre giriş ve çıkışı arasındaki basınç farkı 0,5 bar'ı aştığında filtre temizlenmelidir. Disk filtre diskleri, kapak açılarak yıkanır ve kurutulmadan geri takılır.
+
+Kireçlenme görülen hatlarda yüzde otuz üç derişimli hidroklorik asit, sulama suyuna binde bir oranında enjekte edilerek en az 30 dakika sistemde tutulur. Asit uygulamasından sonra sistem temiz suyla durulanmalıdır.
+
+Kış aylarında DS-5000 ve DS-5010 zamanlayıcıların pilleri çıkarılmalı ve cihazlar donmayan bir yerde saklanmalıdır.
+
+Solenoid vanaların diyaframı her sezon başında kontrol edilmelidir; diyafram yüzeyinde çatlak varsa yedek EPDM diyafram ile değiştirilir.
+
+Damla şeritleri sezon sonunda toplanacaksa, önce hat boşaltılmalı ve şerit toprak zerrelerinden arındırılarak gölgede saklanmalıdır.
+
+Hidrosiklon toplama haznesi, suyun kum yüküne bağlı olarak haftada en az bir kez tahliye edilmelidir.
+
+Damlatıcı debisinde yüzde onu aşan düşüş görüldüğünde hat sonundan su örneği alınarak tıkanma nedeni (kireç, demir, yosun) belirlenmelidir.
+
+Deniz Sulama Sistemleri A.Ş. - Torbalı OSB, İzmir - satis@denizsulama.example

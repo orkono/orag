@@ -1,0 +1,102 @@
+DENİZ SULAMA SİSTEMLERİ A.Ş.
+FİYAT LİSTESİ - 2026 YILI 4. ÇEYREK
+
+Liste no: FL-2026-Q4
+Yayın tarihi: 25.09.2026
+Geçerlilik: 01.10.2026 - 31.12.2026
+Tüm fiyatlar Türk Lirası (TL) cinsinden ve KDV hariçtir.
+Uygulanan KDV oranı %20'dir; fatura tutarına ayrıca eklenir.
+Bu liste, FL-2026-Q3 numaralı önceki fiyat listesini geçersiz kılar.
+
+KOD        ÜRÜN ADI                                            BİRİM     FİYAT (TL)
+---------  --------------------------------------------------  -------  -----------
+
+-- DAMLA SULAMA BORULARI VE ŞERİTLERİ --
+DS-1600    Yuvarlak damla sulama borusu 16 mm, 2 l/h, 33 cm    m               4,20
+DS-1605    Yuvarlak damla sulama borusu 16 mm, 2 l/h, 50 cm    m               4,15
+DS-1610    Yuvarlak damla sulama borusu 16 mm, 4 l/h, 50 cm    m               4,60
+DS-1615    Yuvarlak damla sulama borusu 16 mm, 4 l/h, 75 cm    m               4,45
+DS-1620    Yassı damla sulama şeridi 16 mm, 6 mil, 20 cm       m               1,85
+DS-1630    Yassı damla sulama şeridi 16 mm, 6 mil, 30 cm       m               1,80
+DS-1640    Yassı damla sulama şeridi 16 mm, 8 mil, 30 cm       m               2,15
+DS-1650    Yassı damla sulama şeridi 16 mm, 10 mil, 30 cm      m               2,60
+
+-- PE 100 ANA HAT BORULARI --
+DS-1820    PE 100 ana hat borusu 20 mm PN 6                    m               8,70
+DS-1825    PE 100 ana hat borusu 25 mm PN 6                    m              11,90
+DS-1832    PE 100 ana hat borusu 32 mm PN 10                   m              18,40
+DS-1840    PE 100 ana hat borusu 40 mm PN 10                   m              27,60
+DS-1850    PE 100 ana hat borusu 50 mm PN 10                   m              41,80
+DS-1863    PE 100 ana hat borusu 63 mm PN 10                   m              66,50
+DS-1875    PE 100 ana hat borusu 75 mm PN 16                   m             112,00
+DS-1890    PE 100 ana hat borusu 90 mm PN 10                   m             160,00
+
+-- BAĞLANTI PARÇALARI --
+DS-2050    Geçmeli birleştirici 16 mm                          adet            3,90
+DS-2055    Geçmeli birleştirici 20 mm                          adet            4,60
+DS-2060    Geçmeli dirsek 16 mm                                adet            4,30
+DS-2065    Geçmeli T parçası 16 mm                             adet            5,10
+DS-2070    Hat başı mini vana 16 mm                            adet            7,80
+DS-2075    Hat başı mini vana 20 mm                            adet            9,40
+DS-2080    Hat sonu tapası 16 mm                               adet            1,60
+DS-2085    Sekizli hat sonu kapama 16 mm                       adet            1,20
+DS-2090    Kauçuk conta 16 mm                                  adet            0,90
+DS-2095    Şerit başlangıç bağlantısı 16 mm                    adet            4,10
+DS-2100    Dişli adaptör 16 mm x 1/2"                          adet            5,60
+DS-2110    Hortum kelepçesi 16 mm                              adet            2,30
+DS-2120    Hat başı mini vana 16 mm, kelepçeli                 adet           11,20
+
+-- FİLTRELER --
+DS-3100    Disk filtre 2", 120 mesh                            adet        2.450,00
+DS-3101    Yedek disk seti 2", 80 mesh                         set           620,00
+DS-3102    Yedek disk seti 2", 120 mesh                        set           620,00
+DS-3103    Yedek disk seti 2", 150 mesh                        set           680,00
+DS-3104    Yedek disk seti 2", 200 mesh                        set           740,00
+DS-3110    Disk filtre 3", 120 mesh                            adet        4.850,00
+DS-3120    Elek filtre 1 1/2", 80 mesh                         adet        1.180,00
+DS-3121    Yedek elek elemanı 1 1/2", 80 mesh                  adet          310,00
+DS-3130    Elek filtre 2", 80 mesh                             adet        1.690,00
+DS-3140    Hidrosiklon kum ayırıcı 2"                          adet        6.900,00
+DS-3150    Hidrosiklon kum ayırıcı 3"                          adet       11.400,00
+DS-3160    Manometre 0-10 bar, 1/4"                            adet          240,00
+
+-- VANALAR --
+DS-4200    PVC küresel vana 2"                                 adet          285,00
+DS-4201    PVC küresel vana 1"                                 adet          118,00
+DS-4202    PVC küresel vana 1 1/2"                             adet          196,00
+DS-4203    PVC küresel vana 3"                                 adet          540,00
+DS-4210    Solenoid vana 1", 24 VAC                            adet        1.350,00
+DS-4211    Yedek bobin 24 VAC                                  adet          290,00
+DS-4215    Solenoid vana 1", 9 V DC latch                      adet        1.520,00
+DS-4220    Solenoid vana 1 1/2", 24 VAC                        adet        2.180,00
+DS-4230    Basınç regülatörü 3/4", 1,4 bar                     adet          385,00
+DS-4240    Hava tahliye vanası 1"                              adet          460,00
+
+-- ZAMANLAYICILAR VE KONTROL ÜNİTELERİ --
+DS-5000    Musluk tipi zamanlayıcı, 1 istasyon                 adet          980,00
+DS-5001    Yağmur sensörü                                      adet          890,00
+DS-5010    Pilli kontrol ünitesi, 4 istasyon                   adet        2.650,00
+DS-5011    Yedek bobin 9 V DC latch                            adet          330,00
+DS-5020    Şebeke beslemeli kontrol ünitesi, 8 istasyon        adet        4.900,00
+DS-5021    Genişletme modülü 4 istasyon (DS-5020 için)         adet        1.450,00
+DS-5030    Şebeke beslemeli kontrol ünitesi, 16 istasyon       adet        8.900,00
+
+-- AKSESUARLAR --
+DS-6000    Boru kesme makası 16-32 mm                          adet          210,00
+DS-6010    Delme aparatı 16 mm                                 adet          165,00
+DS-6020    Şerit sarma makarası                                adet        2.300,00
+DS-6030    Tamir bandı 50 mm x 10 m                            rulo           85,00
+DS-6040    Boru sabitleme kazığı 25 cm (100 adet)              paket         190,00
+DS-6050    Gübre tankı 60 litre                                adet        3.950,00
+DS-6060    Venturi gübre enjektörü 1"                          adet        1.240,00
+
+NOTLAR
+
+Yetkili bayilere liste fiyatı üzerinden yüzde on iki bayi iskontosu uygulanır.
+Listedeki fiyatlara nakliye bedeli dahil değildir.
+Boru ve şerit kalemlerinde (m birimli satırlar) satış yalnızca tam rulo olarak yapılır.
+Listede yer almayan özel ölçü ve ürünler için satis@denizsulama.example adresinden teklif isteyin.
+DS-6040 kodlu kazık paketi yüz adet içerir ve fiyatı paket başınadır.
+Liste fiyatları, aynı kodlu ürünler için 2026 dördüncü çeyrek ürün kataloğundaki KDV hariç fiyatlarla aynıdır.
+
+Deniz Sulama Sistemleri A.Ş. - Torbalı OSB, İzmir

@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.18] - 2026-10-12
+
+- The v0.2 evaluation set (Task 42, D-018): `eval/datasets/v02-retrieval.jsonl` (200 questions in eight categories: factual, cross-language, multi-document, identifiers, tables, accentless, inflection, unanswerable; split into `dev` and `holdout` by document family) and `v02-answers.jsonl` (60 answer probes) over `eval/corpus/v02`, built by `scripts/make-v02-corpus.sh` from six fictional documents written for ORAG (PDF catalog, DOCX pump manual, two HR documents, warranty terms, price list) plus the older corpora. The set is model-authored and reviewed by a second model run, not human-checked (`eval/datasets/v02-audit.md`).
+- `orag eval retrieval` reads the optional dataset fields `category`, `split`, `family` and `require_all` (answer probes: the first three), adds "By category" and "By split" tables, and writes every question with its label ranks to the JSON report (`per_query`). Every metric is now per question with one rule: a question's labels are alternative evidence (any one is enough), or all needed for `require_all` questions. Recall and the in-context share count the question as found by that rule; MRR uses the best label, or the last needed one; nDCG scores the best label against rank 1, or coverage of every label for `require_all`. Earlier sets have one label per question, so their numbers are unchanged. The loader refuses a family or a piece of evidence that sits in both `dev` and `holdout`, and `require_all` outside `multi_document`.
+- Baseline with the default models: `.docs/benchmarks/v0.2-model-decision.md`. Hybrid retrieval puts the evidence of 0.886 of the answerable questions in the answer context; cross-language questions are the weak spot (dense alone 0.880, hybrid 0.600).
+
 ## [0.2.0-alpha.17] - 2026-10-12
 
 - PDF pages whose extracted text looks garbled get an advisory `suspicious_layout` warning, one per reason, listing the pages: `unmapped characters` (U+FFFD or control characters at 1 % or more: a font without a usable ToUnicode map) or `words split into single letters` (at least 40 % of tokens in runs of four or more one-letter tokens). A page needs 200 non-space characters before it is judged; short lines, answer keys (`1. A 2. C`), formulas and icon-font bullets are no sign. The pages are still indexed; the warning says answers from them can be wrong.
