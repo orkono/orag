@@ -502,3 +502,41 @@ async fn other_sites_stay_refused_whatever_their_origin_says() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{origin} {site:?}: {body}");
     }
 }
+
+/// Every file the page refers to (in `index.html` and in any module's
+/// `import ... from "./x.js"`) is served: catches a module that was added
+/// without its `include_str!` in `ui.rs`.
+#[tokio::test]
+async fn every_referenced_asset_is_served() {
+    let mut referenced: Vec<String> = Vec::new();
+    for attr in ["src=\"/", "href=\"/"] {
+        for rest in ui::INDEX_HTML.split(attr).skip(1) {
+            referenced.push(rest.split('"').next().unwrap().to_string());
+        }
+    }
+    for (_, body) in ui::SCRIPTS {
+        for rest in body.split("from \"./").skip(1) {
+            referenced.push(rest.split('"').next().unwrap().to_string());
+        }
+    }
+    referenced.sort();
+    referenced.dedup();
+    assert!(
+        referenced.iter().any(|name| name == "format.js"),
+        "{referenced:?}"
+    );
+    let app = ui_app();
+    for name in referenced {
+        let (status, headers, _) =
+            fetch(ui_router(app.state.clone()), get_ui(&format!("/{name}"))).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "/{name} is referenced but not served"
+        );
+        assert!(
+            headers.contains_key(header::CONTENT_SECURITY_POLICY),
+            "/{name} has no CSP"
+        );
+    }
+}

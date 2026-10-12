@@ -20,6 +20,7 @@ export async function apiError(response) {
   const err = new Error(`HTTP ${response.status}: ${detail}`);
   err.status = response.status;
   err.code = code;
+  err.headers = response.headers;
   return err;
 }
 

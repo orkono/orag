@@ -1,6 +1,7 @@
 // The sources of one answer and the citation links into them. Every answer
 // on screen has its own sources, so anchors carry the answer's id.
 import { el } from "./dom.js";
+import { pageLabel } from "./format.js";
 import { icon } from "./icons.js";
 
 /** An excerpt, folded to a few lines, with a button that unfolds it. */
@@ -23,13 +24,6 @@ function dropNeedlessFolds(root) {
       quote.nextElementSibling?.remove();
     }
   }
-}
-
-/** `s. 12` or `s. 12–13` for a source's PDF pages; empty without pages. */
-function pageLabel(pages) {
-  if (!Array.isArray(pages) || pages.length !== 2) return "";
-  const [first, last] = pages;
-  return first === last ? `s. ${first}` : `s. ${first}–${last}`;
 }
 
 function sourceItem(turn, source) {
