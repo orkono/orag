@@ -61,6 +61,13 @@ corruption, out of memory) blames the file; plain exit codes and host
 statuses (a DLL that fails to load, a blocked start, a console Ctrl-C) are
 host problems, as on unix. The
 binary is not code-signed yet (SmartScreen warns on first start).
+From v0.2.1 Windows also ships `ORAG-Setup-<version>.exe` (Inno Setup,
+per-user, no administrator rights, installs to
+`%LOCALAPPDATA%\Programs\ORAG`; uninstall keeps `%USERPROFILE%\.orag`).
+Code signing stays an owner decision for later (certificate cost); until then
+the installer and README-Windows explain SmartScreen's "More info → Run
+anyway". CI builds, installs, runs (setup mode, Ctrl-Break) and uninstalls
+the installer on every push.
 
 **Why.** CUDA needs a matching driver and, depending on linking, runtime
 libraries; no single artifact can cover every accelerator. The desktop app is

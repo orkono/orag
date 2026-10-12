@@ -1,0 +1,3 @@
+# Inno Setup reads these on Windows: keep their CRLF and UTF-8 BOM as committed.
+packaging/windows/*.iss -text
+packaging/windows/*.txt -text

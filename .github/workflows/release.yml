@@ -74,6 +74,21 @@ jobs:
           name: ${{ steps.name.outputs.artifact }}
           path: dist/${{ env.file }}
           if-no-files-found: error
+      # Windows also ships an installer, smoke-tested before it is uploaded.
+      - if: startsWith(matrix.os, 'windows')
+        name: Installer
+        run: |
+          cargo build --release --locked --example ctrl_break
+          choco install innosetup -y --no-progress
+          scripts/build-windows-installer.sh installer
+          . scripts/version-lib.sh
+          scripts/smoke-windows-installer.sh "installer/ORAG-Setup-$(cargo_version).exe"
+      - if: startsWith(matrix.os, 'windows')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orag-installer
+          path: installer/ORAG-Setup-*.exe
+          if-no-files-found: error
 
   # On a pushed version tag, a draft release with every artifact; the owner
   # reviews and publishes it. Manual runs and release-check branches only build.

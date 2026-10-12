@@ -38,6 +38,9 @@ jobs:
       - run: scripts/check-version.sh
       # The page's pure logic (crates/orag/src/server/ui/format.js); Node's
       # built-in runner, no dependencies. The runner image ships Node.
+      # The Windows pack script pins exactly what the bash one pins.
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: scripts/check-pack-presets.sh
       - if: startsWith(matrix.os, 'ubuntu')
         run: node --version && node --test crates/orag/src/server/ui/test/*.test.mjs
       # The fixture is pinned by SHA-256, so the cache never needs invalidating;
@@ -57,3 +60,13 @@ jobs:
       # check its dependencies on both images, so a release never finds out first.
       - run: scripts/check-llama-build.sh --release
       - run: scripts/check-binary-deps.sh "target/release/orag$EXE" --release-floor
+      # The Windows installer (Task 47): build it with Inno Setup, install it
+      # for the current user, run the installed orag.exe in setup mode, stop it
+      # with Ctrl-Break, uninstall it. On every push, not only on tags.
+      - if: startsWith(matrix.os, 'windows')
+        run: |
+          cargo build --release --locked --example ctrl_break
+          choco install innosetup -y --no-progress
+          scripts/build-windows-installer.sh dist
+          . scripts/version-lib.sh
+          scripts/smoke-windows-installer.sh "dist/ORAG-Setup-$(cargo_version).exe"

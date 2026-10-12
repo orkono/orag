@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.1] - 2026-10-12
+
+- **Windows installer (Task 47).** `ORAG-Setup-<version>.exe` (Inno Setup 6) installs ORAG per user without administrator rights into `%LOCALAPPDATA%\Programs\ORAG`, with Start menu entries *ORAG* (`orag.exe start`), *ORAG modellerini indir (internet)* and the uninstaller, an optional desktop shortcut, and a Turkish/English `README-Windows.txt`. Uninstalling removes program files only and says that `%USERPROFILE%\.orag` (documents, models) stays; an upgrade closes a running ORAG first. The binary is not code-signed yet (D-001); README-Windows explains SmartScreen.
+- `fetch-model-pack.ps1`, the PowerShell twin of `fetch-model-pack.sh`: the same presets, revisions and SHA-256 hashes (`scripts/check-pack-presets.sh` compares them in CI), resumable downloads, the same pack layout; it asks before downloading. Without `-Preset` it builds the two default packs into `%USERPROFILE%\ORAG-paketleri`.
+- CI builds the installer on windows-2022 on every push, installs it silently, checks the installed `orag.exe` (`--version`, setup mode without models, a graceful stop on Ctrl-Break within 15 s via `examples/ctrl_break.rs`), uninstalls it and checks that data stays. `release.yml` attaches the installer to the draft release.
+- `scripts/render-icon.sh` also renders `assets/orag-icon.ico` (16/32/48/256) for the installer.
+- Installer review fixes: the scripts stop Git Bash from rewriting `/SWITCHES` into paths; `fetch-model-pack.ps1` enables TLS 1.2 on Windows PowerShell 5.1, makes `-OutDir` absolute, keeps a partial download when a resume fails and checks a complete `.part` instead of downloading it again; the installer is per user only and names the real data folder (or `ORAG_HOME`) after uninstalling; the smoke test checks the Start menu shortcuts, runs the pack script on Windows PowerShell 5.1 and proves a marker in `%USERPROFILE%\.orag` survives uninstall; `ctrl_break` refuses an address already in use; `check-pack-presets.sh` also compares the MIT text, the manifest keys and the default packs.
+
 ## [0.2.0] - 2026-10-12
 
 - **ORAG v0.2.0.** The engine and the built-in web page are complete for now: page numbers in PDF sources, a `suspicious_layout` warning, 10 MB documents by default, setup mode and `orag start`, answer-level evaluation, a 200-question TR/EN set, and Windows x86-64 builds. The default models stay Qwen3-Embedding-0.6B and Qwen3.5-4B (D-007).
