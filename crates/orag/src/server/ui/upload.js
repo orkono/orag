@@ -3,7 +3,7 @@
 import { $, el, formatSize } from "./dom.js";
 import { errorBox, getJson, request, serverLimits } from "./api.js";
 import { displayName, refreshCollections, selectedCollection } from "./collections.js";
-import { documentStatusView, followedIds, updateDocumentRow } from "./documents.js";
+import { documentStatusView, followedIds, updateDocumentRow, warningNode } from "./documents.js";
 
 const POLL_MS = 1000;
 /** A finished upload's line leaves after this; the document list keeps it. */
@@ -55,7 +55,7 @@ function renderProgress(item, doc, note) {
   if (note) details.push(el("p", note, "hint keep"));
   if (doc.status === "ready") details.push(el("p", `${doc.chunk_count} parça indekslendi.`, "hint"));
   if (doc.error) details.push(el("p", doc.error, "failed"));
-  for (const warning of doc.warnings || []) details.push(el("p", warning, "warning"));
+  for (const warning of doc.warnings || []) details.push(warningNode("p", warning));
   setState(item, label, badgeClass, details);
   return finished;
 }

@@ -1,11 +1,13 @@
 //! PDF text extraction with `pdf_oxide` (pure Rust, D-010). No OCR (D-011):
 //! pages without a text layer are reported in an `ocr_required` warning.
 
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{Duration, Instant};
 
 use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
+use crate::ingest::layout::{LayoutIssue, is_unmapped, page_looks_broken};
 use crate::ingest::parse::paragraph_blocks;
 
 /// Upper bound on pages processed from one file.
@@ -44,6 +46,10 @@ pub fn parse_pdf(bytes: &[u8]) -> Result<ParsedDocument> {
 
 fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     let started = Instant::now();
+    // pdf_oxide drops U+FFFD by default, which would hide fonts without a
+    // ToUnicode map from `page_looks_broken`; the flag is process-wide, and
+    // the characters are stripped again before indexing.
+    pdf_oxide::extractors::text::set_preserve_unmapped_glyphs(true);
     let doc = pdf_oxide::PdfDocument::from_bytes(bytes.to_vec()).map_err(|e| {
         OragError::InvalidInput(format!("cannot read PDF (encrypted or damaged?): {e}"))
     })?;
@@ -60,6 +66,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     }
     let (mut blocks, mut empty, mut failed) = (Vec::new(), Vec::new(), Vec::new());
     let mut block_pages = Vec::new();
+    let mut suspicious: BTreeMap<LayoutIssue, Vec<usize>> = BTreeMap::new();
     let mut text_bytes = 0usize;
     for index in 0..pages {
         if started.elapsed() >= limits.time_limit {
@@ -77,6 +84,10 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
                         limits.max_text_bytes / (1024 * 1024)
                     )));
                 }
+                if let Some(issue) = page_looks_broken(&text) {
+                    suspicious.entry(issue).or_default().push(index + 1);
+                }
+                let text: String = text.chars().filter(|&c| !is_unmapped(c)).collect();
                 let page_blocks = paragraph_blocks(&join_hyphenated(&text));
                 if page_blocks.is_empty() {
                     empty.push(index + 1);
@@ -106,12 +117,28 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
             page_list(&failed)
         ));
     }
+    warnings.extend(suspicious_layout_warnings(&suspicious));
     Ok(ParsedDocument {
         title: None,
         blocks,
         warnings,
         pages: block_pages,
     })
+}
+
+/// One advisory warning per issue, listing its pages (advisory only: the
+/// pages are still indexed).
+fn suspicious_layout_warnings(pages: &BTreeMap<LayoutIssue, Vec<usize>>) -> Vec<String> {
+    pages
+        .iter()
+        .map(|(issue, pages)| {
+            format!(
+                "suspicious_layout: page(s) {} may be garbled ({issue}); \
+                 answers from them can be wrong",
+                page_list(pages)
+            )
+        })
+        .collect()
 }
 
 /// Joins words split at a line end: "gün-\ndür" → "gündür", a soft hyphen
@@ -356,6 +383,44 @@ pub(crate) mod tests {
         assert_eq!(pages.first(), Some(&Some(1)), "{two:?}");
         assert_eq!(pages.last(), Some(&Some(2)), "{two:?}");
         assert!(pages.windows(2).all(|w| w[0] <= w[1]), "{pages:?}");
+    }
+
+    #[test]
+    fn garbled_pages_get_an_advisory_warning_and_stay_indexed() {
+        let fine = "Teslimat suresi uc gundur ve iade on dort gundur. ".repeat(6);
+        let split = "T e s l i m a t s u r e s i u c g u n d u r . ".repeat(12);
+        let pdf = test_pdf(&[Some(&fine), Some(&split), Some(&split), Some(&fine)]);
+        let doc = parse_pdf(&pdf).unwrap();
+        assert_eq!(
+            doc.warnings,
+            vec![
+                "suspicious_layout: page(s) 2-3 may be garbled \
+                 (words split into single letters); answers from them can be wrong"
+                    .to_string()
+            ]
+        );
+        // Advisory only: the flagged pages are still indexed.
+        assert!(
+            (0..doc.blocks.len()).any(|i| doc.page_of(i) == Some(2)),
+            "{doc:?}"
+        );
+        assert!(
+            parse_pdf(&test_pdf(&[Some(&fine)]))
+                .unwrap()
+                .warnings
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn unmapped_glyphs_are_kept_for_detection() {
+        // pdf_oxide drops U+FFFD unless asked; parsing must ask, or the
+        // unmapped-characters rule can never fire on a real PDF.
+        pdf_oxide::extractors::text::set_preserve_unmapped_glyphs(false);
+        parse_pdf(&test_pdf(&[Some("Hello world")])).unwrap();
+        assert!(pdf_oxide::extractors::text::set_preserve_unmapped_glyphs(
+            true
+        ));
     }
 
     #[test]

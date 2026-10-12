@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.17] - 2026-10-12
+
+- PDF pages whose extracted text looks garbled get an advisory `suspicious_layout` warning, one per reason, listing the pages: `unmapped characters` (U+FFFD or control characters at 1 % or more: a font without a usable ToUnicode map) or `words split into single letters` (at least 40 % of tokens in runs of four or more one-letter tokens). A page needs 200 non-space characters before it is judged; short lines, answer keys (`1. A 2. C`), formulas and icon-font bullets are no sign. The pages are still indexed; the warning says answers from them can be wrong.
+- pdf_oxide's U+FFFD preservation is switched on so the unmapped-characters rule can see them; the characters are removed again before indexing, so indexed text is unchanged.
+- The web page shows document warnings with Turkish labels plus the pages and reason they name ("Taranmış sayfalar okunamadı (s. 3–5)", "Bazı sayfaların metni bozuk olabilir (s. 2–3; harflere bölünmüş kelimeler)"); the full server text is the tooltip.
+
 ## [0.2.0-alpha.16] - 2026-10-12
 
 - PDF sources carry their physical pages: every source in a query answer has `pages`, the first and last 1-based page of its chunk (`[12, 13]`), or `null` for TXT, Markdown and DOCX (whose place is `heading_path`). The web page shows them after the file name (`s. 12–13`).
