@@ -4,6 +4,7 @@ import { $, el, formatSize } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
 import { displayName, refreshCollections, selectedCollection } from "./collections.js";
 import { confirmAction, toast, toastError } from "./dialog.js";
+import { warningText } from "./format.js";
 import { icon } from "./icons.js";
 
 const PAGE_SIZE = 50;
@@ -11,37 +12,10 @@ const POLL_MS = 2000;
 /** Unfinished rows refreshed per tick. */
 const WATCH_LIMIT = 10;
 
-/** Turkish labels for the warning codes (`code: details` on the API). */
-const WARNING_LABELS = new Map([
-  ["ocr_required", "Taranmış sayfalar okunamadı"],
-  ["extraction_failed", "Bazı sayfalar okunamadı"],
-  ["suspicious_layout", "Bazı sayfaların metni bozuk olabilir"],
-  ["styles_unreadable", "Başlık stilleri okunamadı"],
-  ["no_text", "Metin bulunamadı"],
-]);
-
-/** Turkish names of the `suspicious_layout` reasons. */
-const LAYOUT_REASONS = new Map([
-  ["unmapped characters", "eşleşmeyen karakterler"],
-  ["words split into single letters", "harflere bölünmüş kelimeler"],
-]);
-
-/**
- * A warning as its Turkish label plus the pages and reason it names, so they
- * stay visible without hovering; the full server text is the tooltip.
- */
+/** A warning as its Turkish label with its pages and reason; the full
+ * server text is the tooltip. */
 export function warningNode(tag, warning) {
-  const code = warning.split(":", 1)[0].trim();
-  const label = WARNING_LABELS.get(code);
-  const pages = /page\(s\) ([\d, -]+?)(?: have| could| may|$)/.exec(warning);
-  const reason = /garbled \(([^)]+)\)/.exec(warning);
-  const details = [];
-  if (pages) details.push(`s. ${pages[1].trim().replaceAll("-", "–")}`);
-  if (code === "suspicious_layout" && reason && LAYOUT_REASONS.has(reason[1])) {
-    details.push(LAYOUT_REASONS.get(reason[1]));
-  }
-  const text = label ? (details.length ? `${label} (${details.join("; ")})` : label) : warning;
-  const node = el(tag, text, "warning");
+  const node = el(tag, warningText(warning), "warning");
   node.title = warning;
   return node;
 }

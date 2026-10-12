@@ -14,7 +14,7 @@ use crate::server::AppState;
 pub const INDEX_HTML: &str = include_str!("ui/index.html");
 pub const APP_CSS: &str = include_str!("ui/app.css");
 /// The page's script modules (`app.js` is the entry point), served at `/<name>`.
-pub const SCRIPTS: [(&str, &str); 14] = [
+pub const SCRIPTS: [(&str, &str); 15] = [
     ("app.js", include_str!("ui/app.js")),
     ("api.js", include_str!("ui/api.js")),
     ("ask.js", include_str!("ui/ask.js")),
@@ -22,6 +22,7 @@ pub const SCRIPTS: [(&str, &str); 14] = [
     ("dialog.js", include_str!("ui/dialog.js")),
     ("documents.js", include_str!("ui/documents.js")),
     ("dom.js", include_str!("ui/dom.js")),
+    ("format.js", include_str!("ui/format.js")),
     ("help.js", include_str!("ui/help.js")),
     ("icons.js", include_str!("ui/icons.js")),
     ("sources.js", include_str!("ui/sources.js")),

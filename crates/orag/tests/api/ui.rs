@@ -502,3 +502,58 @@ async fn other_sites_stay_refused_whatever_their_origin_says() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{origin} {site:?}: {body}");
     }
 }
+
+/// Every file the page refers to (in `index.html` and any quoted `./x.js` in a
+/// module) is served with the right content type and CSP: catches a module
+/// added without its `include_str!` in `ui.rs`.
+#[tokio::test]
+async fn every_referenced_asset_is_served() {
+    let mut referenced: Vec<String> = Vec::new();
+    for attr in ["src=\"/", "href=\"/"] {
+        for rest in ui::INDEX_HTML.split(attr).skip(1) {
+            referenced.push(rest.split('"').next().unwrap().to_string());
+        }
+    }
+    // Any quoted "./x.js" or './x.js': static, side-effect and dynamic imports.
+    for (_, body) in ui::SCRIPTS {
+        for quote in ['"', '\'', '`'] {
+            for rest in body.split(&format!("{quote}./")).skip(1) {
+                let name = rest.split(quote).next().unwrap();
+                if name.ends_with(".js") {
+                    referenced.push(name.to_string());
+                }
+            }
+        }
+    }
+    referenced.sort();
+    referenced.dedup();
+    assert!(
+        referenced.iter().any(|name| name == "format.js"),
+        "{referenced:?}"
+    );
+    let app = ui_app();
+    for name in referenced {
+        let (status, headers, _) =
+            fetch(ui_router(app.state.clone()), get_ui(&format!("/{name}"))).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "/{name} is referenced but not served"
+        );
+        assert!(
+            headers.contains_key(header::CONTENT_SECURITY_POLICY),
+            "/{name} has no CSP"
+        );
+        let expected = match name.rsplit('.').next() {
+            Some("js") => "text/javascript",
+            Some("css") => "text/css",
+            Some("svg") => "image/svg+xml",
+            _ => "",
+        };
+        let content_type = headers[header::CONTENT_TYPE].to_str().unwrap();
+        assert!(
+            content_type.starts_with(expected),
+            "/{name} is served as {content_type}"
+        );
+    }
+}

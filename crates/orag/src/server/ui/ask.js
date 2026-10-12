@@ -6,13 +6,14 @@ import { errorBox, request } from "./api.js";
 import { displayName, selectedCollection } from "./collections.js";
 import { toast } from "./dialog.js";
 import { icon } from "./icons.js";
+import { finishNotice, retryAfterMs } from "./format.js";
 import { sseEvents } from "./sse.js";
 import { linkCitations, markCitedSources, renderSources } from "./sources.js";
 
-const FINISH_NOTICE = {
-  length: "Yanıt uzunluk sınırında kesildi.",
-  repetition: "Yanıt kendini tekrar ettiği için durduruldu; eksik olabilir.",
-};
+// The server answers 429 only after waiting for the slot itself, so the
+// retry is a single, last attempt.
+const BUSY = "Başka bir yanıt üretiliyor; bir kez daha denenecek.";
+const LOST = "Bağlantı kesildi; yanıt tamamlanmadı.";
 const ABSTAINED = "Belgelerde bu sorunun yanıtı bulunamadı.";
 const STOPPED = "Yanıt durduruldu.";
 const MAX_COMPOSER_PX = 200;
@@ -89,7 +90,7 @@ function handleEvent(turn, { event, data }) {
       settle(turn);
       turn.copy.hidden = false;
       if (data.abstained) showNotice(turn, ABSTAINED);
-      else if (FINISH_NOTICE[data.finish_reason]) showNotice(turn, FINISH_NOTICE[data.finish_reason]);
+      else if (finishNotice(data.finish_reason)) showNotice(turn, finishNotice(data.finish_reason));
       return true;
     case "error": {
       const err = new Error(`${data.error.message} (${data.error.code})`);
@@ -105,6 +106,52 @@ function handleEvent(turn, { event, data }) {
 function setAsking(asking) {
   $("ask-button").hidden = asking;
   $("ask-stop").hidden = !asking;
+}
+
+/** Streams one answer into `turn`; returns true once it is complete. */
+async function streamAnswer(turn, collection, query, controller) {
+  const response = await request(`/v1/collections/${collection.id}/query`, {
+    signal: controller.signal,
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({ query, stream: true }),
+  });
+  for await (const record of sseEvents(response.body)) {
+    if (controller.signal.aborted) return false;
+    if (handleEvent(turn, record)) return true;
+  }
+  return false;
+}
+
+/** Waits `ms` unless the question is stopped first. */
+function pause(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+/** A *Tekrar sor* button that asks the same question again. */
+function retryButton(query) {
+  const button = el("button", undefined, "button ghost small");
+  button.type = "button";
+  button.append(icon("refresh"), el("span", "Tekrar sor"));
+  button.addEventListener("click", () => {
+    if (activeQuery) return;
+    // Asks through the form, then puts back whatever was being typed.
+    const input = $("ask-text");
+    const draft = input.value;
+    input.value = query;
+    $("ask-form").requestSubmit();
+    input.value = draft;
+    fitComposer();
+    // Once asked again, the old card's button is spent.
+    button.remove();
+  }, { once: true });
+  return button;
 }
 
 async function ask(event) {
@@ -124,25 +171,30 @@ async function ask(event) {
   activeQuery = controller;
   setAsking(true);
   try {
-    const response = await request(`/v1/collections/${collection.id}/query`, {
-      signal: controller.signal,
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ query, stream: true }),
-    });
-    let complete = false;
-    for await (const record of sseEvents(response.body)) {
-      if (controller.signal.aborted) break;
-      if (handleEvent(turn, record)) {
-        complete = true;
-        break;
-      }
+    let complete;
+    try {
+      complete = await streamAnswer(turn, collection, query, controller);
+    } catch (err) {
+      // The answer slot is taken: wait as long as the server asks, once.
+      if (err.code !== "busy" || controller.signal.aborted) throw err;
+      turn.status.textContent = BUSY;
+      await pause(retryAfterMs(err.headers ?? new Headers()), controller.signal);
+      if (controller.signal.aborted) return;
+      turn.status.textContent = "Belgelerde aranıyor…";
+      complete = await streamAnswer(turn, collection, query, controller);
     }
     if (!complete && !controller.signal.aborted) {
-      throw new Error("Bağlantı kesildi; yanıt tamamlanmadı.");
+      const lost = new Error(LOST);
+      lost.code = "lost";
+      throw lost;
     }
   } catch (err) {
-    if (!controller.signal.aborted) turn.error.replaceChildren(errorBox(err, "Soru yanıtlanamadı."));
+    if (!controller.signal.aborted) {
+      const box = errorBox(err, "Soru yanıtlanamadı.", { lost: LOST });
+      // A dropped connection or a server that went away can be asked again.
+      const again = err.code === "lost" || err.code === "unreachable" || err.code === "busy";
+      turn.error.replaceChildren(box, ...(again ? [retryButton(query)] : []));
+    }
   } finally {
     settle(turn);
     // "Durdur" keeps the partial answer; clearing the answers removes it.
