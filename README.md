@@ -59,12 +59,15 @@ Download `orag-<version>-x86_64-pc-windows-msvc.zip` from the release, unzip
 it anywhere you can write to (for example `%LOCALAPPDATA%\ORAG`), and run
 `orag.exe start` from that folder: the page opens at <http://127.0.0.1:2442>
 in setup mode until the models are installed. Data lives in
-`%USERPROFILE%\.orag` (or `%ORAG_HOME%`). Copy the model packs (built with
-`scripts/fetch-model-pack.sh` on any machine with internet access) to the PC
-and type their folder into *Modelleri kur*, or run
+`%USERPROFILE%\.orag` (or `%ORAG_HOME%`). Model packs are built on a machine
+with internet access by `scripts/fetch-model-pack.sh` from this repository
+(bash: macOS, Linux or Git Bash; it is not in the release zip); copy them to
+the PC and type their folder into *Modelleri kur*, or run
 `orag.exe models import <folder>\<pack>`. Windows runs on the CPU (no GPU
-offload); a ~4B model answers several times slower than on Apple Silicon.
-Ctrl-C, Ctrl-Break and closing the console window stop ORAG gracefully.
+offload), so answers are expected to be slower than on Apple Silicon; CPU
+speed is not measured yet. Ctrl-C and Ctrl-Break stop ORAG gracefully;
+closing the console window stops it too, but Windows gives it only a few
+seconds, so indexing that was cut off resumes on the next start.
 The binary is not code-signed yet, so SmartScreen may ask once before it
 runs.
 
