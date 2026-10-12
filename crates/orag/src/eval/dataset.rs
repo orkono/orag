@@ -171,7 +171,10 @@ mod tests {
         ]);
         let queries = load_dataset(&path).unwrap();
         assert_eq!(queries[0].family.as_deref(), Some("sulama"));
-        assert_eq!((queries[0].category_name(), queries[0].split_name()), ("table", "dev"));
+        assert_eq!(
+            (queries[0].category_name(), queries[0].split_name()),
+            ("table", "dev")
+        );
         assert_eq!(
             (queries[1].category_name(), queries[1].split_name()),
             ("uncategorized", "unsplit")
@@ -199,11 +202,21 @@ mod tests {
         let (_dir, path) = jsonl(&[
             r#"{"id":"a","lang":"tr","category":"unanswerable","query":"q","relevant":[{"document":"d.md","contains":"x"}],"answerable":true}"#,
         ]);
-        assert!(load_dataset(&path).unwrap_err().to_string().contains("unanswerable"));
+        assert!(
+            load_dataset(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("unanswerable")
+        );
         let (_dir, path) = jsonl(&[
             r#"{"id":"a","lang":"tr","category":"factual","query":"q","relevant":[],"answerable":false}"#,
         ]);
-        assert!(load_dataset(&path).unwrap_err().to_string().contains("unanswerable"));
+        assert!(
+            load_dataset(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("unanswerable")
+        );
     }
 
     #[test]
@@ -233,8 +246,10 @@ mod tests {
         ];
         let mut splits: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         for (category, count) in planned {
-            let rows: Vec<&EvalQuery> =
-                queries.iter().filter(|q| q.category_name() == category).collect();
+            let rows: Vec<&EvalQuery> = queries
+                .iter()
+                .filter(|q| q.category_name() == category)
+                .collect();
             assert_eq!(rows.len(), count, "{category}");
             let dev = rows.iter().filter(|q| q.split_name() == "dev").count();
             assert!(
@@ -244,9 +259,16 @@ mod tests {
         }
         for query in &queries {
             assert!(query.split.is_some(), "{} has no split", query.id);
-            let family = query.family.as_deref().expect("every v0.2 row has a family");
+            let family = query
+                .family
+                .as_deref()
+                .expect("every v0.2 row has a family");
             let split = splits.entry(family).or_insert(query.split_name());
-            assert_eq!(*split, query.split_name(), "family {family} is in both splits");
+            assert_eq!(
+                *split,
+                query.split_name(),
+                "family {family} is in both splits"
+            );
             assert_eq!(
                 query.require_all,
                 query.category_name() == "multi_document",

@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.17] - 2026-10-12
+
+- The v0.2 evaluation set (Task 42, D-018): `eval/datasets/v02-retrieval.jsonl` (200 questions in eight categories: factual, cross-language, multi-document, identifiers, tables, accentless, inflection, unanswerable; split into `dev` and `holdout` by document family) and `v02-answers.jsonl` (60 answer probes) over `eval/corpus/v02`, built by `scripts/make-v02-corpus.sh` from six fictional documents written for ORAG (PDF catalog, DOCX pump manual, two HR documents, warranty terms, price list) plus the older corpora. The set is model-authored and reviewed by a second model run, not human-checked (`eval/datasets/v02-audit.md`).
+- `orag eval retrieval` reads the optional dataset fields `category`, `split`, `family` and `require_all` (answer probes: the first three), adds "By category" and "By split" tables, and writes every question with its label ranks to the JSON report (`per_query`). Recall and the in-context share are now per question: any one label is enough, or every label for `require_all` questions (before, recall was the share of labels found; results of earlier sets, all with one label per question, are unchanged).
+- Baseline with the default models: `.docs/benchmarks/v0.2-model-decision.md`. Hybrid retrieval puts the evidence of 0.886 of the answerable questions in the answer context; cross-language questions are the weak spot (dense alone 0.880, hybrid 0.600).
+
 ## [0.2.0-alpha.16] - 2026-10-12
 
 - PDF sources carry their physical pages: every source in a query answer has `pages`, the first and last 1-based page of its chunk (`[12, 13]`), or `null` for TXT, Markdown and DOCX (whose place is `heading_path`). The web page shows them after the file name (`s. 12–13`).

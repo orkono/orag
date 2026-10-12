@@ -141,7 +141,10 @@ impl RetrievalReport {
                 let value = pick(strategy).get(group).map_or(0.0, |g| g.in_context);
                 out.push_str(&format!(" {value:.3} |"));
             }
-            let served = hybrid.and_then(|h| pick(h).get(group)).cloned().unwrap_or_default();
+            let served = hybrid
+                .and_then(|h| pick(h).get(group))
+                .cloned()
+                .unwrap_or_default();
             out.push_str(&format!(
                 " {:.3} | {:.3} |\n",
                 served.recall_at_10, served.mrr_at_10
