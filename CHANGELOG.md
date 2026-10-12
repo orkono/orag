@@ -5,6 +5,13 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.21] - 2026-10-12
+
+- `orag eval answers` reports answer-level metrics (D-018) per sampler profile, overall and per category and split: `valid_citation_rate` (answered probes whose every `[n]` names a given source), `cited_evidence_coverage` (an expected text occurs in a chunk the answer cites: evidence coverage, not faithfulness), `expected_fact_rate`, abstention as a confusion matrix with unanswerable as positive (precision and recall, `null` when there is nothing to measure) and `finish_reasons`. The Markdown table leads with them; the JSON has each probe's `valid_citations` and `cited_evidence`.
+- Experimental `--judge`: the local generator answers "Does the answer only state what the cited sources say? Answer YES or NO." per answered answerable probe that cites a source, seeing each source under the `[n]` the answer uses; reported as `experimental.judge_yes_rate` (`null` when nothing was judged). A judge that cannot run leaves the probe unjudged. No gate uses it.
+- A valid citation needs at least one `[n]`; cited evidence counts only answers that were not refused; a rate with nothing to measure is `null` (`–` in the table), not 0.
+- Real-model baseline on the v0.2 answer set (`.docs/benchmarks/v0.2-model-decision.md`): expected facts 0.850, cited evidence 0.825, valid citations 1.000, abstention precision/recall 0.773/0.850; cross-language is the weakest category (2 of 5).
+
 ## [0.2.0-alpha.20] - 2026-10-12
 
 - **Setup mode (D-023).** Without installed model packs, `orag serve` no longer stops: it starts in setup mode, logs which models are missing, and runs the API and the page without a worker. Upload, query and reindex answer `503 models_missing` (before any body is read or any embedding space is checked, so an indexed collection never offers a reindex that would empty it). A broken install (a bad manifest, the wrong role, a folder that cannot be read) still stops startup, and a build without an inference backend fails at once.

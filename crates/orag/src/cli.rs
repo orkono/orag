@@ -99,6 +99,10 @@ pub enum EvalCommand {
         /// presence, qwen, qwen:<seed>. Default: the one answers are served with.
         #[arg(long, value_delimiter = ',')]
         sampler: Vec<String>,
+        /// Experimental: ask the generator whether each answer only states
+        /// what its cited sources say. Reported, never used by any gate.
+        #[arg(long)]
+        judge: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -199,9 +203,17 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     dataset,
                     out,
                     sampler,
+                    judge,
                     dev_fake_models,
                 },
-        } => run_eval_answers(&corpus, &dataset, out.as_deref(), &sampler, dev_fake_models),
+        } => run_eval_answers(
+            &corpus,
+            &dataset,
+            out.as_deref(),
+            &sampler,
+            judge,
+            dev_fake_models,
+        ),
         Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
             &format,
             crate::ingest::parse::parse_in_process,
@@ -369,6 +381,7 @@ fn run_eval_answers(
     dataset: &std::path::Path,
     out: Option<&std::path::Path>,
     samplers: &[String],
+    judge: bool,
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
@@ -389,6 +402,7 @@ fn run_eval_answers(
         &probes,
         &profiles,
         work.path(),
+        judge,
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
