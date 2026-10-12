@@ -11,6 +11,23 @@ const POLL_MS = 2000;
 /** Unfinished rows refreshed per tick. */
 const WATCH_LIMIT = 10;
 
+/** Turkish labels for the warning codes (`code: details` on the API). */
+const WARNING_LABELS = {
+  ocr_required: "Taranmış sayfalar okunamadı",
+  extraction_failed: "Bazı sayfalar okunamadı",
+  suspicious_layout: "Bazı sayfaların metni bozuk olabilir",
+  styles_unreadable: "Başlık stilleri okunamadı",
+  no_text: "Metin bulunamadı",
+};
+
+/** A warning as its Turkish label, with the full server text as a tooltip. */
+export function warningNode(tag, warning) {
+  const code = warning.split(":", 1)[0].trim();
+  const node = el(tag, WARNING_LABELS[code] || warning, "warning");
+  node.title = warning;
+  return node;
+}
+
 const DOCUMENT_STATUS = {
   queued: "Sırada",
   indexing: "İşleniyor",
@@ -70,7 +87,7 @@ function fillDocumentRow(row, doc) {
   meta.replaceChildren(el("span", label, `badge ${badgeClass}`), el("span", parts));
   const notes = row.querySelector(".doc-notes");
   notes.replaceChildren(
-    ...(doc.warnings || []).map((warning) => el("div", warning, "warning")),
+    ...(doc.warnings || []).map((warning) => warningNode("div", warning)),
     ...(doc.error ? [el("div", doc.error, "failed")] : []),
   );
 }

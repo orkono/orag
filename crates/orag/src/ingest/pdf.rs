@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
+use crate::ingest::layout::page_looks_broken;
 use crate::ingest::parse::paragraph_blocks;
 
 /// Upper bound on pages processed from one file.
@@ -60,6 +61,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     }
     let (mut blocks, mut empty, mut failed) = (Vec::new(), Vec::new(), Vec::new());
     let mut block_pages = Vec::new();
+    let mut suspicious: Vec<(usize, &'static str)> = Vec::new();
     let mut text_bytes = 0usize;
     for index in 0..pages {
         if started.elapsed() >= limits.time_limit {
@@ -76,6 +78,9 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
                         "the PDF yields more text than {} MB",
                         limits.max_text_bytes / (1024 * 1024)
                     )));
+                }
+                if let Some(reason) = page_looks_broken(&text) {
+                    suspicious.push((index + 1, reason));
                 }
                 let page_blocks = paragraph_blocks(&join_hyphenated(&text));
                 if page_blocks.is_empty() {
@@ -106,12 +111,39 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
             page_list(&failed)
         ));
     }
+    warnings.extend(suspicious_layout_warnings(&suspicious));
     Ok(ParsedDocument {
         title: None,
         blocks,
         warnings,
         pages: block_pages,
     })
+}
+
+/// One advisory warning per reason, listing its pages (advisory only: the
+/// pages are still indexed).
+fn suspicious_layout_warnings(pages: &[(usize, &'static str)]) -> Vec<String> {
+    let mut reasons: Vec<&'static str> = Vec::new();
+    for (_, reason) in pages {
+        if !reasons.contains(reason) {
+            reasons.push(reason);
+        }
+    }
+    reasons
+        .into_iter()
+        .map(|reason| {
+            let numbers: Vec<usize> = pages
+                .iter()
+                .filter(|(_, r)| *r == reason)
+                .map(|(page, _)| *page)
+                .collect();
+            format!(
+                "suspicious_layout: page(s) {} may be extracted out of order or garbled \
+                 ({reason}); answers from them can be wrong",
+                page_list(&numbers)
+            )
+        })
+        .collect()
 }
 
 /// Joins words split at a line end: "gün-\ndür" → "gündür", a soft hyphen
@@ -356,6 +388,33 @@ pub(crate) mod tests {
         assert_eq!(pages.first(), Some(&Some(1)), "{two:?}");
         assert_eq!(pages.last(), Some(&Some(2)), "{two:?}");
         assert!(pages.windows(2).all(|w| w[0] <= w[1]), "{pages:?}");
+    }
+
+    #[test]
+    fn garbled_pages_get_an_advisory_warning_and_stay_indexed() {
+        let fine = "Teslimat suresi uc gundur ve iade on dort gundur. ".repeat(6);
+        let split = "T e s l i m a t s u r e s i u c g u n d u r . ".repeat(12);
+        let pdf = test_pdf(&[Some(&fine), Some(&split), Some(&split), Some(&fine)]);
+        let doc = parse_pdf(&pdf).unwrap();
+        assert_eq!(
+            doc.warnings,
+            vec![
+                "suspicious_layout: page(s) 2-3 may be extracted out of order or garbled \
+                 (mostly single letters); answers from them can be wrong"
+                    .to_string()
+            ]
+        );
+        // Advisory only: the flagged pages are still indexed.
+        assert!(
+            (0..doc.blocks.len()).any(|i| doc.page_of(i) == Some(2)),
+            "{doc:?}"
+        );
+        assert!(
+            parse_pdf(&test_pdf(&[Some(&fine)]))
+                .unwrap()
+                .warnings
+                .is_empty()
+        );
     }
 
     #[test]
