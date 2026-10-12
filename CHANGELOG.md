@@ -8,8 +8,9 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 ## [0.2.0-alpha.21] - 2026-10-12
 
 - `orag eval answers` reports answer-level metrics (D-018) per sampler profile, overall and per category and split: `valid_citation_rate` (answered probes whose every `[n]` names a given source), `cited_evidence_coverage` (an expected text occurs in a chunk the answer cites: evidence coverage, not faithfulness), `expected_fact_rate`, abstention as a confusion matrix with unanswerable as positive (precision and recall, `null` when there is nothing to measure) and `finish_reasons`. The Markdown table leads with them; the JSON has each probe's `valid_citations` and `cited_evidence`.
-- Experimental `--judge`: the local generator answers "Does the answer only state what the cited sources say? Answer YES or NO." per answered answerable probe that cites a source, reported as `experimental.judge_yes_rate`. No gate uses it.
-- Real-model baseline on the v0.2 answer set (`.docs/benchmarks/v0.2-model-decision.md`): expected facts 0.850, valid citations 1.000, abstention precision/recall 0.77/0.85; cross-language is the weakest category (2 of 5).
+- Experimental `--judge`: the local generator answers "Does the answer only state what the cited sources say? Answer YES or NO." per answered answerable probe that cites a source, seeing each source under the `[n]` the answer uses; reported as `experimental.judge_yes_rate` (`null` when nothing was judged). A judge that cannot run leaves the probe unjudged. No gate uses it.
+- A valid citation needs at least one `[n]`; cited evidence counts only answers that were not refused; a rate with nothing to measure is `null` (`–` in the table), not 0.
+- Real-model baseline on the v0.2 answer set (`.docs/benchmarks/v0.2-model-decision.md`): expected facts 0.850, cited evidence 0.825, valid citations 1.000, abstention precision/recall 0.773/0.850; cross-language is the weakest category (2 of 5).
 
 ## [0.2.0-alpha.20] - 2026-10-12
 

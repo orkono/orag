@@ -19,17 +19,20 @@ use super::{AnswerProbe, contains_term, normalized};
 pub struct AnswerScore {
     /// `expect` texts found in the answer.
     pub found: usize,
-    /// No `[n]` points at a source that was not given.
+    /// At least one `[n]`, and every one names a source that was given.
     pub valid_citations: bool,
-    /// Answerable only: an `expect` text occurs in a cited chunk.
+    /// Answerable and not refused: an `expect` text occurs in a cited chunk.
     pub cited_evidence: bool,
 }
 
-/// Scores one answer; `cited_texts` are the full texts of the chunks the
-/// answer cites (an `invalid_citations` entry has none).
+/// Scores one answer: `citations` are its valid `[n]` numbers,
+/// `invalid_citations` the count of the others, `cited_texts` the full texts
+/// of the chunks it cites.
 pub fn score_answer(
     probe: &AnswerProbe,
     answer: &str,
+    abstained: bool,
+    citations: usize,
     invalid_citations: usize,
     cited_texts: &[String],
 ) -> AnswerScore {
@@ -52,8 +55,10 @@ pub fn score_answer(
     });
     AnswerScore {
         found,
-        valid_citations: invalid_citations == 0,
-        cited_evidence: probe.answerable && cited_evidence,
+        // An answer without any `[n]` cites nothing, so it is not valid either.
+        valid_citations: citations > 0 && invalid_citations == 0,
+        // A refusal cites in passing at most; it does not cover the evidence.
+        cited_evidence: probe.answerable && !abstained && cited_evidence,
     }
 }
 
@@ -110,12 +115,15 @@ pub struct Outcome<'a> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AnswerMetrics {
     pub probes: usize,
-    /// Answered (not abstained) probes whose every `[n]` names a given source.
-    pub valid_citation_rate: f64,
-    /// Answerable probes with an expected text in a cited chunk.
-    pub cited_evidence_coverage: f64,
-    /// Answerable probes whose answer holds every expected text.
-    pub expected_fact_rate: f64,
+    /// Answered (not refused) probes with at least one `[n]`, all naming a
+    /// given source. `None` when no probe was answered.
+    pub valid_citation_rate: Option<f64>,
+    /// Answerable probes with an expected text in a cited chunk (`None`
+    /// without answerable probes).
+    pub cited_evidence_coverage: Option<f64>,
+    /// Answerable probes whose answer holds every expected text (`None`
+    /// without answerable probes).
+    pub expected_fact_rate: Option<f64>,
     pub abstention: Abstention,
     pub finish_reasons: FinishReasons,
 }
@@ -137,15 +145,15 @@ pub fn aggregate(outcomes: &[Outcome]) -> AnswerMetrics {
     }
     AnswerMetrics {
         probes: outcomes.len(),
-        valid_citation_rate: ratio(
+        valid_citation_rate: share(
             answered.iter().filter(|o| o.score.valid_citations).count(),
             answered.len(),
         ),
-        cited_evidence_coverage: ratio(
+        cited_evidence_coverage: share(
             answerable.iter().filter(|o| o.score.cited_evidence).count(),
             answerable.len(),
         ),
-        expected_fact_rate: ratio(
+        expected_fact_rate: share(
             answerable
                 .iter()
                 .filter(|o| o.score.found == o.probe.expect.len())
@@ -173,11 +181,6 @@ pub fn breakdown(
         .into_iter()
         .map(|(k, group)| (k, aggregate(&group)))
         .collect()
-}
-
-/// `part / whole`, 0 for an empty whole (the report says how many probes).
-fn ratio(part: usize, whole: usize) -> f64 {
-    share(part, whole).unwrap_or(0.0)
 }
 
 /// `part / whole`, `None` for an empty whole.
@@ -213,6 +216,8 @@ mod tests {
         let r = score_answer(
             &p,
             "İade süresi 14 gündür [1].",
+            false,
+            1,
             0,
             &sources(&["kargo ücretsiz"]),
         );
@@ -221,6 +226,8 @@ mod tests {
         let r = score_answer(
             &p,
             "İade süresi 14 gündür [2].",
+            false,
+            1,
             0,
             &sources(&["14 gün içinde iade"]),
         );
@@ -228,9 +235,39 @@ mod tests {
         let unanswerable = AnswerProbe {
             answerable: false,
             expect: Vec::new(),
-            ..p
+            ..p.clone()
         };
-        assert!(!score_answer(&unanswerable, "x", 0, &sources(&["14 gün"])).cited_evidence);
+        assert!(
+            !score_answer(&unanswerable, "x [1]", false, 1, 0, &sources(&["14 gün"]))
+                .cited_evidence
+        );
+        // A refusal that cites the evidence chunk in passing does not cover it.
+        let refused = score_answer(
+            &p,
+            "Kaynaklar süreyi söylemiyor; [1] iadeden söz eder.",
+            true,
+            1,
+            0,
+            &sources(&["14 gün içinde iade"]),
+        );
+        assert!(!refused.cited_evidence);
+    }
+
+    #[test]
+    fn an_answer_without_citations_is_not_validly_cited() {
+        let p = probe("14 gün");
+        assert!(!score_answer(&p, "İade süresi 14 gündür.", false, 0, 0, &[]).valid_citations);
+        assert!(
+            score_answer(
+                &p,
+                "İade süresi 14 gündür [1].",
+                false,
+                1,
+                0,
+                &sources(&["14 gün"])
+            )
+            .valid_citations
+        );
     }
 
     #[test]
@@ -255,9 +292,9 @@ mod tests {
     #[test]
     fn invalid_citation_lowers_valid_citation_rate() {
         let p = probe("14 gün");
-        let good = score_answer(&p, "14 gün [1].", 0, &sources(&["14 gün"]));
+        let good = score_answer(&p, "14 gün [1].", false, 1, 0, &sources(&["14 gün"]));
         // The answer cites [9] while three sources were given.
-        let bad = score_answer(&p, "14 gün [9].", 1, &[]);
+        let bad = score_answer(&p, "14 gün [9].", false, 0, 1, &[]);
         assert!(good.valid_citations && !bad.valid_citations);
         let outcome = |score| Outcome {
             probe: &p,
@@ -266,9 +303,9 @@ mod tests {
             finish_reason: FinishReason::Stop,
         };
         let m = aggregate(&[outcome(good), outcome(bad)]);
-        assert_eq!(m.valid_citation_rate, 0.5);
-        assert_eq!(m.expected_fact_rate, 1.0);
-        assert_eq!(m.cited_evidence_coverage, 0.5);
+        assert_eq!(m.valid_citation_rate, Some(0.5));
+        assert_eq!(m.expected_fact_rate, Some(1.0));
+        assert_eq!(m.cited_evidence_coverage, Some(0.5));
     }
 
     #[test]
@@ -276,12 +313,15 @@ mod tests {
         let p = probe("x");
         let refused = Outcome {
             probe: &p,
-            score: score_answer(&p, "Bilgi yok [7].", 1, &[]),
+            score: score_answer(&p, "Bilgi yok [7].", true, 0, 1, &[]),
             abstained: true,
             finish_reason: FinishReason::Length,
         };
         let m = aggregate(&[refused]);
-        assert_eq!(m.valid_citation_rate, 0.0, "no answered probe");
+        assert_eq!(
+            m.valid_citation_rate, None,
+            "no answered probe: nothing to measure"
+        );
         assert_eq!(
             m.finish_reasons,
             FinishReasons {
@@ -307,14 +347,27 @@ mod tests {
             .into_iter()
             .map(|p| Outcome {
                 probe: p,
-                score: score_answer(p, "x", 0, &[]),
+                score: score_answer(p, "x", false, 0, 0, &[]),
                 abstained: false,
                 finish_reason: FinishReason::Stop,
             })
             .collect();
         let by = breakdown(&outcomes, |p| p.category.as_deref());
         assert_eq!(by.keys().collect::<Vec<_>>(), ["factual", "numeric"]);
-        assert_eq!(by["factual"].expected_fact_rate, 1.0);
-        assert_eq!(by["numeric"].expected_fact_rate, 0.0);
+        assert_eq!(by["factual"].expected_fact_rate, Some(1.0));
+        assert_eq!(by["numeric"].expected_fact_rate, Some(0.0));
+        // A group of unanswerable probes has no expected facts to rate.
+        let none = AnswerProbe {
+            answerable: false,
+            expect: Vec::new(),
+            ..probe("w")
+        };
+        let only_unanswerable = [Outcome {
+            probe: &none,
+            score: score_answer(&none, "x", true, 0, 0, &[]),
+            abstained: true,
+            finish_reason: FinishReason::Stop,
+        }];
+        assert_eq!(aggregate(&only_unanswerable).expected_fact_rate, None);
     }
 }

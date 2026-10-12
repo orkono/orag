@@ -147,26 +147,28 @@ alternatives (`600|altıyüz`).
 
 | column | meaning |
 |---|---|
+| expected facts | answerable probes whose answer holds every `expect` text (`expected_fact_rate`) |
+| cited evidence | answerable, not refused probes where an `expect` text occurs in a chunk the answer **cites** (`cited_evidence_coverage`). Evidence coverage, not faithfulness: the cited chunk can hold the fact while the answer says something else |
+| valid citations | answered (not refused) probes with at least one `[n]`, every one naming a source that was given (`valid_citation_rate`); an answer without any `[n]` is not validly cited |
+| abstention P / R | refusals as a confusion matrix with "no answer in the corpus" as positive: precision = refused unanswerable / all refusals, recall = refused unanswerable / all unanswerable |
 | coverage | mean share of `expect` texts found, over answerable probes |
-| complete | answerable probes with every `expect` text found |
-| refused answerable | answerable probes answered with the refusal sentence |
-| refused unanswerable | unanswerable probes answered with the refusal sentence (wanted) |
 | length stops | answers cut by `max_output_tokens` (`finish_reason: length`) |
 | repetition stops | answers stopped by the repeated-line guard (`finish_reason: repetition`) |
 | distinct lines | mean share of unique non-empty lines per answer |
-| expected facts | answerable probes whose answer holds every `expect` text (`expected_fact_rate`) |
-| cited evidence | answerable probes where an `expect` text occurs in a chunk the answer **cites** (`cited_evidence_coverage`). Evidence coverage, not faithfulness: the cited chunk can hold the fact while the answer says something else |
-| valid citations | answered (not refused) probes whose every `[n]` names a source that was given (`valid_citation_rate`) |
-| abstention P / R | refusals as a confusion matrix with "no answer in the corpus" as positive: precision = refused unanswerable / all refusals, recall = refused unanswerable / all unanswerable |
 
-The JSON report also has `finish_reasons` (`stop`, `length`, `repetition`),
-the same metrics per `category` and per `split` (`by_category`, `by_split`),
-and each probe's `valid_citations`, `cited_evidence` and answer.
+A rate with nothing to measure (no answered probe, no unanswerable probe, no
+refusal) is `–` in the table and `null` in the JSON, never 0. The JSON keeps
+the older counts `complete`, `refused_answerable` and `refused_unanswerable`
+(not in the table) and adds `finish_reasons` (`stop`, `length`, `repetition`),
+the metrics per `category` and per `split` (`by_category`, `by_split`), and
+each probe's `valid_citations`, `cited_evidence` and answer.
 
 `--judge` (experimental, off by default) asks the local generator, per
 answered answerable probe that cites a source, "Does the answer only state
-what the cited sources say? Answer YES or NO." The share of YES is reported
-as `experimental.judge_yes_rate`. No gate uses it: a model judging answers of
+what the cited sources say? Answer YES or NO.", showing each cited source
+under the `[n]` the answer uses. The share of YES among the judged probes is
+reported as `experimental.judge_yes_rate` (`null` when none was judged); a
+judge that cannot run leaves the probe unjudged. No gate uses it: a model judging answers of
 its own kind is a weak signal (D-018).
 
 Refusals are counted from `abstained` (see `docs/api.md`): the refusal

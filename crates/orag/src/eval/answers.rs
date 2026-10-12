@@ -2,7 +2,7 @@
 //! generation) per sampler profile and checks what users see: expected facts
 //! present, refusals, loops and answers cut by the output budget.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
@@ -167,11 +167,11 @@ impl AnswerReport {
         for p in &self.profiles {
             let m = &p.metrics;
             out.push_str(&format!(
-                "| {} | {:.3} | {:.3} | {:.3} | {} / {} | {:.3} | {} | {} | {:.3} | {:.0} | {:.0} |\n",
+                "| {} | {} | {} | {} | {} / {} | {:.3} | {} | {} | {:.3} | {:.0} | {:.0} |\n",
                 p.sampler,
-                m.expected_fact_rate,
-                m.cited_evidence_coverage,
-                m.valid_citation_rate,
+                rate(m.expected_fact_rate),
+                rate(m.cited_evidence_coverage),
+                rate(m.valid_citation_rate),
                 rate(m.abstention.precision),
                 rate(m.abstention.recall),
                 p.coverage,
@@ -193,11 +193,11 @@ impl AnswerReport {
                 ));
                 for (name, m) in groups {
                     out.push_str(&format!(
-                        "| {name} | {} | {:.3} | {:.3} | {:.3} | {} / {} |\n",
+                        "| {name} | {} | {} | {} | {} | {} / {} |\n",
                         m.probes,
-                        m.expected_fact_rate,
-                        m.cited_evidence_coverage,
-                        m.valid_citation_rate,
+                        rate(m.expected_fact_rate),
+                        rate(m.cited_evidence_coverage),
+                        rate(m.valid_citation_rate),
                         rate(m.abstention.precision),
                         rate(m.abstention.recall)
                     ));
@@ -208,9 +208,9 @@ impl AnswerReport {
     }
 }
 
-/// A rate with two decimals, or `–` when there was nothing to measure.
+/// A rate with three decimals, or `–` when there was nothing to measure.
 fn rate(value: Option<f64>) -> String {
-    value.map_or_else(|| "–".to_string(), |v| format!("{v:.2}"))
+    value.map_or_else(|| "–".to_string(), |v| format!("{v:.3}"))
 }
 
 pub fn run_answer_eval(
@@ -312,15 +312,14 @@ fn evaluate_profile(
         by_category: breakdown(&outcomes, |p| p.category.as_deref()),
         by_split: breakdown(&outcomes, |p| p.split.as_deref()),
         experimental: Experimental {
-            judge_yes_rate: with_judge.then(|| {
-                let judged: Vec<bool> = results.iter().filter_map(|r| r.judge).collect();
-                let yes = judged.iter().filter(|&&yes| yes).count();
-                if judged.is_empty() {
-                    0.0
-                } else {
-                    yes as f64 / judged.len() as f64
-                }
-            }),
+            // `None` without `--judge`, and when no probe got a verdict.
+            judge_yes_rate: with_judge
+                .then(|| {
+                    let judged: Vec<bool> = results.iter().filter_map(|r| r.judge).collect();
+                    let yes = judged.iter().filter(|&&yes| yes).count();
+                    (!judged.is_empty()).then(|| yes as f64 / judged.len() as f64)
+                })
+                .flatten(),
         },
         results,
     })
@@ -342,28 +341,37 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe, with_judge: bool) -> Re
         OragError::Internal(format!("{}: the answer ended without a summary", probe.id))
     })?;
     // Excerpts are cut short; the cited chunks' full texts come from the store.
-    let cited_ids: Vec<i64> = sources
-        .iter()
-        .filter(|s| summary.citations.contains(&s.number))
-        .map(|s| s.chunk_id)
-        .collect();
-    let cited_texts: Vec<String> = engine
+    let cited = cited_sources(&sources, &summary.citations);
+    let ids: Vec<i64> = cited.iter().map(|&(_, chunk_id)| chunk_id).collect();
+    let texts: HashMap<i64, String> = engine
         .retriever
         .store
-        .get_chunks(1, &cited_ids)?
+        .get_chunks(1, &ids)?
         .into_iter()
-        .map(|chunk| chunk.text)
+        .map(|chunk| (chunk.id, chunk.text))
+        .collect();
+    let cited: Vec<(usize, String)> = cited
+        .into_iter()
+        .filter_map(|(number, id)| texts.get(&id).map(|text| (number, text.clone())))
         .collect();
     // Only answers that cite something can be judged against their sources.
-    let judged = with_judge && probe.answerable && !summary.abstained && !cited_texts.is_empty();
+    // The judge is experimental: if it cannot run (its prompt too long for
+    // the context), the probe stays unjudged and the run goes on.
+    let judged = with_judge && probe.answerable && !summary.abstained && !cited.is_empty();
     let judge = if judged {
-        judge::judge(engine.generator.as_ref(), &summary.answer, &cited_texts)?
+        judge::judge(engine.generator.as_ref(), &summary.answer, &cited).unwrap_or_else(|err| {
+            tracing::warn!(probe = %probe.id, error = %err, "the judge could not run; left unjudged");
+            None
+        })
     } else {
         None
     };
+    let cited_texts: Vec<String> = cited.into_iter().map(|(_, text)| text).collect();
     let score = score_answer(
         probe,
         &summary.answer,
+        summary.abstained,
+        summary.citations.len(),
         summary.invalid_citations.len(),
         &cited_texts,
     );
@@ -381,6 +389,17 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe, with_judge: bool) -> Re
         ms: started.elapsed().as_secs_f64() * 1000.0,
         answer: summary.answer,
     })
+}
+
+/// The sources the answer cites, as `(number, chunk id)` in number order.
+fn cited_sources(sources: &[SourceRef], citations: &[usize]) -> Vec<(usize, i64)> {
+    let mut cited: Vec<(usize, i64)> = sources
+        .iter()
+        .filter(|s| citations.contains(&s.number))
+        .map(|s| (s.number, s.chunk_id))
+        .collect();
+    cited.sort_unstable();
+    cited
 }
 
 /// Lexical normalization, then whitespace collapsed (normalization itself can
@@ -474,6 +493,31 @@ mod tests {
             let err = load_probes(&path).unwrap_err().to_string();
             assert!(err.contains("must not be empty"), "{expect}: {err}");
         }
+    }
+
+    #[test]
+    fn only_the_cited_sources_are_read_under_their_own_numbers() {
+        let source = |number: usize, chunk_id: i64| SourceRef {
+            number,
+            chunk_id,
+            document_id: 1,
+            title: None,
+            filename: None,
+            heading_path: Vec::new(),
+            pages: None,
+            ordinal: 0,
+            excerpt: String::new(),
+            rank_score: 0.0,
+            lexical_rank: None,
+            dense_rank: None,
+        };
+        let given = [source(1, 10), source(2, 20), source(3, 30)];
+        assert_eq!(cited_sources(&given, &[3, 1]), [(1, 10), (3, 30)]);
+        assert!(cited_sources(&given, &[]).is_empty());
+        assert!(
+            cited_sources(&given, &[9]).is_empty(),
+            "an invalid number names no source"
+        );
     }
 
     #[test]
@@ -579,10 +623,12 @@ mod tests {
         assert!(greedy.results[0].cited_evidence && greedy.results[0].valid_citations);
         assert_eq!(
             (m.cited_evidence_coverage, m.valid_citation_rate),
-            (1.0, 1.0)
+            (Some(1.0), Some(1.0)),
+            "both answers cite [1], the one chunk retrieved for both questions"
         );
         assert_eq!(
-            m.expected_fact_rate, 0.0,
+            m.expected_fact_rate,
+            Some(0.0),
             "one of two expected texts is missing"
         );
         assert_eq!(
