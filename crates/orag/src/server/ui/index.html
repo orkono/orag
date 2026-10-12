@@ -10,85 +10,172 @@
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <img src="/favicon.svg" alt="" width="36" height="36">
-    <div>
-      <h1>ORAG</h1>
-      <p class="hint">Belgelerinize soru sorun. Her şey bu bilgisayarda kalır.</p>
-    </div>
-  </div>
-  <div class="collection-bar">
-    <label for="collection">Koleksiyon</label>
-    <select id="collection"></select>
-  </div>
-  <details id="collection-manage">
-    <summary>Koleksiyonu yönet</summary>
-    <form id="collection-form">
-      <label for="collection-name">Yeni koleksiyon</label>
-      <input id="collection-name" type="text" maxlength="64" required placeholder="Örneğin: Sözleşmeler">
-      <button id="collection-create" type="submit">Oluştur</button>
-    </form>
-    <p class="hint">Ad: en fazla 64 harf, rakam, boşluk, "_", "." veya "-". Her koleksiyon ayrı aranır.</p>
-    <div class="row">
-      <button id="collection-reindex" type="button" title="Belgeleri saklanan kopyalarından mevcut modelle yeniden işler">Yeniden indeksle</button>
-      <button id="collection-delete" type="button" class="danger">Koleksiyonu sil</button>
-    </div>
-  </details>
-  <div id="collection-status" class="status" role="status" aria-live="polite"></div>
-</header>
-
-<main>
-  <section aria-labelledby="ask-title">
-    <h2 id="ask-title">Sorgu yap</h2>
-    <form id="ask-form">
-      <label for="ask-text" class="visually-hidden">Sorunuz</label>
-      <textarea id="ask-text" rows="3" maxlength="2000" required placeholder="Örneğin: İade süresi kaç gündür?"></textarea>
-      <div class="row">
-        <button id="ask-button" type="submit" class="primary">Sorgu yap</button>
-        <button id="ask-stop" type="button" hidden>Durdur</button>
-        <span class="hint"><strong id="ask-target"></strong> koleksiyonunda aranır · Ctrl/⌘ + Enter ile gönderin</span>
+<div class="app">
+  <aside id="sidebar" class="sidebar" aria-label="Koleksiyonlar ve belgeler">
+    <div class="brand">
+      <img src="/favicon.svg" alt="" width="30" height="30">
+      <div>
+        <div class="brand-name">ORAG</div>
+        <div class="brand-tag">Yerel belge asistanı</div>
       </div>
-    </form>
-    <p id="ask-empty" class="notice" hidden>Bu koleksiyonda henüz belge yok. Önce aşağıdan bir dosya yükleyin.</p>
-    <div id="ask-error"></div>
-    <div id="answer-block" hidden>
-      <div class="row spread">
-        <h3>Yanıt</h3>
-        <button id="answer-copy" type="button" class="small" hidden>Kopyala</button>
+    </div>
+
+    <section class="side-section" aria-labelledby="collections-title">
+      <div class="side-head">
+        <h2 id="collections-title">Koleksiyonlar</h2>
+        <button id="collection-new" class="icon-button" type="button" data-icon="plus" title="Yeni koleksiyon" aria-label="Yeni koleksiyon"></button>
       </div>
-      <p id="answer" class="answer" aria-live="polite"></p>
-      <p id="answer-notice" class="notice" hidden></p>
-    </div>
-    <div id="sources-block" hidden>
-      <h3>Kaynaklar</h3>
-      <ol id="sources" class="sources"></ol>
-    </div>
-  </section>
+      <form id="collection-form" class="inline-form" hidden>
+        <label for="collection-name" class="visually-hidden">Yeni koleksiyon adı</label>
+        <input id="collection-name" type="text" maxlength="64" required placeholder="Koleksiyon adı" autocomplete="off">
+        <div class="inline-actions">
+          <button id="collection-cancel" type="button" class="button ghost small">Vazgeç</button>
+          <button id="collection-create" type="submit" class="button primary small">Oluştur</button>
+        </div>
+        <p class="field-hint">En fazla 64 karakter: harf, rakam, boşluk, "_", "." veya "-".</p>
+      </form>
+      <div id="collection-status"></div>
+      <nav aria-labelledby="collections-title">
+        <ul id="collection-list" class="nav-list"></ul>
+      </nav>
+    </section>
 
-  <section aria-labelledby="upload-title">
-    <h2 id="upload-title">Dosya yükle</h2>
-    <input id="upload-file" class="visually-hidden" type="file" name="file" multiple accept=".txt,.md,.markdown,.docx,.pdf">
-    <label id="dropzone" class="dropzone" for="upload-file">
-      <span class="dropzone-title">Dosyaları buraya bırakın veya seçmek için tıklayın</span>
-      <span class="hint">TXT, Markdown, DOCX veya PDF · <span id="upload-limit"></span> Hedef: <strong id="upload-target"></strong></span>
-    </label>
-    <ul id="upload-list" class="upload-list"></ul>
-    <button id="upload-clear" type="button" class="small" hidden>Tamamlananları temizle</button>
-  </section>
+    <section class="side-section documents-section" aria-labelledby="documents-title">
+      <div class="side-head">
+        <h2 id="documents-title">Belgeler</h2>
+        <span id="documents-count" class="count"></span>
+      </div>
+      <input id="upload-file" class="visually-hidden" type="file" name="file" multiple accept=".txt,.md,.markdown,.docx,.pdf">
+      <label id="dropzone" class="dropzone" for="upload-file">
+        <span class="dropzone-icon" data-icon="upload"></span>
+        <span class="dropzone-title">Dosya yükle</span>
+        <span class="dropzone-hint">Sürükleyip bırakın veya seçin · TXT, MD, DOCX, PDF<span id="upload-limit"></span></span>
+      </label>
+      <ul id="upload-list" class="upload-list"></ul>
+      <button id="upload-clear" type="button" class="button ghost small" hidden>Tamamlananları temizle</button>
+      <ul id="documents" class="doc-list" aria-label="Seçili koleksiyondaki belgeler"></ul>
+      <p id="documents-empty" class="side-empty" hidden>Bu koleksiyonda henüz belge yok.</p>
+      <button id="documents-more" type="button" class="button ghost small" hidden>Daha fazla göster</button>
+      <div id="documents-status"></div>
+    </section>
 
-  <section aria-labelledby="documents-title">
-    <h2 id="documents-title">Belgeler <span class="hint">· <span id="documents-target"></span></span></h2>
-    <table id="documents-table" class="documents" hidden>
-      <thead>
-        <tr><th>Dosya</th><th>Durum</th><th class="number">Parça</th><th class="number">Boyut</th><th></th></tr>
-      </thead>
-      <tbody id="documents"></tbody>
-    </table>
-    <p id="documents-empty" class="hint" hidden>Bu koleksiyonda belge yok. Yukarıdaki alana bir dosya bırakarak başlayın.</p>
-    <button id="documents-more" type="button" hidden>Daha fazla göster</button>
-    <div id="documents-status"></div>
-  </section>
-</main>
+    <footer class="side-foot">
+      <button id="help-open" type="button" class="button ghost small" data-icon="help">Nasıl kullanılır?</button>
+      <div id="app-info" class="app-info"></div>
+    </footer>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="collection-title">ORAG</h1>
+        <p id="collection-meta" class="topbar-meta"></p>
+      </div>
+      <div class="topbar-actions">
+        <button id="collection-reindex" type="button" class="button ghost" data-icon="refresh" title="Belgeleri saklanan kopyalarından mevcut modelle yeniden işler">Yeniden indeksle</button>
+        <button id="collection-delete" type="button" class="button ghost danger" data-icon="trash" title="Koleksiyonu ve belgelerini siler">Sil</button>
+      </div>
+    </header>
+    <div id="offline-banner" class="banner" role="alert" hidden>
+      <span data-icon="alert"></span>
+      <span>ORAG'a ulaşılamıyor. Sunucu kapalı ya da yeniden başlıyor olabilir; geri geldiğinde sayfa kendiliğinden devam eder.</span>
+    </div>
+
+    <div id="conversation" class="conversation">
+      <div id="welcome" class="welcome">
+        <img src="/favicon.svg" alt="" width="56" height="56">
+        <h2>Belgelerinize soru sorun</h2>
+        <p>Yanıtlar yalnızca seçili koleksiyondaki belgelerden yazılır ve her bilgi kaynağına bağlanır.</p>
+        <p id="ask-empty" class="welcome-empty" hidden>Bu koleksiyonda henüz belge yok. Başlamak için soldan bir dosya yükleyin.</p>
+        <button id="welcome-help" type="button" class="button ghost small" data-icon="help">Nasıl kullanılır?</button>
+      </div>
+      <ol id="turns" class="turns" aria-live="polite" aria-label="Sorular ve yanıtlar"></ol>
+    </div>
+
+    <form id="ask-form" class="composer">
+      <div class="composer-box">
+        <label for="ask-text" class="visually-hidden">Sorunuz</label>
+        <textarea id="ask-text" rows="1" maxlength="2000" required placeholder="Bir soru yazın…"></textarea>
+        <button id="ask-stop" type="button" class="button ghost" data-icon="stop" hidden>Durdur</button>
+        <button id="ask-button" type="submit" class="button primary" data-icon="send">Gönder</button>
+      </div>
+      <p class="composer-hint"><strong id="ask-target"></strong> koleksiyonunda aranır · Enter gönderir, Shift + Enter yeni satır</p>
+    </form>
+  </main>
+</div>
+
+<div id="drop-overlay" class="drop-overlay" hidden>
+  <div class="drop-overlay-box">
+    <span data-icon="upload"></span>
+    <strong>Dosyaları bırakın</strong>
+    <span id="drop-target"></span>
+  </div>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-message"></p>
+    <div class="dialog-actions">
+      <button type="submit" value="cancel" class="button ghost">Vazgeç</button>
+      <button id="confirm-ok" type="submit" value="ok" class="button primary">Onayla</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="help-dialog" class="dialog help" aria-labelledby="help-title">
+  <form method="dialog">
+    <div class="help-head">
+      <img src="/favicon.svg" alt="" width="40" height="40">
+      <div>
+        <h2 id="help-title">ORAG'a hoş geldiniz</h2>
+        <p class="help-lead">Kendi belgelerinize soru sorabildiğiniz, tamamen bu bilgisayarda çalışan bir belge asistanı.</p>
+      </div>
+    </div>
+
+    <p>ORAG yüklediğiniz belgeleri okur, sorduğunuz soruyu bu belgelerde arar ve yanıtı yalnızca bulduğu bilgilerle yazar. Her bilginin hangi belgeden geldiğini gösterir; belgelerde yanıt yoksa bunu açıkça söyler.</p>
+
+    <div class="help-privacy">
+      <span data-icon="lock"></span>
+      <p><strong>Her şey bu bilgisayarda kalır.</strong> Belgeler, sorular ve yanıtlar internete gönderilmez; ORAG internet bağlantısı olmadan çalışır.</p>
+    </div>
+
+    <h3>Nasıl kullanılır?</h3>
+    <ol class="help-steps">
+      <li>
+        <strong>Koleksiyon seçin</strong>
+        <span>Belgeleri konulara göre ayırın (örneğin Sözleşmeler, İnsan Kaynakları). Soldaki "+" ile yeni koleksiyon oluşturun. Sorular yalnızca seçili koleksiyonda aranır.</span>
+      </li>
+      <li>
+        <strong>Dosya yükleyin</strong>
+        <span>TXT, Markdown, DOCX veya PDF dosyalarını soldaki "Dosya yükle" alanına bırakın ya da tıklayıp seçin. Durumu "Hazır" olan belgeler aranabilir.</span>
+      </li>
+      <li>
+        <strong>Soru sorun</strong>
+        <span>Sorunuzu alttaki kutuya yazıp Enter'a basın. Yanıttaki [1] gibi numaralara tıklayarak bilginin geldiği kaynağı görün.</span>
+      </li>
+    </ol>
+
+    <h3>İpuçları</h3>
+    <ul class="help-tips">
+      <li>Taranmış (fotoğraf) PDF'lerin metni okunamaz; metin içeren PDF kullanın.</li>
+      <li>Yanıtlar belgelerden üretilir ama hata yapabilir; önemli kararlarda kaynağı kontrol edin.</li>
+      <li>Model değiştiyse koleksiyonu "Yeniden indeksle" ile güncelleyin; dosyaları tekrar yüklemeniz gerekmez.</li>
+    </ul>
+
+    <h3>Kısayollar</h3>
+    <dl class="help-keys">
+      <dt><kbd>Enter</kbd></dt><dd>Soruyu gönderir</dd>
+      <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>Yeni satır</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Bu pencereyi kapatır</dd>
+    </dl>
+
+    <div class="dialog-actions">
+      <span class="help-later">Bu pencereyi sol alttaki "Nasıl kullanılır?" ile yeniden açabilirsiniz.</span>
+      <button id="help-close" type="submit" class="button primary">Başlayalım</button>
+    </div>
+  </form>
+</dialog>
 </body>
 </html>

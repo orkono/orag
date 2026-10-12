@@ -20,6 +20,7 @@ pub async fn check_host_and_origin(
     next: Next,
 ) -> Response {
     if !host_is_loopback(request.headers().get(header::HOST)) {
+        reject(&request, "forbidden_host");
         return ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden_host",
@@ -37,6 +38,7 @@ pub async fn check_host_and_origin(
     // cross-site navigation) may open them.
     let static_asset = request.method() == Method::GET && is_asset(request.uri().path());
     if cross_site && !static_asset && request.headers().get(header::ORIGIN).is_none() {
+        reject(&request, "forbidden_origin");
         return ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden_origin",
@@ -44,11 +46,23 @@ pub async fn check_host_and_origin(
         )
         .into_response();
     }
+    // The browser sets Sec-Fetch-Site and no page can forge it: `same-origin`
+    // is the page's own request, even when something rewrote its Origin
+    // (some browsers or extensions drop the port). A local non-browser client
+    // can send anything, but it can call the API anyway (D-013).
+    let same_origin = request
+        .headers()
+        .get("sec-fetch-site")
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"same-origin"));
+    if same_origin {
+        return next.run(request).await;
+    }
     if let Some(origin) = request.headers().get(header::ORIGIN) {
         let allowed = origin
             .to_str()
             .is_ok_and(|o| origin_allowed(o, &state.allowed_origins));
         if !allowed {
+            reject(&request, "forbidden_origin");
             return ApiError::new(
                 StatusCode::FORBIDDEN,
                 "forbidden_origin",
@@ -58,6 +72,33 @@ pub async fn check_host_and_origin(
         }
     }
     next.run(request).await
+}
+
+/// Logs a refused request with the headers that decided it, so a user whose
+/// browser or embedded viewer gets 403 can see why (the values come from the
+/// local client and hold no secret; each is cut to 100 characters).
+fn reject(request: &Request, code: &str) {
+    let header = |name: header::HeaderName| -> String {
+        request
+            .headers()
+            .get(name)
+            .map(|v| {
+                String::from_utf8_lossy(v.as_bytes())
+                    .chars()
+                    .take(100)
+                    .collect()
+            })
+            .unwrap_or_else(|| "-".into())
+    };
+    tracing::warn!(
+        code,
+        method = %request.method(),
+        path = request.uri().path(),
+        host = header(header::HOST),
+        origin = header(header::ORIGIN),
+        sec_fetch_site = header(header::HeaderName::from_static("sec-fetch-site")),
+        "request refused; open the page at the address `orag serve` prints (orag ui on ...)"
+    );
 }
 
 /// A Host header is a name (or a bracketed IPv6 literal) followed by an
