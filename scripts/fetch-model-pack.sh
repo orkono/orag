@@ -7,7 +7,7 @@ set -euo pipefail
 preset="${1:-}"
 out_parent="${2:-}"
 if [ -z "$preset" ] || [ -z "$out_parent" ]; then
-  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m> <output-dir>" >&2
+  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m|bge-m3-q8_0|multilingual-e5-large-instruct-q8_0> <output-dir>" >&2
   exit 1
 fi
 
@@ -41,6 +41,30 @@ case "$preset" in
     license_sha="832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
     role_section=$'[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = "chatml"'
     role="generation"
+    ;;
+  # Embedding challengers of the v0.2 model decision (D-007); not defaults.
+  # Neither repository ships a LICENSE file; both model cards (MIT) are kept.
+  bge-m3-q8_0)
+    repo="ggml-org/bge-m3-Q8_0-GGUF"
+    revision="9eba04c5d75ba5a1595e45de734d36bef4e5cb98"
+    file="bge-m3-q8_0.gguf"
+    sha="aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173"
+    license_url="https://huggingface.co/BAAI/bge-m3/resolve/5617a9f61b028005a4858fdac845db406aefb181/README.md"
+    license_sha="0b81ccf9134e5874d620a86e6905062ea999e779c34eb1a7e65eaeb7fe00e450"
+    role_section=$'[embedding]\ndimensions = 1024\npooling = "cls"\nmax_tokens = 8192\nquery_prefix = ""\ndocument_prefix = ""'
+    role="embedding"
+    license_name="MIT"
+    ;;
+  multilingual-e5-large-instruct-q8_0)
+    repo="Ralriki/multilingual-e5-large-instruct-GGUF"
+    revision="f43c843a00e7c3bdd087cbaf481464c1fa7fb37d"
+    file="multilingual-e5-large-instruct-q8_0.gguf"
+    sha="2fa4f519b83ecd31a35265b9dd43790bf0abd1ff942e7b982861ee674dc7bec8"
+    license_url="https://huggingface.co/intfloat/multilingual-e5-large-instruct/resolve/274baa43b0e13e37fafa6428dbc7938e62e5c439/README.md"
+    license_sha="41676700d80691ac2f4397ee2b546ef58f9e3236af2f3d0770ab0fa61940ce51"
+    role_section=$'[embedding]\ndimensions = 1024\npooling = "mean"\nmax_tokens = 512\nquery_prefix = "Instruct: Given a search query, retrieve relevant passages that answer the query\\nQuery: "\ndocument_prefix = ""'
+    role="embedding"
+    license_name="MIT"
     ;;
   *)
     echo "unknown preset: $preset" >&2
@@ -88,7 +112,7 @@ id = "$preset"
 role = "$role"
 file = "$file"
 sha256 = "$sha"
-license = "Apache-2.0"
+license = "${license_name:-Apache-2.0}"
 license_file = "LICENSE"
 source = "https://huggingface.co/$repo"
 revision = "$revision"

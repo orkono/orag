@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0-alpha.22] - 2026-10-12
+
+- **Model decision for v0.2 (Task 44, D-007): no change.** Qwen3-Embedding-0.6B and Qwen3.5-4B stay the defaults. The rule was written into `.docs/benchmarks/v0.2-model-decision.md` before scoring. BGE-M3 is better on every average (hybrid recall@10 0.937 vs 0.891, and the only challenger that helps cross-language questions) but wins only +3 net questions on `dev`, where the rule asks for +6; it is the first candidate for the next review. multilingual-e5-large-instruct is rejected (worse on holdout and on multi-document questions); Qwen3-4B-Instruct-2507 stays the fallback generator (faster, but four expected facts fewer and a lower abstention F1).
+- `tests/embedder_qualification.rs` qualifies an embedding model before it is scored (unit 1024-d vectors, token counts against the reference tokenizer, ranking on ten hand-written triples, and vectors written out for a Metal-vs-CPU comparison); run with `ORAG_TEST_EMBEDDING_MODEL=<id>`.
+- `scripts/fetch-model-pack.sh` has presets for `bge-m3-q8_0` and `multilingual-e5-large-instruct-q8_0` (pinned revisions, SHA-256 checked, MIT), so the comparison can be repeated; the manifest's `license` now follows the preset.
+
 ## [0.2.0-alpha.21] - 2026-10-12
 
 - `orag eval answers` reports answer-level metrics (D-018) per sampler profile, overall and per category and split: `valid_citation_rate` (answered probes whose every `[n]` names a given source), `cited_evidence_coverage` (an expected text occurs in a chunk the answer cites: evidence coverage, not faithfulness), `expected_fact_rate`, abstention as a confusion matrix with unanswerable as positive (precision and recall, `null` when there is nothing to measure) and `finish_reasons`. The Markdown table leads with them; the JSON has each probe's `valid_citations` and `cited_evidence`.
