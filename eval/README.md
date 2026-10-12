@@ -26,7 +26,7 @@ One JSON object per line; blank lines are ignored.
 | `answerable` | bool | `true` needs at least one `relevant` label, `false` needs none |
 | `category` | string, optional | `factual`, `cross_language`, `multi_document`, `identifier`, `table`, `accentless`, `inflection` or `unanswerable` (the last one exactly for unanswerable questions) |
 | `split` | string, optional | `dev` (used to tune) or `holdout` (only to confirm) |
-| `family` | string, optional | the documents a question belongs to; paraphrases of one fact share a family and a split |
+| `family` | string, optional | the documents a question belongs to; paraphrases of one fact share a family and a split. A family, and a piece of evidence, may sit in one split only (the loader refuses otherwise) |
 | `require_all` | bool, optional | the question counts as found only when **every** label is found (needs two or more labels); otherwise any one label is enough |
 
 Older sets have no `category` or `split`; the report groups them as
@@ -63,8 +63,12 @@ Computed over answerable questions at depth 10:
 
 - **recall@5, recall@10:** share of questions found in the top 5 / 10 chunks:
   any one label, or every label for `require_all` questions.
-- **MRR@10:** reciprocal rank of the first chunk that satisfies any label.
-- **nDCG@10:** evidence coverage over labels (each label counts once), always in [0, 1].
+- **MRR@10:** reciprocal rank at which the question is answered: its best
+  label, or for `require_all` questions the last label it needs (0 when one
+  is missing).
+- **nDCG@10:** for `require_all` questions, coverage of every label (each
+  label counts once); otherwise the best label against an ideal of rank 1.
+  Always in [0, 1].
 - **in context:** share of questions found within the chunks the answer
   prompt can hold (`max_context_chunks`, 8), by the same rule.
 - **p50 / p95 ms:** retrieval latency per query.

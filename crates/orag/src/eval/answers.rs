@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::normalize::normalize_for_lexical;
 use crate::error::{OragError, Result};
-use crate::eval::dataset::check_grouping;
+use crate::eval::dataset::{SplitGuard, check_grouping};
 use crate::eval::metrics::{percentile, squash};
 use crate::eval::retrieval::index_corpus;
 use crate::infer::{Embedder, Generator, SamplerProfile};
@@ -46,6 +46,7 @@ pub fn load_probes(path: &Path) -> Result<Vec<AnswerProbe>> {
     let text = std::fs::read_to_string(path)?;
     let mut probes = Vec::new();
     let mut ids = HashSet::new();
+    let mut splits = SplitGuard::default();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -75,6 +76,9 @@ pub fn load_probes(path: &Path) -> Result<Vec<AnswerProbe>> {
             probe.answerable,
         )
         .map_err(at)?;
+        splits
+            .family(probe.family.as_deref(), probe.split.as_deref())
+            .map_err(at)?;
         if !ids.insert(probe.id.clone()) {
             return Err(at(format!("duplicate id {}", probe.id)));
         }

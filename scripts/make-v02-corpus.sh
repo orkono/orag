@@ -9,6 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 src=eval/corpus-src/v02
 out=eval/corpus/v02
+# Rebuilt from scratch, so a member removed from the sources cannot linger.
+rm -rf "$out"
 mkdir -p "$out"
 
 for name in tr-insan-kaynaklari.md tr-izin-yonetmeligi.md en-warranty-terms.md tr-fiyat-listesi.txt; do
@@ -19,7 +21,12 @@ pandoc "$src/en-pump-manual.md" -o "$out/en-pump-manual.docx"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fold -s -w 78 "$src/tr-sulama-katalogu.txt" > "$tmp/tr-sulama-katalogu.txt"
-cupsfilter -i text/plain -m application/pdf "$tmp/tr-sulama-katalogu.txt" > "$out/tr-sulama-katalogu.pdf" 2>/dev/null
+if ! cupsfilter -i text/plain -m application/pdf "$tmp/tr-sulama-katalogu.txt" > "$tmp/catalog.pdf" 2> "$tmp/cupsfilter.log"; then
+  echo "cupsfilter failed to print tr-sulama-katalogu.txt:" >&2
+  cat "$tmp/cupsfilter.log" >&2
+  exit 1
+fi
+mv "$tmp/catalog.pdf" "$out/tr-sulama-katalogu.pdf"
 
 cp eval/corpus/seed/*.md "$out/"
 cp eval/corpus/anayasa/tr-anayasa.txt "$out/"

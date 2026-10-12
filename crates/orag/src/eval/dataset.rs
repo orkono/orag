@@ -1,7 +1,7 @@
 //! Labeled evaluation queries (JSONL). Labels are (document, exact substring)
 //! so they survive chunker changes (D-018).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::Deserialize;
@@ -88,10 +88,56 @@ pub(crate) fn check_grouping(
     }
 }
 
+/// Keeps dev and holdout apart: a family, and a piece of evidence, belongs to
+/// one split only, or tuning on dev would leak into holdout.
+#[derive(Default)]
+pub(crate) struct SplitGuard {
+    seen: HashMap<String, String>,
+}
+
+impl SplitGuard {
+    fn claim(&mut self, key: String, split: &str) -> std::result::Result<(), String> {
+        match self.seen.get(&key) {
+            Some(other) if other != split => Err(format!("{key} is in both {other} and {split}")),
+            Some(_) => Ok(()),
+            None => {
+                self.seen.insert(key, split.to_string());
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn family(
+        &mut self,
+        family: Option<&str>,
+        split: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        match (family, split) {
+            (Some(family), Some(split)) => self.claim(format!("family {family:?}"), split),
+            _ => Ok(()),
+        }
+    }
+
+    fn place(&mut self, query: &EvalQuery) -> std::result::Result<(), String> {
+        self.family(query.family.as_deref(), query.split.as_deref())?;
+        let Some(split) = query.split.as_deref() else {
+            return Ok(());
+        };
+        for label in &query.relevant {
+            self.claim(
+                format!("evidence {:?} of {}", label.contains, label.document),
+                split,
+            )?;
+        }
+        Ok(())
+    }
+}
+
 pub fn load_dataset(path: &Path) -> Result<Vec<EvalQuery>> {
     let text = std::fs::read_to_string(path)?;
     let mut queries = Vec::new();
     let mut ids = HashSet::new();
+    let mut splits = SplitGuard::default();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -114,6 +160,15 @@ pub fn load_dataset(path: &Path) -> Result<Vec<EvalQuery>> {
         if query.require_all && query.relevant.len() < 2 {
             return Err(at("require_all needs at least two relevant labels".into()));
         }
+        if query.category.is_some()
+            && query.require_all != (query.category_name() == "multi_document")
+        {
+            return Err(at(
+                "require_all is for multi_document questions, and every one of them needs it"
+                    .into(),
+            ));
+        }
+        splits.place(&query).map_err(at)?;
         if !ids.insert(query.id.clone()) {
             return Err(at(format!("duplicate id {}", query.id)));
         }
@@ -275,6 +330,54 @@ mod tests {
                 "{}",
                 query.id
             );
+        }
+    }
+
+    #[test]
+    fn a_family_or_evidence_in_both_splits_is_rejected() {
+        let row = |id: &str, split: &str, family: &str, contains: &str| {
+            format!(
+                r#"{{"id":"{id}","lang":"tr","category":"factual","split":"{split}","family":"{family}","query":"q","relevant":[{{"document":"d.md","contains":"{contains}"}}],"answerable":true}}"#
+            )
+        };
+        let (_dir, path) = jsonl(&[&row("a", "dev", "f", "x"), &row("b", "holdout", "f", "y")]);
+        let err = load_dataset(&path).unwrap_err().to_string();
+        assert!(err.contains("line 2") && err.contains("family"), "{err}");
+        let (_dir, path) = jsonl(&[&row("a", "dev", "f", "x"), &row("b", "holdout", "g", "x")]);
+        let err = load_dataset(&path).unwrap_err().to_string();
+        assert!(err.contains("line 2") && err.contains("evidence"), "{err}");
+        let (_dir, path) = jsonl(&[&row("a", "dev", "f", "x"), &row("b", "dev", "g", "x")]);
+        assert_eq!(load_dataset(&path).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn require_all_belongs_to_multi_document_questions() {
+        let (_dir, path) = jsonl(&[
+            r#"{"id":"a","lang":"tr","category":"multi_document","query":"q","relevant":[{"document":"d.md","contains":"x"},{"document":"e.md","contains":"y"}],"answerable":true}"#,
+        ]);
+        assert!(
+            load_dataset(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("require_all")
+        );
+    }
+
+    #[test]
+    fn v02_probes_use_the_split_of_their_retrieval_family() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/datasets");
+        let queries = load_dataset(&root.join("v02-retrieval.jsonl")).unwrap();
+        let probes = crate::eval::answers::load_probes(&root.join("v02-answers.jsonl")).unwrap();
+        let mut guard = SplitGuard::default();
+        for query in &queries {
+            guard
+                .family(query.family.as_deref(), query.split.as_deref())
+                .unwrap();
+        }
+        for probe in &probes {
+            guard
+                .family(probe.family.as_deref(), probe.split.as_deref())
+                .unwrap_or_else(|err| panic!("{}: {err}", probe.id));
         }
     }
 }

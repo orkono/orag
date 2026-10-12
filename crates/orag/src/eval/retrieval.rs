@@ -10,7 +10,10 @@ use serde::Serialize;
 use crate::domain::chunker::ChunkerConfig;
 use crate::error::{OragError, Result};
 use crate::eval::dataset::{EvalQuery, Relevant};
-use crate::eval::metrics::{label_ranks, mrr_at, ndcg_at, percentile};
+use crate::eval::metrics::{label_ranks, percentile};
+use crate::eval::scoring::{
+    GroupReport, GroupSums, QuestionScore, group_reports, question_found, score_question,
+};
 use crate::infer::Embedder;
 use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
@@ -29,10 +32,11 @@ pub struct StrategyReport {
     pub recall_at_10: f64,
     pub mrr_at_10: f64,
     pub ndcg_at_10: f64,
-    /// Share of queries whose every label is within the first
-    /// `context_chunks` candidates: the most the answer prompt can hold
-    /// (D-005). An approximation of what the generator sees: the answer path
-    /// can still skip a candidate that does not fit its token budget.
+    /// Share of queries found within the first `context_chunks` candidates,
+    /// the most the answer prompt can hold (D-005): any one label, or every
+    /// label for `require_all` questions. An approximation of what the
+    /// generator sees: the answer path can still skip a candidate that does
+    /// not fit its token budget.
     pub in_context: f64,
     /// Ids of the queries that miss it, so one subgroup cannot hide in a mean.
     pub missed_in_context: Vec<String>,
@@ -43,15 +47,6 @@ pub struct StrategyReport {
     /// Every question with its label ranks, so two runs can be compared per
     /// question instead of by their means.
     pub per_query: Vec<QueryRanks>,
-}
-
-/// The headline metrics over one category or split.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct GroupReport {
-    pub queries: usize,
-    pub recall_at_10: f64,
-    pub mrr_at_10: f64,
-    pub in_context: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -371,54 +366,7 @@ pub fn candidate_ranks(candidates: &[Candidate], labels: &[Relevant]) -> Vec<Opt
 
 /// Every label found within the first `limit` candidates.
 pub fn all_in_context(ranks: &[Option<usize>], limit: usize) -> bool {
-    ranks.iter().all(|rank| rank.is_some_and(|r| r <= limit))
-}
-
-/// 1.0 when the question counts as found within `k`: any one label (labels
-/// are alternative evidence), or every label when `require_all` (a question
-/// that needs facts from several documents). Otherwise 0.0.
-pub fn question_found(ranks: &[Option<usize>], k: usize, require_all: bool) -> f64 {
-    let within = |rank: &Option<usize>| rank.is_some_and(|r| r <= k);
-    let found = if require_all {
-        !ranks.is_empty() && ranks.iter().all(within)
-    } else {
-        ranks.iter().any(within)
-    };
-    if found { 1.0 } else { 0.0 }
-}
-
-/// Running sums for one category or split.
-#[derive(Default)]
-struct GroupSums {
-    queries: usize,
-    recall_at_10: f64,
-    mrr_at_10: f64,
-    in_context: usize,
-}
-
-impl GroupSums {
-    fn add(&mut self, recall_at_10: f64, mrr_at_10: f64, in_context: bool) {
-        self.queries += 1;
-        self.recall_at_10 += recall_at_10;
-        self.mrr_at_10 += mrr_at_10;
-        self.in_context += usize::from(in_context);
-    }
-
-    fn report(&self) -> GroupReport {
-        let n = self.queries.max(1) as f64;
-        GroupReport {
-            queries: self.queries,
-            recall_at_10: self.recall_at_10 / n,
-            mrr_at_10: self.mrr_at_10 / n,
-            in_context: self.in_context as f64 / n,
-        }
-    }
-}
-
-fn group_reports(sums: BTreeMap<String, GroupSums>) -> BTreeMap<String, GroupReport> {
-    sums.into_iter()
-        .map(|(group, sums)| (group, sums.report()))
-        .collect()
+    question_found(ranks, limit, true)
 }
 
 fn evaluate_strategy(
@@ -426,61 +374,52 @@ fn evaluate_strategy(
     strategy: Strategy,
     queries: &[&EvalQuery],
 ) -> Result<StrategyReport> {
-    let (mut r5, mut r10, mut mrr, mut ndcg, mut latencies) = (0.0, 0.0, 0.0, 0.0, Vec::new());
     let context = retriever.config.max_context_chunks;
-    let mut missed_in_context = Vec::new();
-    let mut per_query = Vec::new();
-    let mut by_category: BTreeMap<String, GroupSums> = BTreeMap::new();
-    let mut by_split: BTreeMap<String, GroupSums> = BTreeMap::new();
+    // Deep enough for both the metrics and the context check.
+    let depth = EVAL_DEPTH.max(context);
+    let mut latencies = Vec::new();
+    let mut scored: Vec<(&EvalQuery, QuestionScore, Vec<Option<usize>>)> = Vec::new();
     for query in queries {
         let started = Instant::now();
-        // Deep enough for both the metrics and the context check.
-        let depth = EVAL_DEPTH.max(context);
         let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
         let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
-        let recall_10 = question_found(&ranks, 10, query.require_all);
-        let rr = mrr_at(&ranks, 10);
-        let in_context = question_found(&ranks, context, query.require_all) == 1.0;
-        r5 += question_found(&ranks, 5, query.require_all);
-        r10 += recall_10;
-        mrr += rr;
-        ndcg += ndcg_at(&ranks, 10);
-        if !in_context {
-            missed_in_context.push(query.id.clone());
-        }
-        for (groups, key) in [
-            (&mut by_category, query.category_name()),
-            (&mut by_split, query.split_name()),
-        ] {
-            groups
-                .entry(key.to_string())
-                .or_default()
-                .add(recall_10, rr, in_context);
-        }
-        per_query.push(QueryRanks {
-            id: query.id.clone(),
-            category: query.category_name().to_string(),
-            split: query.split_name().to_string(),
+        scored.push((
+            query,
+            score_question(&ranks, context, query.require_all),
             ranks,
-            in_context,
-        });
+        ));
     }
-    let n = queries.len().max(1) as f64;
+    let mut all = GroupSums::default();
+    scored.iter().for_each(|(_, score, _)| all.add(score));
+    let all = all.report();
     Ok(StrategyReport {
         strategy: strategy.as_str(),
         queries: queries.len(),
-        recall_at_5: r5 / n,
-        recall_at_10: r10 / n,
-        mrr_at_10: mrr / n,
-        ndcg_at_10: ndcg / n,
-        in_context: (queries.len() - missed_in_context.len()) as f64 / n,
-        missed_in_context,
+        recall_at_5: all.recall_at_5,
+        recall_at_10: all.recall_at_10,
+        mrr_at_10: all.mrr_at_10,
+        ndcg_at_10: all.ndcg_at_10,
+        in_context: all.in_context,
+        missed_in_context: scored
+            .iter()
+            .filter(|(_, score, _)| !score.in_context)
+            .map(|(query, _, _)| query.id.clone())
+            .collect(),
         p50_ms: percentile(&latencies, 50.0),
         p95_ms: percentile(&latencies, 95.0),
-        by_category: group_reports(by_category),
-        by_split: group_reports(by_split),
-        per_query,
+        by_category: group_reports(scored.iter().map(|(q, s, _)| (q.category_name(), s))),
+        by_split: group_reports(scored.iter().map(|(q, s, _)| (q.split_name(), s))),
+        per_query: scored
+            .into_iter()
+            .map(|(query, score, ranks)| QueryRanks {
+                id: query.id.clone(),
+                category: query.category_name().to_string(),
+                split: query.split_name().to_string(),
+                ranks,
+                in_context: score.in_context,
+            })
+            .collect(),
     })
 }
 
@@ -735,16 +674,6 @@ mod tests {
         // The toy embedder misses some queries lexically: they are listed by id.
         assert!(!report.strategies[0].missed_in_context.is_empty());
         assert!(report.to_markdown().contains("in context"));
-    }
-
-    #[test]
-    fn require_all_needs_every_label_and_otherwise_one_is_enough() {
-        assert_eq!(question_found(&[Some(1), None], 10, true), 0.0);
-        assert_eq!(question_found(&[Some(1), None], 10, false), 1.0);
-        assert_eq!(question_found(&[Some(2), Some(9)], 10, true), 1.0);
-        assert_eq!(question_found(&[Some(2), Some(11)], 10, true), 0.0);
-        assert_eq!(question_found(&[None], 10, false), 0.0);
-        assert_eq!(question_found(&[], 10, false), 0.0);
     }
 
     #[test]
