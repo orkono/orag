@@ -61,7 +61,8 @@ jobs:
           if [ -n "$EXE" ]; then
             # Windows: a zip, which Explorer opens without extra tools.
             (cd dist && 7z a -tzip -bso0 "$dir.zip" "$dir")
-            7z l "dist/$dir.zip" | grep -q " $dir/orag.exe$"
+            # 7-Zip lists Windows paths with backslashes and CRLF line ends.
+            7z l "dist/$dir.zip" | tr -d '\r' | tr '\\' / | grep -qE " $dir/orag\.exe$"
             echo "file=$dir.zip" >> "$GITHUB_ENV"
           else
             tar -C dist -czf "dist/$dir.tar.gz" "$dir"
