@@ -16,7 +16,18 @@ export async function* sseEvents(body) {
 async function* sseRecords(reader) {
   let buffer = "";
   for (;;) {
-    const { value, done } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      // Stopping aborts the fetch: that is not a lost connection.
+      if (err?.name === "AbortError") throw err;
+      const lost = new Error("Bağlantı kesildi; yanıt tamamlanmadı.");
+      lost.code = "lost";
+      lost.cause = err;
+      throw lost;
+    }
+    const { value, done } = chunk;
     if (done) return;
     // A trailing "\r" waits for the next chunk: it may be half of "\r\n".
     buffer = (buffer + value).replace(/\r\n|\r(?!$)/g, "\n");

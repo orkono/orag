@@ -10,7 +10,9 @@ import { finishNotice, retryAfterMs } from "./format.js";
 import { sseEvents } from "./sse.js";
 import { linkCitations, markCitedSources, renderSources } from "./sources.js";
 
-const BUSY = "Başka bir yanıt üretiliyor; birazdan kendiliğinden yeniden denenecek.";
+// The server answers 429 only after waiting for the slot itself, so the
+// retry is a single, last attempt.
+const BUSY = "Başka bir yanıt üretiliyor; bir kez daha denenecek.";
 const LOST = "Bağlantı kesildi; yanıt tamamlanmadı.";
 const ABSTAINED = "Belgelerde bu sorunun yanıtı bulunamadı.";
 const STOPPED = "Yanıt durduruldu.";
@@ -139,9 +141,16 @@ function retryButton(query) {
   button.append(icon("refresh"), el("span", "Tekrar sor"));
   button.addEventListener("click", () => {
     if (activeQuery) return;
-    $("ask-text").value = query;
+    // Asks through the form, then puts back whatever was being typed.
+    const input = $("ask-text");
+    const draft = input.value;
+    input.value = query;
     $("ask-form").requestSubmit();
-  });
+    input.value = draft;
+    fitComposer();
+    // Once asked again, the old card's button is spent.
+    button.remove();
+  }, { once: true });
   return button;
 }
 
