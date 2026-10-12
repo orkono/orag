@@ -20,7 +20,9 @@ win_tool "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(
 for f in README-Windows.txt fetch-model-pack.ps1 THIRD-PARTY-LICENSES.md docs/api.md; do
   [ -f "$app_unix/$f" ] || { echo "$f was not installed" >&2; exit 1; }
 done
-"$app_unix/orag.exe" --version | tee /dev/stderr | grep -qx "orag $version"
+installed=$("$app_unix/orag.exe" --version | tr -d '\r')
+echo "installed: $installed"
+[ "$installed" = "orag $version" ] || { echo "expected orag $version" >&2; exit 1; }
 menu="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/ORAG"
 for lnk in "ORAG.lnk" "ORAG modellerini indir (internet).lnk"; do
   [ -f "$menu/$lnk" ] || { echo "Start menu shortcut missing: $lnk" >&2; ls -la "$menu" >&2 || true; exit 1; }
