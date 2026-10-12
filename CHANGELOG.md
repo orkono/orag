@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.2.0] - 2026-10-12
+
+- **ORAG v0.2.0.** The engine and the built-in web page are complete for now: page numbers in PDF sources, a `suspicious_layout` warning, 10 MB documents by default, setup mode and `orag start`, answer-level evaluation, a 200-question TR/EN set, and Windows x86-64 builds. The default models stay Qwen3-Embedding-0.6B and Qwen3.5-4B (D-007).
+- Release artifacts: `release.yml` also builds Windows (`orag-<version>-x86_64-pc-windows-msvc.zip`, checked by `check-binary-deps.sh`), and a `v*` tag creates a **draft** GitHub release with every artifact for the owner to publish. `vector-scale.yml` also runs when a `bench/**` branch is pushed.
+- `scripts/compare-v01.sh` scores the `v0.1.0` tag and the current build with the same embedder on `seed.jsonl` and on the text-only subset of the v02 set. For this release it **failed** on seed MRR@10 (0.903 against 0.939: one cross-language question, x-002, moved from rank 1 to rank 2 and stayed in the answer context) and improved on the 90-question subset (recall@10 0.856 → 0.911, MRR@10 0.700 → 0.754). The failure was waived; the evidence and the reformed rule for v0.3 are in `.docs/benchmarks/v0.2-seed-eval.md`.
+- Release gates on the candidate `0.2.0-alpha.23`: real-model release check passed; D-003 dense search at 100k p95 98.1 ms on Apple M5 Max and 226.4 ms on the Linux reference (both PASS).
+- README: a Windows section, the v0.2 status (the evaluation set is synthetic and its human audit is pending), and the v02 evaluation sets.
+
 ## [0.2.0-alpha.23] - 2026-10-12
 
 - **Web page finished for v0.2 (Task 45).** A busy answer slot (`429`, which the server sends only after waiting for the slot itself) shows *Başka bir yanıt üretiliyor; bir kez daha denenecek.* and retries once after `Retry-After`. A stream that drops mid-answer (the body fails, not only ends early) or an unreachable server offers *Tekrar sor*, which asks again without losing a question being typed and is spent once used. The page's pure logic (page labels, warning labels, finish notices, the retry delay) lives in `format.js`, the SSE reader is tested with in-memory streams, both under `node --test` in CI on Ubuntu (a non-served `package.json` makes Node load them as ES modules on any version), and a router test checks that every module the page references is served with its content type and the CSP header.

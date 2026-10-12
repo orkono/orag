@@ -19,11 +19,11 @@ python3 - "$tree" "$meta" "$out" <<'EOF'
 import hashlib, json, os, re, sys
 
 tree_file, meta_file, out_file = sys.argv[1:]
-meta = json.load(open(meta_file))
+meta = json.load(open(meta_file, encoding="utf-8"))
 workspace = set(meta["workspace_members"])
 by_key = {(p["name"], p["version"]): p for p in meta["packages"]}
 wanted = set()
-for line in open(tree_file):
+for line in open(tree_file, encoding="utf-8"):
     m = re.match(r"(\S+) v(\S+)", line.strip())
     if m:
         wanted.add((m.group(1), m.group(2)))
@@ -35,11 +35,11 @@ CODE = re.compile(r"\.(cmake|rs|py|c|cc|cpp|h|hpp|sh|toml|json|in)$", re.I)
 NOT_BUILT = {"libsqlite3-sys": ("sqlcipher",)}
 # Standard texts for packages that ship no license file. The copyright line is
 # the package's authors; the MIT text is the template of this repository's own.
-mit = open("LICENSE-MIT").read().split("\n")
+mit = open("LICENSE-MIT", encoding="utf-8").read().split("\n")
 MIT_BODY = "\n".join(l for l in mit if not l.startswith("Copyright")).strip()
 STANDARD = {
     "MIT": MIT_BODY,
-    "Apache-2.0": open("LICENSE-APACHE").read().strip(),
+    "Apache-2.0": open("LICENSE-APACHE", encoding="utf-8").read().strip(),
     "BSD-3-Clause": """Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -131,7 +131,7 @@ for key in sorted(wanted):
                 rows.append((f"{label} (vendored by {pkg['name']})", pkg["version"],
                              "see notice", [("source headers", digest)]))
 
-with open(out_file, "w") as out:
+with open(out_file, "w", encoding="utf-8", newline="\n") as out:
     out.write("# Third-party licenses\n\n")
     out.write("Third-party code built into the `orag` binary. Each package lists its license\n")
     out.write("files by text id; the texts follow, each printed once. A package without a\n")
