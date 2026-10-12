@@ -249,6 +249,7 @@ fn candidate(id: i64, words: usize) -> Candidate {
             token_count: words,
             document_title: Some(format!("D{id}")),
             filename: None,
+            pages: None,
         },
         hit: FusedHit {
             chunk_id: id,

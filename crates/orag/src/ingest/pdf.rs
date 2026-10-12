@@ -59,6 +59,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
         )));
     }
     let (mut blocks, mut empty, mut failed) = (Vec::new(), Vec::new(), Vec::new());
+    let mut block_pages = Vec::new();
     let mut text_bytes = 0usize;
     for index in 0..pages {
         if started.elapsed() >= limits.time_limit {
@@ -80,6 +81,8 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
                 if page_blocks.is_empty() {
                     empty.push(index + 1);
                 }
+                let page = u32::try_from(index + 1).ok();
+                block_pages.extend(std::iter::repeat_n(page, page_blocks.len()));
                 blocks.extend(page_blocks);
             }
             Err(_) => failed.push(index + 1),
@@ -107,6 +110,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
         title: None,
         blocks,
         warnings,
+        pages: block_pages,
     })
 }
 
@@ -236,6 +240,25 @@ pub(crate) mod tests {
             assert!(text.contains(expected), "missing {expected:?} in {text}");
         }
         assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
+    }
+
+    #[test]
+    fn blocks_carry_their_physical_page() {
+        let doc = parse_pdf(&test_pdf(&[Some("First page"), None, Some("Third page")])).unwrap();
+        assert_eq!(doc.pages.len(), doc.blocks.len());
+        let paged: Vec<(String, Option<u32>)> = doc
+            .blocks
+            .iter()
+            .zip(&doc.pages)
+            .map(|(b, p)| (b.text().to_string(), *p))
+            .collect();
+        assert_eq!(
+            paged,
+            vec![
+                ("First page".into(), Some(1)),
+                ("Third page".into(), Some(3))
+            ]
+        );
     }
 
     #[test]

@@ -23,5 +23,8 @@ MD
 pandoc "$tmp/sample.md" -o "$out/sample.docx"
 printf 'Kargo Politikasi\n\nİade süresi 14 gündür. Iğdır, şık, çay, öğün.\n' > "$tmp/sample.txt"
 cupsfilter -i text/plain -m application/pdf "$tmp/sample.txt" > "$out/sample-tr.pdf" 2>/dev/null
+# Two pages (a form feed starts the second), for page numbers in citations.
+printf 'Birinci sayfa: teslimat bilgileri.\n\fİkinci sayfa: garanti süresi iki yıldır.\n' > "$tmp/two-pages.txt"
+cupsfilter -i text/plain -m application/pdf "$tmp/two-pages.txt" > "$out/two-pages.pdf" 2>/dev/null
 rm -rf "$tmp"
 echo "fixtures written to $out"

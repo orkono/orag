@@ -11,8 +11,8 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use crate::support::{
-    TestApp, app, app_with, drain_jobs, get, index_with_previous_model, json_request, local, send,
-    send_full,
+    TestApp, app, app_with, drain_jobs, get, index_with_previous_model, json_request, local,
+    multipart, send, send_full,
 };
 
 async fn seed(app: &TestApp) {
@@ -432,4 +432,43 @@ async fn a_collection_deleted_while_queued_fails_the_stream_with_a_status() {
         .unwrap();
     // Checked again after the wait: a 404, not a 200 stream with an error event.
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn sources_report_pdf_pages() {
+    // Small pages merge into one chunk across the break (chunk boundaries do
+    // not change, D-009), so the range must end on page 2, not equal [2, 2].
+    let app = app();
+    let pdf = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-pages.pdf"),
+    )
+    .unwrap();
+    let (status, body) = send(&app, multipart("two-pages.pdf", "application/pdf", &pdf)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain_jobs(&app);
+    let (_, body) = send(
+        &app,
+        json_request(
+            "POST",
+            "/v1/collections/1/query",
+            json!({"query": "garanti süresi"}),
+        ),
+    )
+    .await;
+    let pages = &body["sources"][0]["pages"];
+    let (a, b) = (pages[0].as_u64().unwrap(), pages[1].as_u64().unwrap());
+    assert!(a <= 2 && b == 2, "{pages}");
+}
+
+#[tokio::test]
+async fn chunks_without_pages_still_answer() {
+    let app = app();
+    seed(&app).await; // Markdown: no pages
+    let (status, body) = send(
+        &app,
+        json_request("POST", "/v1/collections/1/query", json!({"query": "iade"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["sources"][0]["pages"], serde_json::Value::Null);
 }

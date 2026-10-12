@@ -12,6 +12,7 @@ use crate::error::{OragError, Result};
 pub const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_initial.sql"),
     include_str!("migrations/0002_meta.sql"),
+    include_str!("migrations/0003_chunk_pages.sql"),
 ];
 pub const SUPPORTED_SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 

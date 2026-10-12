@@ -55,6 +55,9 @@ pub struct ChunkDraft {
     /// A section heading with no body of its own is its own chunk.
     pub text: String,
     pub token_count: usize,
+    /// First and last physical PDF page of the blocks in this chunk; `None`
+    /// for formats without pages.
+    pub pages: Option<(u32, u32)>,
 }
 
 /// Share of the target a heading breadcrumb may use, so a long heading path
@@ -110,12 +113,16 @@ pub fn chunk_document(
         join_cost: join_cost(count_tokens),
         call_cost: count_tokens(""),
         chunks: Vec::new(),
+        page: None,
+        open_pages: None,
+        bodiless_page: None,
     };
-    for block in &doc.blocks {
+    for (index, block) in doc.blocks.iter().enumerate() {
         // A blank block, or a blank heading, carries nothing to embed or cite.
         if block.text().trim().is_empty() {
             continue;
         }
+        builder.page = doc.page_of(index);
         match block {
             Block::Heading { level, text } => builder.enter_heading(*level, text)?,
             other => builder.add_text(other.text())?,
@@ -142,6 +149,21 @@ struct ChunkBuilder<'a> {
     /// Tokens the tokenizer adds to every string (BOS/EOS), measured once.
     call_cost: usize,
     chunks: Vec<ChunkDraft>,
+    /// Page of the block being added, the page range of the open chunk, and
+    /// the page of a heading that has no body yet. Provenance only: nothing
+    /// here decides where a chunk ends.
+    page: Option<u32>,
+    open_pages: Option<(u32, u32)>,
+    bodiless_page: Option<u32>,
+}
+
+/// `range` widened to include `page`.
+fn widen(range: Option<(u32, u32)>, page: Option<u32>) -> Option<(u32, u32)> {
+    match (range, page) {
+        (Some((first, last)), Some(page)) => Some((first.min(page), last.max(page))),
+        (None, Some(page)) => Some((page, page)),
+        (range, None) => range,
+    }
 }
 
 impl ChunkBuilder<'_> {
@@ -174,6 +196,7 @@ impl ChunkBuilder<'_> {
         self.headings.push((level, text.to_string()));
         self.set_breadcrumb(&self.heading_path());
         self.bodiless_heading = Some(level);
+        self.bodiless_page = self.page;
         Ok(())
     }
 
@@ -184,8 +207,11 @@ impl ChunkBuilder<'_> {
             return Ok(());
         };
         self.set_breadcrumb(parents);
+        // The heading's own page, not the page of the block that ended it.
+        let page = std::mem::replace(&mut self.page, self.bodiless_page);
         self.add_text(last)?;
         self.flush()?;
+        self.page = page;
         self.set_breadcrumb(&path);
         Ok(())
     }
@@ -232,6 +258,8 @@ impl ChunkBuilder<'_> {
         let cost = self.cost(text);
         if cost > self.cfg.max_tokens {
             self.flush()?;
+            // Every window of one block lies on that block's page.
+            self.open_pages = widen(None, self.page);
             let mut pieces = self.split_oversized(text)?;
             // The last window stays open, so following small blocks merge into it.
             let tail = pieces.pop();
@@ -259,11 +287,13 @@ impl ChunkBuilder<'_> {
             self.current.push_str("\n\n");
             self.current.push_str(text);
             self.current_estimate += added;
+            self.open_pages = widen(self.open_pages, self.page);
             return Ok(());
         }
         self.flush()?;
         self.current = text.to_string();
         self.current_estimate = cost;
+        self.open_pages = widen(None, self.page);
         Ok(())
     }
 
@@ -278,11 +308,13 @@ impl ChunkBuilder<'_> {
         self.current_estimate = 0;
         let cost = self.cost(&text);
         if cost <= self.cfg.max_tokens {
-            return self.push_chunk(text, cost);
+            self.push_chunk(text, cost)?;
+        } else {
+            for (piece, cost) in self.split_oversized(&text)? {
+                self.push_chunk(piece, cost)?;
+            }
         }
-        for (piece, cost) in self.split_oversized(&text)? {
-            self.push_chunk(piece, cost)?;
-        }
+        self.open_pages = None;
         Ok(())
     }
 
@@ -295,6 +327,7 @@ impl ChunkBuilder<'_> {
             breadcrumb: self.breadcrumb.clone(),
             text,
             token_count,
+            pages: self.open_pages,
         });
         Ok(())
     }

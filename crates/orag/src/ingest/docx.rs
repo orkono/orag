@@ -104,6 +104,8 @@ fn parse_docx_with(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
         title,
         blocks,
         warnings,
+        // DOCX has no fixed pages; its provenance is the heading path.
+        pages: Vec::new(),
     })
 }
 
