@@ -15,6 +15,20 @@ pub struct Relevant {
     pub contains: String,
 }
 
+/// Question kinds of the v0.2 set (Task 42); older sets have none.
+pub const CATEGORIES: [&str; 8] = [
+    "factual",
+    "cross_language",
+    "multi_document",
+    "identifier",
+    "table",
+    "accentless",
+    "inflection",
+    "unanswerable",
+];
+/// `dev` tunes, `holdout` confirms; split by document family.
+pub const SPLITS: [&str; 2] = ["dev", "holdout"];
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvalQuery {
@@ -24,6 +38,54 @@ pub struct EvalQuery {
     #[serde(default)]
     pub relevant: Vec<Relevant>,
     pub answerable: bool,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub split: Option<String>,
+    /// Documents the question belongs to; paraphrases of one fact share it.
+    #[serde(default)]
+    pub family: Option<String>,
+    /// Found only when every label is found, not any one of them.
+    #[serde(default)]
+    pub require_all: bool,
+}
+
+impl EvalQuery {
+    pub fn category_name(&self) -> &str {
+        self.category.as_deref().unwrap_or("uncategorized")
+    }
+
+    pub fn split_name(&self) -> &str {
+        self.split.as_deref().unwrap_or("unsplit")
+    }
+}
+
+/// Checks the optional v0.2 fields shared by queries and answer probes.
+pub(crate) fn check_grouping(
+    category: Option<&str>,
+    split: Option<&str>,
+    answerable: bool,
+) -> std::result::Result<(), String> {
+    if let Some(category) = category {
+        if !CATEGORIES.contains(&category) {
+            return Err(format!(
+                "unknown category {category:?} (one of {})",
+                CATEGORIES.join(", ")
+            ));
+        }
+        if (category == "unanswerable") == answerable {
+            return Err(
+                "category unanswerable is for unanswerable questions, and only for them".into(),
+            );
+        }
+    }
+    match split {
+        Some(split) if !SPLITS.contains(&split) => Err(format!(
+            "unknown split {split:?} (one of {})",
+            SPLITS.join(", ")
+        )),
+        _ => Ok(()),
+    }
 }
 
 pub fn load_dataset(path: &Path) -> Result<Vec<EvalQuery>> {
@@ -42,6 +104,15 @@ pub fn load_dataset(path: &Path) -> Result<Vec<EvalQuery>> {
             return Err(at(
                 "answerable queries need relevant labels; unanswerable ones must have none".into(),
             ));
+        }
+        check_grouping(
+            query.category.as_deref(),
+            query.split.as_deref(),
+            query.answerable,
+        )
+        .map_err(at)?;
+        if query.require_all && query.relevant.len() < 2 {
+            return Err(at("require_all needs at least two relevant labels".into()));
         }
         if !ids.insert(query.id.clone()) {
             return Err(at(format!("duplicate id {}", query.id)));
@@ -83,5 +154,105 @@ mod tests {
         .unwrap();
         let err = load_dataset(&path).unwrap_err().to_string();
         assert!(err.contains("line 1"), "{err}");
+    }
+
+    fn jsonl(lines: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("d.jsonl");
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn v02_fields_load_and_older_rows_default() {
+        let (_dir, path) = jsonl(&[
+            r#"{"id":"a","lang":"tr","category":"table","split":"dev","family":"sulama","query":"q","relevant":[{"document":"d.md","contains":"x"}],"answerable":true}"#,
+            r#"{"id":"b","lang":"tr","query":"q","relevant":[{"document":"d.md","contains":"x"}],"answerable":true}"#,
+        ]);
+        let queries = load_dataset(&path).unwrap();
+        assert_eq!(queries[0].family.as_deref(), Some("sulama"));
+        assert_eq!((queries[0].category_name(), queries[0].split_name()), ("table", "dev"));
+        assert_eq!(
+            (queries[1].category_name(), queries[1].split_name()),
+            ("uncategorized", "unsplit")
+        );
+        assert!(!queries[1].require_all);
+    }
+
+    #[test]
+    fn unknown_category_or_split_is_rejected_with_its_line() {
+        let row = |category: &str, split: &str| {
+            format!(
+                r#"{{"id":"a","lang":"tr","category":"{category}","split":"{split}","query":"q","relevant":[{{"document":"d.md","contains":"x"}}],"answerable":true}}"#
+            )
+        };
+        let (_dir, path) = jsonl(&[&row("misc", "dev")]);
+        let err = load_dataset(&path).unwrap_err().to_string();
+        assert!(err.contains("line 1") && err.contains("misc"), "{err}");
+        let (_dir, path) = jsonl(&[&row("table", "train")]);
+        let err = load_dataset(&path).unwrap_err().to_string();
+        assert!(err.contains("line 1") && err.contains("train"), "{err}");
+    }
+
+    #[test]
+    fn the_unanswerable_category_must_match_the_flag() {
+        let (_dir, path) = jsonl(&[
+            r#"{"id":"a","lang":"tr","category":"unanswerable","query":"q","relevant":[{"document":"d.md","contains":"x"}],"answerable":true}"#,
+        ]);
+        assert!(load_dataset(&path).unwrap_err().to_string().contains("unanswerable"));
+        let (_dir, path) = jsonl(&[
+            r#"{"id":"a","lang":"tr","category":"factual","query":"q","relevant":[],"answerable":false}"#,
+        ]);
+        assert!(load_dataset(&path).unwrap_err().to_string().contains("unanswerable"));
+    }
+
+    #[test]
+    fn require_all_needs_two_labels() {
+        let (_dir, path) = jsonl(&[
+            r#"{"id":"a","lang":"tr","query":"q","relevant":[{"document":"d.md","contains":"x"}],"answerable":true,"require_all":true}"#,
+        ]);
+        let err = load_dataset(&path).unwrap_err().to_string();
+        assert!(err.contains("require_all"), "{err}");
+    }
+
+    #[test]
+    fn v02_dataset_has_the_planned_mix_and_families_stay_in_one_split() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/datasets/v02-retrieval.jsonl");
+        let queries = load_dataset(&path).unwrap();
+        assert_eq!(queries.len(), 200);
+        let planned = [
+            ("factual", 40),
+            ("cross_language", 25),
+            ("multi_document", 20),
+            ("identifier", 25),
+            ("table", 25),
+            ("accentless", 20),
+            ("inflection", 20),
+            ("unanswerable", 25),
+        ];
+        let mut splits: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        for (category, count) in planned {
+            let rows: Vec<&EvalQuery> =
+                queries.iter().filter(|q| q.category_name() == category).collect();
+            assert_eq!(rows.len(), count, "{category}");
+            let dev = rows.iter().filter(|q| q.split_name() == "dev").count();
+            assert!(
+                dev * 10 >= count * 4 && (count - dev) * 10 >= count * 4,
+                "{category}: {dev} of {count} in dev"
+            );
+        }
+        for query in &queries {
+            assert!(query.split.is_some(), "{} has no split", query.id);
+            let family = query.family.as_deref().expect("every v0.2 row has a family");
+            let split = splits.entry(family).or_insert(query.split_name());
+            assert_eq!(*split, query.split_name(), "family {family} is in both splits");
+            assert_eq!(
+                query.require_all,
+                query.category_name() == "multi_document",
+                "{}",
+                query.id
+            );
+        }
     }
 }

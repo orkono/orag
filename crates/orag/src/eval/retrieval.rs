@@ -1,6 +1,6 @@
 //! Indexes a corpus into a fresh store and compares lexical, dense and hybrid retrieval.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::domain::chunker::ChunkerConfig;
 use crate::error::{OragError, Result};
 use crate::eval::dataset::{EvalQuery, Relevant};
-use crate::eval::metrics::{label_ranks, mrr_at, ndcg_at, percentile, recall_at};
+use crate::eval::metrics::{label_ranks, mrr_at, ndcg_at, percentile};
 use crate::infer::Embedder;
 use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
@@ -38,6 +38,30 @@ pub struct StrategyReport {
     pub missed_in_context: Vec<String>,
     pub p50_ms: f64,
     pub p95_ms: f64,
+    pub by_category: BTreeMap<String, GroupReport>,
+    pub by_split: BTreeMap<String, GroupReport>,
+    /// Every question with its label ranks, so two runs can be compared per
+    /// question instead of by their means.
+    pub per_query: Vec<QueryRanks>,
+}
+
+/// The headline metrics over one category or split.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct GroupReport {
+    pub queries: usize,
+    pub recall_at_10: f64,
+    pub mrr_at_10: f64,
+    pub in_context: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QueryRanks {
+    pub id: String,
+    pub category: String,
+    pub split: String,
+    /// 1-based rank of each label within the retrieved candidates.
+    pub ranks: Vec<Option<usize>>,
+    pub in_context: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -76,6 +100,51 @@ impl RetrievalReport {
                 s.in_context,
                 s.p50_ms,
                 s.p95_ms
+            ));
+        }
+        // Older sets have one group each; a breakdown of one row repeats the table.
+        let groups = |pick: fn(&StrategyReport) -> &BTreeMap<String, GroupReport>| {
+            self.strategies.first().map_or(0, |s| pick(s).len())
+        };
+        if groups(|s| &s.by_category) > 1 {
+            out.push_str(&self.breakdown("By category", "category", |s| &s.by_category));
+        }
+        if groups(|s| &s.by_split) > 1 {
+            out.push_str(&self.breakdown("By split", "split", |s| &s.by_split));
+        }
+        out
+    }
+
+    /// One row per group: in-context share for every strategy, then the
+    /// hybrid (served) recall and MRR.
+    fn breakdown(
+        &self,
+        title: &str,
+        column: &str,
+        pick: fn(&StrategyReport) -> &BTreeMap<String, GroupReport>,
+    ) -> String {
+        let names: Vec<&str> = self.strategies.iter().map(|s| s.strategy).collect();
+        let mut out = format!("\n### {title}\n\n| {column} | questions |");
+        for name in &names {
+            out.push_str(&format!(" {name} in context |"));
+        }
+        out.push_str(" hybrid recall@10 | hybrid MRR@10 |\n|---|---|");
+        out.push_str(&"---|".repeat(names.len() + 2));
+        out.push('\n');
+        let hybrid = self.strategies.iter().find(|s| s.strategy == "hybrid");
+        let Some(first) = self.strategies.first() else {
+            return out;
+        };
+        for (group, report) in pick(first) {
+            out.push_str(&format!("| {group} | {} |", report.queries));
+            for strategy in &self.strategies {
+                let value = pick(strategy).get(group).map_or(0.0, |g| g.in_context);
+                out.push_str(&format!(" {value:.3} |"));
+            }
+            let served = hybrid.and_then(|h| pick(h).get(group)).cloned().unwrap_or_default();
+            out.push_str(&format!(
+                " {:.3} | {:.3} |\n",
+                served.recall_at_10, served.mrr_at_10
             ));
         }
         out
@@ -302,6 +371,53 @@ pub fn all_in_context(ranks: &[Option<usize>], limit: usize) -> bool {
     ranks.iter().all(|rank| rank.is_some_and(|r| r <= limit))
 }
 
+/// 1.0 when the question counts as found within `k`: any one label (labels
+/// are alternative evidence), or every label when `require_all` (a question
+/// that needs facts from several documents). Otherwise 0.0.
+pub fn question_found(ranks: &[Option<usize>], k: usize, require_all: bool) -> f64 {
+    let within = |rank: &Option<usize>| rank.is_some_and(|r| r <= k);
+    let found = if require_all {
+        !ranks.is_empty() && ranks.iter().all(within)
+    } else {
+        ranks.iter().any(within)
+    };
+    if found { 1.0 } else { 0.0 }
+}
+
+/// Running sums for one category or split.
+#[derive(Default)]
+struct GroupSums {
+    queries: usize,
+    recall_at_10: f64,
+    mrr_at_10: f64,
+    in_context: usize,
+}
+
+impl GroupSums {
+    fn add(&mut self, recall_at_10: f64, mrr_at_10: f64, in_context: bool) {
+        self.queries += 1;
+        self.recall_at_10 += recall_at_10;
+        self.mrr_at_10 += mrr_at_10;
+        self.in_context += usize::from(in_context);
+    }
+
+    fn report(&self) -> GroupReport {
+        let n = self.queries.max(1) as f64;
+        GroupReport {
+            queries: self.queries,
+            recall_at_10: self.recall_at_10 / n,
+            mrr_at_10: self.mrr_at_10 / n,
+            in_context: self.in_context as f64 / n,
+        }
+    }
+}
+
+fn group_reports(sums: BTreeMap<String, GroupSums>) -> BTreeMap<String, GroupReport> {
+    sums.into_iter()
+        .map(|(group, sums)| (group, sums.report()))
+        .collect()
+}
+
 fn evaluate_strategy(
     retriever: &Retriever,
     strategy: Strategy,
@@ -310,6 +426,9 @@ fn evaluate_strategy(
     let (mut r5, mut r10, mut mrr, mut ndcg, mut latencies) = (0.0, 0.0, 0.0, 0.0, Vec::new());
     let context = retriever.config.max_context_chunks;
     let mut missed_in_context = Vec::new();
+    let mut per_query = Vec::new();
+    let mut by_category: BTreeMap<String, GroupSums> = BTreeMap::new();
+    let mut by_split: BTreeMap<String, GroupSums> = BTreeMap::new();
     for query in queries {
         let started = Instant::now();
         // Deep enough for both the metrics and the context check.
@@ -317,13 +436,32 @@ fn evaluate_strategy(
         let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
         let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
-        r5 += recall_at(&ranks, 5);
-        r10 += recall_at(&ranks, 10);
-        mrr += mrr_at(&ranks, 10);
+        let recall_10 = question_found(&ranks, 10, query.require_all);
+        let rr = mrr_at(&ranks, 10);
+        let in_context = question_found(&ranks, context, query.require_all) == 1.0;
+        r5 += question_found(&ranks, 5, query.require_all);
+        r10 += recall_10;
+        mrr += rr;
         ndcg += ndcg_at(&ranks, 10);
-        if !all_in_context(&ranks, context) {
+        if !in_context {
             missed_in_context.push(query.id.clone());
         }
+        for (groups, key) in [
+            (&mut by_category, query.category_name()),
+            (&mut by_split, query.split_name()),
+        ] {
+            groups
+                .entry(key.to_string())
+                .or_default()
+                .add(recall_10, rr, in_context);
+        }
+        per_query.push(QueryRanks {
+            id: query.id.clone(),
+            category: query.category_name().to_string(),
+            split: query.split_name().to_string(),
+            ranks,
+            in_context,
+        });
     }
     let n = queries.len().max(1) as f64;
     Ok(StrategyReport {
@@ -337,6 +475,9 @@ fn evaluate_strategy(
         missed_in_context,
         p50_ms: percentile(&latencies, 50.0),
         p95_ms: percentile(&latencies, 95.0),
+        by_category: group_reports(by_category),
+        by_split: group_reports(by_split),
+        per_query,
     })
 }
 
@@ -439,6 +580,10 @@ mod tests {
                 contains: contains.into(),
             }],
             answerable: true,
+            category: None,
+            split: None,
+            family: None,
+            require_all: false,
         }
     }
 
@@ -587,5 +732,63 @@ mod tests {
         // The toy embedder misses some queries lexically: they are listed by id.
         assert!(!report.strategies[0].missed_in_context.is_empty());
         assert!(report.to_markdown().contains("in context"));
+    }
+
+    #[test]
+    fn require_all_needs_every_label_and_otherwise_one_is_enough() {
+        assert_eq!(question_found(&[Some(1), None], 10, true), 0.0);
+        assert_eq!(question_found(&[Some(1), None], 10, false), 1.0);
+        assert_eq!(question_found(&[Some(2), Some(9)], 10, true), 1.0);
+        assert_eq!(question_found(&[Some(2), Some(11)], 10, true), 0.0);
+        assert_eq!(question_found(&[None], 10, false), 0.0);
+        assert_eq!(question_found(&[], 10, false), 0.0);
+    }
+
+    #[test]
+    fn report_breaks_down_by_category_and_split_and_lists_each_query() {
+        let dir = corpus(&[
+            ("a.md", DOC),
+            ("b.md", "# Kargo\n\nKargo ücreti 49,90 TL olarak uygulanır."),
+        ]);
+        let mut first = query("q-a", "a.md", "14 gün");
+        first.category = Some("factual".into());
+        first.split = Some("dev".into());
+        let mut second = query("q-b", "b.md", "49,90 TL");
+        second.query = "kargo ücreti".into();
+        second.category = Some("table".into());
+        second.split = Some("holdout".into());
+        let mut both = query("q-ab", "a.md", "14 gün");
+        both.relevant.push(crate::eval::dataset::Relevant {
+            document: "b.md".into(),
+            contains: "49,90 TL".into(),
+        });
+        both.query = "iade kargo ücreti".into();
+        both.category = Some("multi_document".into());
+        both.require_all = true;
+        let work = tempfile::tempdir().unwrap();
+        let report = run_retrieval_eval(
+            Arc::new(FakeEmbedder::new()),
+            dir.path(),
+            &[first, second, both],
+            work.path(),
+        )
+        .unwrap();
+        let lexical = &report.strategies[0];
+        assert_eq!(
+            lexical.by_category.keys().collect::<Vec<_>>(),
+            vec!["factual", "multi_document", "table"]
+        );
+        assert_eq!(
+            lexical.by_split.keys().collect::<Vec<_>>(),
+            vec!["dev", "holdout", "unsplit"]
+        );
+        assert_eq!(lexical.by_category["table"].queries, 1);
+        let ids: Vec<&str> = lexical.per_query.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids, vec!["q-a", "q-b", "q-ab"]);
+        assert_eq!(lexical.per_query[2].ranks.len(), 2);
+        assert_eq!(lexical.per_query[2].category, "multi_document");
+        let markdown = report.to_markdown();
+        assert!(markdown.contains("By category") && markdown.contains("| multi_document |"));
+        assert!(markdown.contains("By split") && markdown.contains("| holdout |"));
     }
 }

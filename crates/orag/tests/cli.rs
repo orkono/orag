@@ -418,6 +418,32 @@ fn eval_retrieval_runs_on_seed_set() {
 }
 
 #[test]
+fn v02_dataset_labels_all_resolve() {
+    // The harness stops on any label the production-parsed corpus cannot
+    // satisfy, so success means every v0.2 label resolves (Task 42).
+    let home = tempfile::tempdir().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let out = orag()
+        .env("ORAG_HOME", home.path())
+        .args(["eval", "retrieval", "--dev-fake-models", "--corpus"])
+        .arg(root.join("corpus/v02"))
+        .arg("--dataset")
+        .arg(root.join("datasets/v02-retrieval.jsonl"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("By category") && stdout.contains("By split"),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn eval_answers_compares_samplers_and_rejects_unknown_ones() {
     let home = tempfile::tempdir().unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");

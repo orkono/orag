@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::normalize::normalize_for_lexical;
 use crate::error::{OragError, Result};
+use crate::eval::dataset::check_grouping;
 use crate::eval::metrics::{percentile, squash};
 use crate::eval::retrieval::index_corpus;
 use crate::infer::{Embedder, Generator, SamplerProfile};
@@ -33,6 +34,12 @@ pub struct AnswerProbe {
     #[serde(default)]
     pub expect: Vec<String>,
     pub answerable: bool,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub split: Option<String>,
+    #[serde(default)]
+    pub family: Option<String>,
 }
 
 pub fn load_probes(path: &Path) -> Result<Vec<AnswerProbe>> {
@@ -62,6 +69,12 @@ pub fn load_probes(path: &Path) -> Result<Vec<AnswerProbe>> {
                 "`expect` texts and their `|` alternatives must not be empty".into(),
             ));
         }
+        check_grouping(
+            probe.category.as_deref(),
+            probe.split.as_deref(),
+            probe.answerable,
+        )
+        .map_err(at)?;
         if !ids.insert(probe.id.clone()) {
             return Err(at(format!("duplicate id {}", probe.id)));
         }
@@ -410,6 +423,9 @@ mod tests {
                 query: "İade süresi kaç gün?".into(),
                 expect: vec!["on dört|14 GÜN".into(), "kargo ücretsiz".into()],
                 answerable: true,
+                category: None,
+                split: None,
+                family: None,
             },
             AnswerProbe {
                 id: "p2".into(),
@@ -417,6 +433,9 @@ mod tests {
                 query: "Şirketin kuruluş yılı nedir?".into(),
                 expect: vec![],
                 answerable: false,
+                category: None,
+                split: None,
+                family: None,
             },
         ];
         let work = tempfile::tempdir().unwrap();
@@ -443,5 +462,39 @@ mod tests {
         assert_eq!(greedy.refused_unanswerable, 0);
         assert_eq!(greedy.length_stops + greedy.repetition_stops, 0);
         assert!(report.to_markdown().contains("| dry |"));
+    }
+
+    #[test]
+    fn v02_fields_load_for_probes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"id":"a","lang":"tr","category":"table","split":"holdout","family":"sulama","query":"q","expect":["x"],"answerable":true}"#,
+        )
+        .unwrap();
+        let probes = load_probes(&path).unwrap();
+        assert_eq!(probes[0].split.as_deref(), Some("holdout"));
+        std::fs::write(
+            &path,
+            r#"{"id":"a","lang":"tr","category":"misc","query":"q","expect":["x"],"answerable":true}"#,
+        )
+        .unwrap();
+        let err = load_probes(&path).unwrap_err().to_string();
+        assert!(err.contains("line 1") && err.contains("misc"), "{err}");
+    }
+
+    #[test]
+    fn v02_probes_load_with_the_planned_mix() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../eval/datasets/v02-answers.jsonl");
+        let probes = load_probes(&path).unwrap();
+        assert_eq!(probes.len(), 60);
+        assert_eq!(probes.iter().filter(|p| p.answerable).count(), 40);
+        assert!(
+            probes
+                .iter()
+                .all(|p| p.category.is_some() && p.split.is_some() && p.family.is_some())
+        );
     }
 }

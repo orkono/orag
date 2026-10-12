@@ -24,6 +24,14 @@ One JSON object per line; blank lines are ignored.
 | `query` | string | the question as a user would type it |
 | `relevant` | array of `{document, contains}` | evidence for the answer; empty for unanswerable questions |
 | `answerable` | bool | `true` needs at least one `relevant` label, `false` needs none |
+| `category` | string, optional | `factual`, `cross_language`, `multi_document`, `identifier`, `table`, `accentless`, `inflection` or `unanswerable` (the last one exactly for unanswerable questions) |
+| `split` | string, optional | `dev` (used to tune) or `holdout` (only to confirm) |
+| `family` | string, optional | the documents a question belongs to; paraphrases of one fact share a family and a split |
+| `require_all` | bool, optional | the question counts as found only when **every** label is found (needs two or more labels); otherwise any one label is enough |
+
+Older sets have no `category` or `split`; the report groups them as
+`uncategorized` and `unsplit`. Answer probes take the same three optional
+fields.
 
 - `document` is the corpus file name (for example `tr-kargo-politikasi.md`).
 - `contains` is a short, unique piece of the document text that proves the
@@ -53,10 +61,17 @@ files macOS leaves on USB drives) are ignored.
 
 Computed over answerable questions at depth 10:
 
-- **recall@5, recall@10:** share of labels found in the top 5 / 10 chunks.
+- **recall@5, recall@10:** share of questions found in the top 5 / 10 chunks:
+  any one label, or every label for `require_all` questions.
 - **MRR@10:** reciprocal rank of the first chunk that satisfies any label.
 - **nDCG@10:** evidence coverage over labels (each label counts once), always in [0, 1].
+- **in context:** share of questions found within the chunks the answer
+  prompt can hold (`max_context_chunks`, 8), by the same rule.
 - **p50 / p95 ms:** retrieval latency per query.
+
+A set with categories or splits also gets "By category" and "By split"
+tables. The JSON report lists every question with its label ranks
+(`per_query`), so two runs can be compared question by question.
 
 ## The 200-question target set
 
@@ -71,6 +86,22 @@ fusion decisions has about 200 questions and must cover:
 - accentless typing (`istanbul ici`, `iade suresi`),
 - unanswerable questions (no evidence in the corpus).
 
+## The v0.2 set
+
+`eval/corpus/v02` is built by `scripts/make-v02-corpus.sh` from the sources in
+`eval/corpus-src/v02` (a fictional irrigation catalog printed to PDF, a pump
+manual converted to DOCX, two related HR documents, warranty terms and a
+plain-text price list, all written for ORAG) plus copies of the seed
+documents, `tr-anayasa.txt` and the court decision. The constitution is in
+it once, as text: a PDF copy would hold the same evidence under another name.
+Questions and probes were written and reviewed by models, not people
+(`eval/datasets/v02-audit.md`). Tune on `dev`, confirm on `holdout`.
+
+```bash
+orag eval retrieval --corpus eval/corpus/v02 --dataset eval/datasets/v02-retrieval.jsonl
+orag eval answers --corpus eval/corpus/v02 --dataset eval/datasets/v02-answers.jsonl --sampler dry
+```
+
 ## Datasets
 
 | corpus | dataset | questions | purpose |
@@ -78,6 +109,7 @@ fusion decisions has about 200 questions and must cover:
 | `eval/corpus/seed` | `seed.jsonl` | 14 answerable, 2 unanswerable | harness check, release gate |
 | `eval/corpus/anayasa` | `anayasa-tr.jsonl` | 20 answerable, 2 unanswerable | Turkish recall on a long legal text: inflected forms (`resmi dil` vs `resmî dili`), the circumflex, accentless typing |
 | `eval/corpus/anayasa` | `anayasa-cekim-tr.jsonl` | 30 answerable | questions in word forms the text does not use (`mirasa` for `miras`, `kanaatini` for `kanaatlerini`) |
+| `eval/corpus/v02` | `v02-retrieval.jsonl` | 175 answerable, 25 unanswerable | the v0.2 decision set (D-018): eight categories, `dev`/`holdout` splits |
 
 ```bash
 orag eval retrieval --corpus eval/corpus/anayasa --dataset eval/datasets/anayasa-tr.jsonl
@@ -126,6 +158,7 @@ sentence, or an uncited first sentence that says the sources do not answer.
 |---|---|---|
 | `eval/corpus/ceza` | `answers-ceza-tr.jsonl` | 7 answerable (3 lists), 2 unanswerable |
 | `eval/corpus/anayasa-pdf` | `answers-anayasa-tr.jsonl` | 8 answerable (2 lists), 2 unanswerable |
+| `eval/corpus/v02` | `v02-answers.jsonl` | 40 answerable, 20 unanswerable |
 
 Answer corpora are PDFs, parsed by the production parser (`pdf_oxide`): the
 copy loop this set was built for appeared only with that text, not with pypdf
