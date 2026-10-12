@@ -11,6 +11,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 - `fetch-model-pack.ps1`, the PowerShell twin of `fetch-model-pack.sh`: the same presets, revisions and SHA-256 hashes (`scripts/check-pack-presets.sh` compares them in CI), resumable downloads, the same pack layout; it asks before downloading. Without `-Preset` it builds the two default packs into `%USERPROFILE%\ORAG-paketleri`.
 - CI builds the installer on windows-2022 on every push, installs it silently, checks the installed `orag.exe` (`--version`, setup mode without models, a graceful stop on Ctrl-Break within 15 s via `examples/ctrl_break.rs`), uninstalls it and checks that data stays. `release.yml` attaches the installer to the draft release.
 - `scripts/render-icon.sh` also renders `assets/orag-icon.ico` (16/32/48/256) for the installer.
+- Installer review fixes: the scripts stop Git Bash from rewriting `/SWITCHES` into paths; `fetch-model-pack.ps1` enables TLS 1.2 on Windows PowerShell 5.1, makes `-OutDir` absolute, keeps a partial download when a resume fails and checks a complete `.part` instead of downloading it again; the installer is per user only and names the real data folder (or `ORAG_HOME`) after uninstalling; the smoke test checks the Start menu shortcuts, runs the pack script on Windows PowerShell 5.1 and proves a marker in `%USERPROFILE%\.orag` survives uninstall; `ctrl_break` refuses an address already in use; `check-pack-presets.sh` also compares the MIT text, the manifest keys and the default packs.
 
 ## [0.2.0] - 2026-10-12
 

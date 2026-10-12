@@ -4,6 +4,9 @@
 # uninstalls it and checks that program files go and data stays (Task 47).
 # Windows only (Git Bash). Usage: scripts/smoke-windows-installer.sh <setup.exe>
 set -euo pipefail
+# Git Bash (MSYS2) rewrites arguments that start with '/' into paths; the
+# Windows tools here take /SWITCHES, so turn that off for this script.
+export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
 . scripts/version-lib.sh
 setup="${1:?usage: $0 <setup.exe>}"
@@ -17,6 +20,20 @@ for f in README-Windows.txt fetch-model-pack.ps1 THIRD-PARTY-LICENSES.md docs/ap
   [ -f "$app_unix/$f" ] || { echo "$f was not installed" >&2; exit 1; }
 done
 "$app_unix/orag.exe" --version | tee /dev/stderr | grep -qx "orag $version"
+menu="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/ORAG"
+for lnk in "ORAG.lnk" "ORAG modellerini indir (internet).lnk"; do
+  [ -f "$menu/$lnk" ] || { echo "Start menu shortcut missing: $lnk" >&2; ls -la "$menu" >&2 || true; exit 1; }
+done
+# The shortcut runs Windows PowerShell 5.1, not pwsh: the script must parse and
+# run there (an unknown preset fails after parsing, before any download).
+out=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$app_unix/fetch-model-pack.ps1")" -Preset nope -Yes 2>&1 || true)
+grep -q "unknown preset: nope" <<<"$out" || { echo "fetch-model-pack.ps1 on PowerShell 5.1: $out" >&2; exit 1; }
+
+# Data in the real %USERPROFILE%\.orag must survive uninstalling.
+data="$(cygpath -u "$USERPROFILE")/.orag"
+mkdir -p "$data"
+marker="$data/smoke-marker-$$"
+echo keep > "$marker"
 
 home=$(mktemp -d)
 printf 'bind = "127.0.0.1:7623"\nui_bind = "127.0.0.1:2442"\n' > "$home/config.toml"
@@ -28,5 +45,6 @@ grep -q '"mode":"setup"' <<<"$body" || { echo "expected setup mode without model
 "$app_unix/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 for i in $(seq 1 60); do [ -f "$app_unix/orag.exe" ] || break; sleep 1; done
 [ ! -f "$app_unix/orag.exe" ] || { echo "orag.exe is still installed after uninstall" >&2; exit 1; }
-[ -f "$home/config.toml" ] || { echo "the data folder was touched by uninstall" >&2; exit 1; }
+[ -f "$marker" ] || { echo "uninstall removed data in $data" >&2; exit 1; }
+rm -f "$marker"
 echo "installer smoke test passed for $version"

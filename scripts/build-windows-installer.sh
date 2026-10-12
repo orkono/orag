@@ -3,6 +3,9 @@
 # binary. Windows only (Git Bash); used by CI (smoke test) and release.yml.
 # Usage: scripts/build-windows-installer.sh <output-dir>
 set -euo pipefail
+# Git Bash (MSYS2) rewrites arguments that start with '/' into paths; the
+# Windows tools here take /SWITCHES, so turn that off for this script.
+export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
 . scripts/version-lib.sh
 out="${1:?usage: $0 <output-dir>}"

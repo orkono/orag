@@ -25,7 +25,6 @@ DefaultDirName={localappdata}\Programs\ORAG
 DefaultGroupName=ORAG
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=commandline
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19045
@@ -53,8 +52,8 @@ turkish.DesktopIcon=Masaüstüne kısayol oluştur
 english.DesktopIcon=Create a desktop shortcut
 turkish.FetchModels=ORAG modellerini indir (internet)
 english.FetchModels=Download ORAG models (internet)
-turkish.DataKept=ORAG kaldırıldı. Belgeleriniz ve modelleriniz %USERPROFILE%\.orag klasöründe duruyor; artık gerekmiyorsa o klasörü kendiniz silebilirsiniz.
-english.DataKept=ORAG was removed. Your documents and models are still in %USERPROFILE%\.orag; delete that folder yourself if you no longer need them.
+turkish.DataKept=ORAG kaldırıldı. Belgeleriniz ve modelleriniz %1 klasöründe duruyor; artık gerekmiyorsa o klasörü kendiniz silebilirsiniz.
+english.DataKept=ORAG was removed. Your documents and models are still in %1; delete that folder yourself if you no longer need them.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
@@ -80,8 +79,16 @@ Name: "{group}\{cm:UninstallProgram,ORAG}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\ORAG"; Filename: "{app}\orag.exe"; Parameters: "start"; WorkingDir: "{app}"; IconFilename: "{app}\orag-icon.ico"; Tasks: desktopicon
 
 [Code]
+// Where ORAG keeps documents and models: ORAG_HOME if set, else %USERPROFILE%\.orag.
+function DataFolder(): String;
+begin
+  Result := GetEnv('ORAG_HOME');
+  if Result = '' then
+    Result := ExpandConstant('{%USERPROFILE}') + '\.orag';
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
-    MsgBox(CustomMessage('DataKept'), mbInformation, MB_OK);
+    MsgBox(FmtMessage(CustomMessage('DataKept'), [DataFolder()]), mbInformation, MB_OK);
 end;

@@ -48,6 +48,26 @@ for pid in sorted(set(a) & set(b)):
     for k in KEYS:
         if a[pid].get(k, "") != b[pid].get(k, ""):
             bad.append(f"{pid}.{k}: sh {a[pid].get(k, '')!r} != ps1 {b[pid].get(k, '')!r}")
+sh = open("scripts/fetch-model-pack.sh", encoding="utf-8").read()
+# The MIT text written for card-only licences, with the placeholders aligned.
+mit_sh = sh[sh.index("<<MIT\n") + 6:sh.index("\nMIT\n")]
+mit_sh = mit_sh.replace("$mit_holder", "{0}").replace("$revision", "{1}").replace("$repo", "{2}")
+mit_ps = ps[ps.index("$MitText = @'\n") + 14:ps.index("\n'@")]
+if mit_sh != mit_ps:
+    bad.append("the MIT licence text differs between the two scripts")
+# The manifest keys, in order.
+manifest_sh = sh[sh.index('cat > "$dest/orag-model.toml" <<EOF\n'):]
+keys_sh = re.findall(r"^(\w+) = ", manifest_sh[:manifest_sh.index("\nEOF")], re.M)
+manifest_ps = ps[ps.index("$manifest = @("):]
+keys_ps = re.findall(r'^\s+["\'](\w+) = ', manifest_ps[:manifest_ps.index(") -join")], re.M)
+if keys_sh != keys_ps:
+    bad.append(f"manifest keys differ: sh {keys_sh} != ps1 {keys_ps}")
+# The PowerShell default packs are the configured default models.
+config = open("crates/orag/src/config.rs", encoding="utf-8").read()
+defaults = re.findall(r'pub const DEFAULT_(?:EMBEDDING|GENERATION)_MODEL: &str = "([^"]+)"', config)
+ps_defaults = re.findall(r"'([^']+)'", ps[ps.index("$Defaults = @("):].split("\n", 1)[0])
+if sorted(defaults) != sorted(ps_defaults):
+    bad.append(f"PowerShell default packs {ps_defaults} != configured defaults {defaults}")
 if bad:
     sys.exit("\n".join(bad))
 print(f"pack presets match ({len(a)} presets)")

@@ -40,6 +40,11 @@ mod windows {
             eprintln!("no program given");
             return 2;
         };
+        // Readiness is judged by the address: it must be free before we start.
+        if get(addr, path).is_some() {
+            eprintln!("something already answers on {addr}; stop it first");
+            return 2;
+        }
         let mut child = match Command::new(program)
             .args(rest)
             .creation_flags(CREATE_NEW_PROCESS_GROUP)
@@ -52,7 +57,14 @@ mod windows {
             }
         };
         match wait_ready(&mut child, addr, path) {
-            Ok(body) => println!("{body}"),
+            Ok(body) => {
+                // The answer must come from our child, which must still run.
+                if let Ok(Some(status)) = child.try_wait() {
+                    eprintln!("the program exited before Ctrl-Break: {status}");
+                    return 1;
+                }
+                println!("{body}");
+            }
             Err(e) => {
                 eprintln!("{e}");
                 let _ = child.kill();

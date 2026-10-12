@@ -11,6 +11,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Windows PowerShell 5.1 (the Start-menu shortcut) may default to TLS 1.0;
+# huggingface.co needs TLS 1.2 or newer.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+# .NET file calls resolve relative paths against the process directory, not
+# the PowerShell location: make the output folder absolute once.
+$OutDir = [IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $OutDir))
 
 $Presets = [ordered]@{
   'qwen3-embedding-0.6b-q8_0' = @{
@@ -107,22 +113,34 @@ function Get-Pinned([string]$Url, [string]$Expected, [string]$Target) {
   Remove-Item -LiteralPath $Target -ErrorAction SilentlyContinue
   $part = "$Target.part"
   Write-Host "indiriliyor / downloading $Url"
-  $done = $false
+  $resumed = $false
   if (Test-Path -LiteralPath $part) {
     $have = (Get-Item -LiteralPath $part).Length
+    $req = [System.Net.HttpWebRequest]::Create($Url)
+    $req.AddRange([long]$have)
     try {
-      $req = [System.Net.HttpWebRequest]::Create($Url)
-      $req.AddRange([long]$have)
       $resp = $req.GetResponse()
+    } catch [System.Net.WebException] {
+      $resp = $_.Exception.Response
+      # 416: the .part already holds the whole file; check it as it is.
+      if ($resp -and [int]$resp.StatusCode -eq 416) { $resp.Dispose(); $resumed = $true }
+      elseif ($resp) { $resp.Dispose(); $resp = $null }
+      else { throw }
+    }
+    if ($resp) {
       if ([int]$resp.StatusCode -eq 206) {
+        # A failure mid-copy keeps what arrived: run the script again to go on.
         $in = $resp.GetResponseStream()
         $out = [System.IO.File]::Open($part, 'Append', 'Write')
         try { $in.CopyTo($out) } finally { $out.Dispose(); $in.Dispose(); $resp.Dispose() }
-        $done = $true
-      } else { $resp.Dispose() }
-    } catch { $done = $false }
+        $resumed = $true
+      } else {
+        $resp.Dispose()
+      }
+    }
   }
-  if (-not $done) {
+  if (-not $resumed) {
+    # No .part, or the server ignored the range: download from the start.
     Remove-Item -LiteralPath $part -ErrorAction SilentlyContinue
     Invoke-WebRequest -Uri $Url -OutFile $part -UseBasicParsing
   }
