@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.1] - 2026-10-13
+
+- **Cross-language retrieval (fusion).** Each list's top 4 hits now lead the fused order (both #1s first, then #2-#4), instead of only each list's #1 (D-005). On the v0.2 set hybrid in context rises from 0.886 to 0.943 (cross-language 0.600 → 0.840, multi-document 0.850 → 1.000), and answers with the expected facts from 0.850 to 0.925 (cross-language 2 of 5 → 5 of 5); answers take about 0.5 s longer and one more unanswerable probe is answered. Decided by a rule written before scoring (`.docs/benchmarks/v0.3-fusion.md`).
+
 ## [0.2.1] - 2026-10-12
 
 - **Windows installer (Task 47).** `ORAG-Setup-<version>.exe` (Inno Setup 6) installs ORAG per user without administrator rights into `%LOCALAPPDATA%\Programs\ORAG`, with Start menu entries *ORAG* (`orag.exe start`), *ORAG modellerini indir (internet)* and the uninstaller, an optional desktop shortcut, and a Turkish/English `README-Windows.txt`. Uninstalling removes program files only and says that `%USERPROFILE%\.orag` (documents, models) stays; an upgrade closes a running ORAG first. The binary is not code-signed yet (D-001); README-Windows explains SmartScreen.

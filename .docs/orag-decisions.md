@@ -134,7 +134,7 @@ can omit WAL content and is documented as unsafe. Bundled SQLite must be
 
 **Decision.** Every query: FTS5 BM25 top 50 + dense top 50, both constrained to
 the collection **before** top-k → Reciprocal Rank Fusion (k = 60) → the top
-hit of each list (lexical #1, dense #1) moved to the front → context filled in
+hits of each list (top 4 each, #1s first) moved to the front → context filled in
 that order up to the generator's token budget (max 8 chunks). No reranker, no
 query rewriting, no adaptive routing in v0.1.
 
@@ -146,6 +146,18 @@ retriever found, even at rank 1: on the PDF of the Turkish constitution,
 #1 costs at most two context slots and keeps scores unchanged. On
 `eval/datasets/anayasa-tr.jsonl` it raised hybrid recall@5 from 0.800 to 0.900
 and MRR@10 from 0.762 to 0.825; the seed set did not change.
+
+**Deeper promotion (0.3.0-alpha.1).** Each list's top 4 now lead
+(`RetrievalConfig::leaders_per_list`, half the answer context), in two tiers: both #1s first, then #2-#4, each tier in
+RRF order. On cross-language questions the lexical list matches incidental
+words (a company name, a product code) in wrong chunks, and those chunks
+outscored the dense list's answer at #3-#4: hybrid had 0.600 of them in
+context against 0.880 for dense alone. Weighting the dense list did not fix
+it; four slots per list did. On `v02-retrieval.jsonl` hybrid in context went
+from 0.886 to 0.943 (cross-language 0.840, multi-document 1.000), under a
+rule written before scoring: dev +4, holdout +6, worst category −1
+(`.docs/benchmarks/v0.3-fusion.md`). The #1 tier keeps the guarantee above
+when the token budget fits fewer than 8 chunks.
 
 **Abstention.** Hard abstain (no model call) only when both candidate lists
 are empty. The `abstained` flag also marks a model answer that is the refusal
