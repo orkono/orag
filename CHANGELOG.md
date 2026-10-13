@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.2] - 2026-10-13
+
+- **v0.2 evaluation set rewritten (step 49, D-018).** The 200 questions and 60 answer probes over the unchanged `eval/corpus/v02` were written again by `claude-opus-5-5` and audited row by row by `gpt-6-sol`, a model of another family; the audit changed 43 of 260 rows (1 wrong, 42 weak). Categories, counts and split rules are unchanged; the set is still not human-checked. New baseline with the current engine: hybrid in context 0.909 (multi-document 0.800, cross-language 0.880), answers with the expected facts 0.925 (`.docs/benchmarks/v0.3-set-rewrite.md`). 36 probes accept the other spellings of a correct answer (`18|onsekiz`, `2 adet|iki adet`), as the old set did. Earlier model and fusion decisions stay recorded as old-set results.
+
 ## [0.3.0-alpha.1] - 2026-10-13
 
 - **Cross-language retrieval (fusion).** Each list's top 4 hits now lead the fused order (both #1s first, then #2-#4), instead of only each list's #1 (D-005). On the v0.2 set hybrid in context rises from 0.886 to 0.943 (cross-language 0.600 → 0.840, multi-document 0.850 → 1.000), and answers with the expected facts from 0.850 to 0.925 (cross-language 2 of 5 → 5 of 5); answers take about 0.5 s longer and one more unanswerable probe is answered. Decided by a rule written before scoring (`.docs/benchmarks/v0.3-fusion.md`).

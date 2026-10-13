@@ -98,8 +98,9 @@ manual converted to DOCX, two related HR documents, warranty terms and a
 plain-text price list, all written for ORAG) plus copies of the seed
 documents, `tr-anayasa.txt` and the court decision. The constitution is in
 it once, as text: a PDF copy would hold the same evidence under another name.
-Questions and probes were written and reviewed by models, not people
-(`eval/datasets/v02-audit.md`). Tune on `dev`, confirm on `holdout`.
+Questions and probes were written by `claude-opus-5-5` and audited row by
+row by `gpt-6-sol`, models of two families, not people
+(`eval/datasets/v02-audit.md`, step 49). Tune on `dev`, confirm on `holdout`.
 
 ```bash
 orag eval retrieval --corpus eval/corpus/v02 --dataset eval/datasets/v02-retrieval.jsonl
