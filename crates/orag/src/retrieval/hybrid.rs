@@ -8,7 +8,9 @@ use serde::Serialize;
 
 use crate::domain::CollectionId;
 use crate::domain::lexical_query::LexicalQuery;
-use crate::domain::rrf::{FusedHit, promote_list_leaders, reciprocal_rank_fusion};
+use crate::domain::rrf::{
+    FusedHit, LEADERS_PER_LIST, promote_list_leaders, reciprocal_rank_fusion,
+};
 use crate::error::{OragError, Result};
 use crate::infer::{Embedder, VectorIndex};
 use crate::store::Store;
@@ -121,7 +123,8 @@ impl Retriever {
         };
         trace.lexical_hits = lexical.len();
         trace.dense_hits = dense.len();
-        let fused = promote_list_leaders(reciprocal_rank_fusion(&lexical, &dense));
+        let fused =
+            promote_list_leaders(reciprocal_rank_fusion(&lexical, &dense), LEADERS_PER_LIST);
         trace.fused_hits = fused.len();
         let top: Vec<FusedHit> = fused.into_iter().take(limit).collect();
         let candidates = self.hydrate(collection_id, top)?;
