@@ -159,6 +159,14 @@ rule written before scoring: dev +4, holdout +6, worst category −1
 (`.docs/benchmarks/v0.3-fusion.md`). The #1 tier keeps the guarantee above
 when the token budget fits fewer than 8 chunks.
 
+**Context diversity, rejected (0.3.0-alpha.3).** A per-document cap in the
+answer context and a tier for chunks both lists found were scored on the
+rewritten v0.2 set. The cap gained nothing; the consensus tier lost (dev −1,
+holdout −2, cross-language 0.880 → 0.680), because middling chunks in both
+lists push the single-list #2-#4 out. The ordering above stays; the remaining
+multi-document misses are single-passage recall problems
+(`.docs/benchmarks/v0.3-context-diversity.md`).
+
 **Abstention.** Hard abstain (no model call) only when both candidate lists
 are empty. The `abstained` flag also marks a model answer that is the refusal
 sentence or whose first sentence, uncited, says the sources do not answer

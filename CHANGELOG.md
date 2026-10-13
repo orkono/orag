@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.3] - 2026-10-13
+
+- **Context diversity tried and rejected.** A per-document cap in the answer context and a tier for chunks both retrieval lists found were scored on the rewritten v0.2 set under a rule written before scoring; neither passed (the consensus tier: dev −1, holdout −2, cross-language 0.880 → 0.680), so retrieval ordering is unchanged. The remaining multi-document misses are single-passage recall problems (`.docs/benchmarks/v0.3-context-diversity.md`, D-005).
+
 ## [0.3.0-alpha.2] - 2026-10-13
 
 - **v0.2 evaluation set rewritten (step 49, D-018).** The 200 questions and 60 answer probes over the unchanged `eval/corpus/v02` were written again by `claude-opus-5-5` and audited row by row by `gpt-6-sol`, a model of another family; the audit changed 43 of 260 rows (1 wrong, 42 weak). Categories, counts and split rules are unchanged; the set is still not human-checked. New baseline with the current engine: hybrid in context 0.909 (multi-document 0.800, cross-language 0.880), answers with the expected facts 0.925 (`.docs/benchmarks/v0.3-set-rewrite.md`). 36 probes accept the other spellings of a correct answer (`18|onsekiz`, `2 adet|iki adet`), as the old set did. Earlier model and fusion decisions stay recorded as old-set results.
