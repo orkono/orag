@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.2] - 2026-10-13
 
-- **v0.2 evaluation set rewritten (step 49, D-018).** The 200 questions and 60 answer probes over the unchanged `eval/corpus/v02` were written again by `claude-opus-5-5` and audited row by row by `gpt-6-sol`, a model of another family; the audit changed 43 of 260 rows (1 wrong, 42 weak). Categories, counts and split rules are unchanged; the set is still not human-checked. New baseline with the current engine: hybrid in context 0.909 (multi-document 0.800, cross-language 0.880), answers with the expected facts 0.875 (`.docs/benchmarks/v0.3-set-rewrite.md`). Earlier model and fusion decisions stay recorded as old-set results.
+- **v0.2 evaluation set rewritten (step 49, D-018).** The 200 questions and 60 answer probes over the unchanged `eval/corpus/v02` were written again by `claude-opus-5-5` and audited row by row by `gpt-6-sol`, a model of another family; the audit changed 43 of 260 rows (1 wrong, 42 weak). Categories, counts and split rules are unchanged; the set is still not human-checked. New baseline with the current engine: hybrid in context 0.909 (multi-document 0.800, cross-language 0.880), answers with the expected facts 0.925 (`.docs/benchmarks/v0.3-set-rewrite.md`). 36 probes accept the other spellings of a correct answer (`18|onsekiz`, `2 adet|iki adet`), as the old set did. Earlier model and fusion decisions stay recorded as old-set results.
 
 ## [0.3.0-alpha.1] - 2026-10-13
 
