@@ -529,6 +529,18 @@ say so. Settings are chosen on `dev`; a change is adopted only when `holdout`
 does not get worse. After this task the set is frozen: an edit needs a
 CHANGELOG line and never happens inside a model or fusion decision.
 
+**Amendment (step 49, 2026-10-13): the v0.2 set rewritten.** On the owner's
+decision the questions and probes were written again from scratch by
+`claude-opus-5-5` and audited row by row by `gpt-6-sol` (`codex-orkono-hr`),
+a model of another family that did not write them; the Task 42 set was written
+and reviewed by the same family. The corpus, file names, categories, counts and
+split rules are unchanged. The audit reported 43 of 260 rows (1 wrong, 42 weak)
+and every replacement was applied (`v02-audit.md`). It is still not
+human-checked. Results measured on the Task 42 set (the v0.2 model decision,
+the v0.3 fusion decision) stay recorded as old-set results and are not
+re-decided; `.docs/benchmarks/v0.3-set-rewrite.md` holds the new baseline. The
+set is frozen again under the rule above.
+
 ## D-019 — Configuration file, read once at startup (owner decision, 2026-10-01)
 
 **Decision.** `$ORAG_HOME/config.toml` (default `~/.orag/config.toml`) is the

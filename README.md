@@ -27,10 +27,10 @@ desktop application arrives in v0.3.
   Answers can be streamed (SSE).
 - Models: the v0.2 evaluation kept Qwen3-Embedding-0.6B and Qwen3.5-4B as
   the defaults (D-007, `.docs/benchmarks/v0.2-model-decision.md`).
-- **The 200-question evaluation set is synthetic and its human audit is
-  pending (D-018);** its numbers compare builds and models, they are not a
-  quality guarantee. Cross-language questions (a Turkish question about an
-  English document, or the reverse) are the weakest group.
+- **The 200-question evaluation set is synthetic:** written by one model and
+  audited row by row by a model of another family, not by people (D-018); its
+  numbers compare builds and models, they are not a quality guarantee. Questions whose answer needs two documents are the
+  weakest group (`.docs/benchmarks/v0.3-set-rewrite.md`).
 
 ## System requirements
 
