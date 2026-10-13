@@ -8,10 +8,6 @@ use crate::domain::ChunkId;
 
 pub const RRF_K: f64 = 60.0;
 
-/// How many top hits of each list lead the fused order (D-005). Four from
-/// each list fill the 8-chunk answer context when the lists do not overlap.
-pub const LEADERS_PER_LIST: usize = 4;
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FusedHit {
     pub chunk_id: ChunkId,
@@ -67,25 +63,26 @@ pub fn reciprocal_rank_fusion(lexical: &[ChunkId], dense: &[ChunkId]) -> Vec<Fus
 
 /// Moves each list's #1 to the front, then the rest of each list's top
 /// `per_list`, keeping fused order within each tier, so a context that fits
-/// fewer chunks still gets both leaders first. RRF alone can push a
+/// fewer chunks still gets both leaders first. Each list's #1 always leads
+/// (D-005), so `per_list` 0 and 1 behave the same. RRF alone can push a
 /// chunk that only one retriever finds, even near the top, below chunks that
 /// are mediocre in both lists, so it never reaches the answer context: on the
 /// PDF of the Turkish constitution (lexical #1, D-005) and on cross-language
 /// questions, where the lexical list matches incidental words in wrong chunks
 /// and the dense list finds the answer (D-005, 0.3.0-alpha.1). Scores are kept.
 pub fn promote_list_leaders(mut hits: Vec<FusedHit>, per_list: usize) -> Vec<FusedHit> {
-    let best = |hit: &FusedHit| {
-        [hit.lexical_rank, hit.dense_rank]
+    // Stable: each tier keeps fused order.
+    hits.sort_by_cached_key(|hit| {
+        let best = [hit.lexical_rank, hit.dense_rank]
             .into_iter()
             .flatten()
             .min()
-            .unwrap_or(usize::MAX)
-    };
-    // Stable: each tier keeps fused order.
-    hits.sort_by_key(|hit| match best(hit) {
-        1 => 0,
-        rank if rank <= per_list => 1,
-        _ => 2,
+            .unwrap_or(usize::MAX);
+        match best {
+            1 => 0,
+            rank if rank <= per_list => 1,
+            _ => 2,
+        }
     });
     hits
 }
@@ -151,7 +148,7 @@ mod tests {
         let fused = reciprocal_rank_fusion(&lexical, &dense);
         let before = ids(&fused);
         assert!(before.iter().position(|&id| id == 30) > Some(7));
-        let promoted = promote_list_leaders(fused, LEADERS_PER_LIST);
+        let promoted = promote_list_leaders(fused, 4);
         // Both #1s lead, then lexical #2-4 and dense #2-4 in fused order.
         assert_eq!(ids(&promoted), vec![20, 11, 21, 22, 12, 13, 14, 30, 23]);
     }
@@ -166,26 +163,15 @@ mod tests {
     }
 
     #[test]
-    fn leaders_per_list_fills_the_answer_context_at_most() {
-        assert_eq!(LEADERS_PER_LIST, 4);
-    }
-
-    #[test]
     fn promotion_keeps_order_when_the_leaders_already_lead() {
         let fused = reciprocal_rank_fusion(&[1, 2, 3], &[1, 3, 2]);
-        assert_eq!(
-            ids(&promote_list_leaders(fused.clone(), LEADERS_PER_LIST)),
-            ids(&fused)
-        );
+        assert_eq!(ids(&promote_list_leaders(fused.clone(), 4)), ids(&fused));
     }
 
     #[test]
     fn promotion_handles_a_single_list_and_empty_input() {
         let fused = reciprocal_rank_fusion(&[], &[5, 6]);
-        assert_eq!(
-            ids(&promote_list_leaders(fused, LEADERS_PER_LIST)),
-            vec![5, 6]
-        );
-        assert!(promote_list_leaders(Vec::new(), LEADERS_PER_LIST).is_empty());
+        assert_eq!(ids(&promote_list_leaders(fused, 4)), vec![5, 6]);
+        assert!(promote_list_leaders(Vec::new(), 4).is_empty());
     }
 }

@@ -1,4 +1,5 @@
-//! Deterministic hybrid retrieval: BM25 + dense → RRF, each list's #1 first (D-005).
+//! Deterministic hybrid retrieval: BM25 + dense → RRF, then each list's top
+//! hits first (#1s, then up to half the answer context per list; D-005).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,9 +9,7 @@ use serde::Serialize;
 
 use crate::domain::CollectionId;
 use crate::domain::lexical_query::LexicalQuery;
-use crate::domain::rrf::{
-    FusedHit, LEADERS_PER_LIST, promote_list_leaders, reciprocal_rank_fusion,
-};
+use crate::domain::rrf::{FusedHit, promote_list_leaders, reciprocal_rank_fusion};
 use crate::error::{OragError, Result};
 use crate::infer::{Embedder, VectorIndex};
 use crate::store::Store;
@@ -55,6 +54,15 @@ impl Default for RetrievalConfig {
             max_context_chunks: 8,
             lexical_query: LEXICAL_QUERY,
         }
+    }
+}
+
+impl RetrievalConfig {
+    /// How many top hits of each list lead the fused order (D-005): half the
+    /// answer context, so the two lists' leaders fill it when they do not
+    /// overlap (4 each for the default 8 chunks).
+    pub fn leaders_per_list(&self) -> usize {
+        self.max_context_chunks / 2
     }
 }
 
@@ -123,8 +131,10 @@ impl Retriever {
         };
         trace.lexical_hits = lexical.len();
         trace.dense_hits = dense.len();
-        let fused =
-            promote_list_leaders(reciprocal_rank_fusion(&lexical, &dense), LEADERS_PER_LIST);
+        let fused = promote_list_leaders(
+            reciprocal_rank_fusion(&lexical, &dense),
+            self.config.leaders_per_list(),
+        );
         trace.fused_hits = fused.len();
         let top: Vec<FusedHit> = fused.into_iter().take(limit).collect();
         let candidates = self.hydrate(collection_id, top)?;
@@ -250,6 +260,18 @@ mod tests {
         assert_eq!(hybrid.trace.strategy, "hybrid");
         assert!(hybrid.trace.lexical_hits >= 1 && hybrid.trace.dense_hits >= 1);
         assert!(hybrid.trace.embedding_space.is_some());
+    }
+
+    #[test]
+    fn each_list_gets_half_the_answer_context() {
+        let config = RetrievalConfig::default();
+        assert_eq!(config.leaders_per_list(), 4);
+        let small = RetrievalConfig {
+            max_context_chunks: 4,
+            ..config
+        };
+        assert_eq!(small.leaders_per_list(), 2);
+        assert!(2 * small.leaders_per_list() <= small.max_context_chunks);
     }
 
     #[test]

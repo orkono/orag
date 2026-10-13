@@ -148,7 +148,7 @@ retriever found, even at rank 1: on the PDF of the Turkish constitution,
 and MRR@10 from 0.762 to 0.825; the seed set did not change.
 
 **Deeper promotion (0.3.0-alpha.1).** Each list's top 4 now lead
-(`LEADERS_PER_LIST`), in two tiers: both #1s first, then #2-#4, each tier in
+(`RetrievalConfig::leaders_per_list`, half the answer context), in two tiers: both #1s first, then #2-#4, each tier in
 RRF order. On cross-language questions the lexical list matches incidental
 words (a company name, a product code) in wrong chunks, and those chunks
 outscored the dense list's answer at #3-#4: hybrid had 0.600 of them in

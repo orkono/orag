@@ -355,9 +355,9 @@ collection is reindexed.
 
 `rank_score` is a ranking signal (reciprocal rank fusion), **not** a
 confidence or a probability. Candidates are taken in fused order, except that
-the top hit of the lexical list and of the dense list are offered first (a
-chunk too long for the context budget is still skipped), so `rank_score` does
-not always decrease along `sources`.
+the top hits of the lexical list and of the dense list are offered first: both
+lists' #1, then each list's #2-#4 (a chunk too long for the context budget is
+still skipped), so `rank_score` does not always decrease along `sources`.
 
 ```bash
 curl -s -H 'Content-Type: application/json' \
