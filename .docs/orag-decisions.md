@@ -161,7 +161,8 @@ when the token budget fits fewer than 8 chunks.
 
 **Context diversity, rejected (0.3.0-alpha.3).** A per-document cap in the
 answer context and a tier for chunks both lists found were scored on the
-rewritten v0.2 set. The cap gained nothing; the consensus tier lost (dev −1,
+rewritten v0.2 set. The cap gained nothing (2 per document lost 2 on dev);
+the consensus tier lost (dev −1,
 holdout −2, cross-language 0.880 → 0.680), because middling chunks in both
 lists push the single-list #2-#4 out. The ordering above stays; the remaining
 multi-document misses are single-passage recall problems
