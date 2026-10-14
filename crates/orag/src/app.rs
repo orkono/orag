@@ -349,6 +349,29 @@ pub(crate) fn load_embedder(_config: &Config) -> anyhow::Result<Arc<dyn Embedder
     no_backend()
 }
 
+/// The installed reranker `id` (v0.4 candidate; eval only for now).
+#[cfg(feature = "llama")]
+pub(crate) fn load_reranker(
+    config: &Config,
+    id: &str,
+) -> anyhow::Result<Arc<dyn crate::infer::Reranker>> {
+    use crate::infer::llama::reranker::LlamaReranker;
+    use crate::infer::models::{ModelRole, find_model};
+    let installed = find_model(&config.models_dir(), id, ModelRole::Reranking)?;
+    tracing::info!(reranker = %installed.manifest.id, "loading reranker");
+    Ok(Arc::new(
+        LlamaReranker::load(&installed).context("loading reranker")?,
+    ))
+}
+
+#[cfg(not(feature = "llama"))]
+pub(crate) fn load_reranker(
+    _config: &Config,
+    _id: &str,
+) -> anyhow::Result<Arc<dyn crate::infer::Reranker>> {
+    no_backend()
+}
+
 #[cfg(not(feature = "llama"))]
 pub(crate) fn load_generator(_config: &Config) -> anyhow::Result<Arc<dyn Generator>> {
     no_backend()

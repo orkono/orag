@@ -425,3 +425,49 @@ fn report_breaks_down_by_category_and_split_and_lists_each_query() {
     assert!(markdown.contains("By category") && markdown.contains("| multi_document |"));
     assert!(markdown.contains("By split") && markdown.contains("| holdout |"));
 }
+
+#[test]
+fn a_reranked_run_names_its_reranker_and_only_changes_hybrid() {
+    use crate::infer::fake::FakeReranker;
+    use crate::retrieval::rerank::Rerank;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let run = |rerank: Option<Rerank>| {
+        let work = tempfile::tempdir().unwrap();
+        run_retrieval_eval_run(
+            Arc::new(FakeEmbedder::new()),
+            &root.join("corpus/seed"),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank,
+            },
+        )
+        .unwrap()
+    };
+    let plain = run(None);
+    let reranked = run(Some(Rerank {
+        reranker: Arc::new(FakeReranker),
+        depth: 20,
+        pin_leaders: false,
+        timeout: std::time::Duration::from_secs(5),
+    }));
+    assert_eq!(plain.reranker, None);
+    assert_eq!(
+        reranked.reranker.as_deref(),
+        Some("fake-reranker, depth 20")
+    );
+    assert!(
+        reranked
+            .to_markdown()
+            .contains("reranker: `fake-reranker, depth 20`")
+    );
+    for (a, b) in plain.strategies.iter().zip(&reranked.strategies) {
+        if a.strategy != "hybrid" {
+            assert_eq!(a.per_query, b.per_query, "{}", a.strategy);
+        }
+    }
+}

@@ -74,6 +74,16 @@ pub enum EvalCommand {
         /// 0.3.0-alpha.8).
         #[arg(long)]
         no_context_budget: bool,
+        /// Rerank hybrid candidates with this installed reranker (v0.4
+        /// experiment).
+        #[arg(long, hide = true)]
+        rerank_model: Option<String>,
+        /// Fused candidates the reranker scores (8-50).
+        #[arg(long, hide = true, default_value_t = 20)]
+        rerank_depth: usize,
+        /// Keep each list's promoted leaders in front of the reranked ones.
+        #[arg(long, hide = true)]
+        rerank_pin_leaders: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -174,6 +184,9 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     lexical_query,
                     rank_depth,
                     no_context_budget,
+                    rerank_model,
+                    rerank_depth,
+                    rerank_pin_leaders,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -188,6 +201,9 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 lexical_query: lexical_query.as_deref(),
                 rank_depth,
                 no_context_budget,
+                rerank_model: rerank_model.as_deref(),
+                rerank_depth,
+                rerank_pin_leaders,
                 dev_fake_models,
             },
         ),
@@ -309,8 +325,14 @@ fn run_eval_retrieval(
         lexical_query,
         rank_depth,
         no_context_budget,
+        rerank_model,
+        rerank_depth,
+        rerank_pin_leaders,
         dev_fake_models,
     } = options;
+    if !(8..=50).contains(&rerank_depth) {
+        anyhow::bail!("--rerank-depth must be between 8 and 50, got {rerank_depth}");
+    }
     use anyhow::Context;
     let mut config = crate::retrieval::hybrid::RetrievalConfig::default();
     if let Some(mode) = lexical_query {
@@ -342,14 +364,34 @@ fn run_eval_retrieval(
     let (embedder, generator) = load_eval_models(dev_fake_models, no_context_budget)?;
     // Exclusively created and removed on drop; never touches pre-existing paths.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
-    let report = crate::eval::retrieval::run_retrieval_eval_deep(
+    let rerank = match rerank_model {
+        None => None,
+        Some(id) => {
+            let reranker: std::sync::Arc<dyn crate::infer::Reranker> = if dev_fake_models {
+                std::sync::Arc::new(crate::infer::fake::FakeReranker)
+            } else {
+                crate::app::load_reranker(&load_config()?, id)?
+            };
+            Some(crate::retrieval::rerank::Rerank {
+                reranker,
+                depth: rerank_depth,
+                pin_leaders: rerank_pin_leaders,
+                // An eval measures the reranker; it never falls back on time.
+                timeout: std::time::Duration::from_secs(600),
+            })
+        }
+    };
+    let report = crate::eval::retrieval::run_retrieval_eval_run(
         embedder,
         corpus,
         &queries,
         work.path(),
         config,
-        rank_depth,
-        generator,
+        crate::eval::retrieval::EvalRun {
+            rank_depth,
+            generator,
+            rerank,
+        },
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
@@ -363,6 +405,9 @@ struct EvalRetrievalOptions<'a> {
     lexical_query: Option<&'a str>,
     rank_depth: Option<usize>,
     no_context_budget: bool,
+    rerank_model: Option<&'a str>,
+    rerank_depth: usize,
+    rerank_pin_leaders: bool,
     dev_fake_models: bool,
 }
 
