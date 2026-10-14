@@ -845,6 +845,28 @@ mod tests {
     }
 
     #[test]
+    fn v04_holdout_loads_all_holdout_with_new_families() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/datasets");
+        let probes = load_probes(&root.join("v04-holdout-answers.jsonl")).unwrap();
+        let questions =
+            crate::eval::dataset::load_dataset(&root.join("v04-holdout-retrieval.jsonl")).unwrap();
+        assert_eq!((probes.len(), questions.len()), (30, 100));
+        assert_eq!(probes.iter().filter(|p| p.answerable).count(), 20);
+        assert!(probes.iter().all(|p| p.split.as_deref() == Some("holdout")));
+        assert!(questions.iter().all(|q| q.split_name() == "holdout"));
+        let old: HashSet<String> = load_probes(&root.join("v02-answers.jsonl"))
+            .unwrap()
+            .into_iter()
+            .filter_map(|p| p.family)
+            .collect();
+        assert!(
+            probes
+                .iter()
+                .all(|p| !old.contains(p.family.as_deref().unwrap()))
+        );
+    }
+
+    #[test]
     fn v02_probes_load_with_the_planned_mix() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../eval/datasets/v02-answers.jsonl");

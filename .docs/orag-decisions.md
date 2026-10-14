@@ -604,6 +604,15 @@ all 60 probes and found no other row of this class. Nothing else changed; the
 new answers baseline is in `.docs/benchmarks/v0.3-set-rewrite.md`. Any rise is
 a scoring correction, not an engine gain.
 
+**Amendment (step 60, 2026-10-14): a fresh holdout for v0.4.** The v0.2 holdout has been read in
+several v0.3 steps, so v0.4 model decisions get a new one: `v04-holdout-retrieval.jsonl` (100) and
+`v04-holdout-answers.jsonl` (30) over the same corpus, on facts and passages the v0.2 set does not
+use (checked mechanically), written by `claude-opus-5-5` and audited by `gpt-6-sol` (23 of 130
+rows replaced; `v04-audit.md`). Rule: candidates are chosen on v0.2 `dev`; each chosen candidate is
+scored on the v0.4 holdout once, and the result is recorded whatever it is. Only the served default
+was scored on it at creation (hybrid in context 0.909, expected facts 0.950). Frozen under the rule
+above.
+
 **Amendment (step 55, 0.3.0-alpha.8): the eval scores the real context.**
 "In context" used to mean the top 8 of the fused list; the answer path takes
 16 candidates and `select_context` skips any that does not fit the answer

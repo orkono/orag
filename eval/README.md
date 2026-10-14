@@ -116,6 +116,16 @@ orag eval retrieval --corpus eval/corpus/v02 --dataset eval/datasets/v02-retriev
 orag eval answers --corpus eval/corpus/v02 --dataset eval/datasets/v02-answers.jsonl --sampler dry
 ```
 
+## The v0.4 holdout set
+
+`v04-holdout-retrieval.jsonl` (100 questions, the v0.2 categories at half size) and
+`v04-holdout-answers.jsonl` (30 probes) ask about facts the v0.2 set does not use, over the same
+`eval/corpus/v02`; every row is `holdout` (step 60, D-018). They exist to confirm the v0.4 model
+decisions (bge-m3, a reranker) on questions nothing was tuned on: a candidate is chosen on v0.2
+`dev`, then scored here **once**. Written by `claude-opus-5-5`, audited by `gpt-6-sol`
+(`eval/datasets/v04-audit.md`); not human-checked. Only the served default was run on it before
+any candidate (hybrid in context 0.909; answers expected facts 0.950).
+
 ## Datasets
 
 | corpus | dataset | questions | purpose |
