@@ -1,0 +1,85 @@
+name: model-cpu
+# CPU cost of an embedder decision (v0.4 bge-m3, step 66): the release build with
+# both embedders on GitHub's x86-64 runner (4 vCPU, 16 GB), plus a Windows smoke
+# run. A measurement, not a per-push check: run by hand, or by pushing a
+# `model-bench/**` branch (deleted after the run).
+on:
+  workflow_dispatch:
+  push:
+    branches: ["model-bench/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo build --release --locked
+      - name: Fetch and install both embedders
+        run: |
+          set -euo pipefail
+          packs="$RUNNER_TEMP/packs"
+          for preset in qwen3-embedding-0.6b-q8_0 bge-m3-q8_0; do
+            if [ -n "$EXE" ]; then
+              pwsh -NoProfile -File scripts/fetch-model-pack.ps1 -Preset "$preset" -OutDir "$packs" -Yes
+            else
+              scripts/fetch-model-pack.sh "$preset" "$packs"
+            fi
+            for home in qwen bge; do
+              mkdir -p "$RUNNER_TEMP/home-$home"
+              ORAG_HOME="$RUNNER_TEMP/home-$home" "target/release/orag$EXE" models import "$packs/$preset"
+            done
+          done
+          printf 'bind = "127.0.0.1:0"\nui_bind = "off"\n' > "$RUNNER_TEMP/home-qwen/config.toml"
+          printf 'bind = "127.0.0.1:0"\nui_bind = "off"\nembedding_model = "bge-m3-q8_0"\n' > "$RUNNER_TEMP/home-bge/config.toml"
+      - name: Machine
+        run: |
+          {
+            echo "## Machine ($RUNNER_OS)"
+            echo '```'
+            if [ -z "$EXE" ]; then lscpu | grep -E 'Model name|^CPU\(s\)'; free -g | head -2; fi
+            "target/release/orag$EXE" --version
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Cost runs on v0.2 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          for home in qwen bge; do
+            echo "## $home: v02 cost run" | tee -a "$GITHUB_STEP_SUMMARY"
+            start=$(date +%s)
+            ORAG_HOME="$RUNNER_TEMP/home-$home" target/release/orag eval retrieval --no-context-budget \
+              --corpus eval/corpus/v02 --dataset eval/datasets/v02-retrieval.jsonl \
+              --out "$RUNNER_TEMP/cost-$home.json" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "wall seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Smoke run on seed (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          for home in qwen bge; do
+            echo "## $home: seed smoke run" | tee -a "$GITHUB_STEP_SUMMARY"
+            ORAG_HOME="$RUNNER_TEMP/home-$home" target/release/orag.exe eval retrieval --no-context-budget \
+              --corpus eval/corpus/seed --dataset eval/datasets/seed.jsonl \
+              --out "$RUNNER_TEMP/seed-$home.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: model-cpu-${{ matrix.os }}
+          path: ${{ runner.temp }}/*.json
