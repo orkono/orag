@@ -34,6 +34,9 @@ pub struct RerankTrace {
     pub ms: u64,
     /// The fused order was kept: the reranker failed or ran out of time.
     pub fallback: bool,
+    /// Scored passages read whole because no query key matched their chunk
+    /// (only with a window).
+    pub whole: usize,
 }
 
 impl Rerank {
@@ -54,11 +57,17 @@ impl Rerank {
             0
         };
         let end = self.depth.min(candidates.len()).max(pinned);
+        let mut whole = 0;
         let passages: Vec<String> = candidates[pinned..end]
             .iter()
-            .map(|c| match self.window_chars {
-                Some(max) => passage_window(query, &c.chunk.text, max),
-                None => c.chunk.text.clone(),
+            .map(|c| {
+                let window = self
+                    .window_chars
+                    .and_then(|max| passage_window(query, &c.chunk.text, max));
+                if self.window_chars.is_some() && window.is_none() {
+                    whole += 1;
+                }
+                window.unwrap_or_else(|| c.chunk.text.clone())
             })
             .collect();
         let started = Instant::now();
@@ -71,6 +80,7 @@ impl Rerank {
             scored: 0,
             ms,
             fallback: false,
+            whole,
         };
         match scores {
             Ok(scores) if scores.len() == passages.len() && started.elapsed() <= self.timeout => {
@@ -336,5 +346,9 @@ mod tests {
             .retrieve(1, "filtre kartuşu", Strategy::Hybrid, 3)
             .unwrap();
         assert!(*windowed.0.lock().unwrap() <= 100);
+        let english = retriever
+            .retrieve(1, "spare cartridge", Strategy::Hybrid, 3)
+            .unwrap();
+        assert!(english.trace.rerank.unwrap().whole >= 1);
     }
 }

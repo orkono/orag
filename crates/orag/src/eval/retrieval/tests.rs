@@ -469,6 +469,9 @@ fn a_reranked_run_names_its_reranker_and_only_changes_hybrid() {
     for (a, b) in plain.strategies.iter().zip(&reranked.strategies) {
         if a.strategy != "hybrid" {
             assert_eq!(a.per_query, b.per_query, "{}", a.strategy);
+        } else {
+            assert!(a.per_query.iter().all(|q| q.rerank_whole.is_none()));
+            assert!(b.per_query.iter().all(|q| q.rerank_whole.is_some()));
         }
     }
 }
