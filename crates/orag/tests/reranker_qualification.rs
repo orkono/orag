@@ -165,3 +165,33 @@ fn long_passages_are_cut_and_scoring_is_repeatable() {
     let late = Instant::now() - Duration::from_secs(1);
     assert!(r.score(TRIPLES[0].0, &passages, Some(late)).is_err());
 }
+
+#[test]
+#[ignore = "needs a real reranker (ORAG_TEST_RERANKER_MODEL)"]
+fn batched_scores_equal_scores_one_at_a_time() {
+    let r = reranker();
+    let passages: Vec<String> = TRIPLES
+        .iter()
+        .chain(&HARD_TRIPLES)
+        .flat_map(|(_, p, n)| [p.to_string(), n.to_string()])
+        .collect();
+    let started = Instant::now();
+    let together = r.score(TRIPLES[0].0, &passages, None).unwrap();
+    eprintln!("{} pairs together: {:?}", passages.len(), started.elapsed());
+    let started = Instant::now();
+    let alone: Vec<f32> = passages
+        .iter()
+        .map(|p| {
+            r.score(TRIPLES[0].0, std::slice::from_ref(p), None)
+                .unwrap()[0]
+        })
+        .collect();
+    eprintln!(
+        "{} pairs one at a time: {:?}",
+        passages.len(),
+        started.elapsed()
+    );
+    for (i, (a, b)) in together.iter().zip(&alone).enumerate() {
+        assert!((a - b).abs() < 0.05, "pair {i}: batched {a} vs alone {b}");
+    }
+}

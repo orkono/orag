@@ -18,6 +18,12 @@ use crate::infer::llama::{backend, load_model, model_error, tokenize};
 use crate::infer::models::{InstalledModel, RerankInput, RerankerSpec};
 use crate::infer::prompt::{SpecialTexts, neutralize_special_markers};
 
+/// Tokens decoded together: several pairs share one decode, which is what
+/// makes reranking 16-30 candidates affordable.
+const BATCH_TOKENS: usize = 4096;
+/// Pairs per decode at most (llama.cpp sequences).
+const BATCH_SEQUENCES: usize = 16;
+
 /// GGUF metadata key of the Qwen3-Reranker prompt.
 const TEMPLATE_KEY: &str = "tokenizer.chat_template.rerank";
 
@@ -130,31 +136,48 @@ impl Reranker for LlamaReranker {
         if passages.is_empty() {
             return Ok(Vec::new());
         }
-        let n = u32::try_from(self.spec.max_tokens).unwrap_or(u32::MAX);
+        let pairs: Vec<Vec<LlamaToken>> = passages
+            .iter()
+            .map(|passage| self.pair_tokens(query, passage))
+            .collect::<Result<_>>()?;
+        // Every pair fits in `max_tokens`, so a batch of that size holds at least one.
+        let budget = BATCH_TOKENS.max(self.spec.max_tokens);
+        let n = u32::try_from(budget).unwrap_or(u32::MAX);
         let params = LlamaContextParams::default()
             .with_embeddings(true)
             .with_n_ctx(NonZeroU32::new(n))
             .with_n_batch(n)
             .with_n_ubatch(n)
+            .with_n_seq_max(BATCH_SEQUENCES as u32)
+            // One cache shared by the sequences: split per sequence, a long pair
+            // would not fit its share (NoKvCacheSlot).
+            .with_kv_unified(true)
             .with_pooling_type(LlamaPoolingType::Rank);
         let mut ctx = self
             .model
             .new_context(backend()?, params)
             .map_err(model_error)?;
-        // The deadline is checked between pairs: a call can overrun it by
-        // one pair's decode, never by the whole list.
+        let lengths: Vec<usize> = pairs.iter().map(Vec::len).collect();
+        // The deadline is checked between batches: a call can overrun it by
+        // one batch's decode, never by the whole list.
         let mut scores = Vec::with_capacity(passages.len());
-        for passage in passages {
+        for group in pack(&lengths, budget, BATCH_SEQUENCES) {
             if deadline.is_some_and(|d| Instant::now() > d) {
                 return Err(OragError::Model("reranking ran out of time".into()));
             }
-            let tokens = self.pair_tokens(query, passage)?;
             ctx.clear_kv_cache();
-            let mut batch = LlamaBatch::new(tokens.len(), 1);
-            batch.add_sequence(&tokens, 0, false).map_err(model_error)?;
+            let mut batch =
+                LlamaBatch::new(lengths[group.clone()].iter().sum(), group.len() as i32);
+            for (seq, tokens) in (0..).zip(&pairs[group.clone()]) {
+                batch
+                    .add_sequence(tokens, seq, false)
+                    .map_err(model_error)?;
+            }
             ctx.decode(&mut batch).map_err(model_error)?;
-            let outputs = ctx.embeddings_seq_ith(0).map_err(model_error)?;
-            scores.push(self.relevance(outputs));
+            for seq in 0..group.len() as i32 {
+                let outputs = ctx.embeddings_seq_ith(seq).map_err(model_error)?;
+                scores.push(self.relevance(outputs));
+            }
         }
         Ok(scores)
     }
@@ -187,6 +210,24 @@ fn relevance(outputs: &[f32], relevant: usize) -> f32 {
     }
 }
 
+/// Consecutive groups of pairs whose lengths sum to at most `budget` tokens,
+/// at most `max_sequences` each, in order.
+fn pack(lengths: &[usize], budget: usize, max_sequences: usize) -> Vec<std::ops::Range<usize>> {
+    let mut groups = Vec::new();
+    let (mut start, mut used) = (0, 0);
+    for (i, &len) in lengths.iter().enumerate() {
+        if i > start && (used + len > budget || i - start == max_sequences) {
+            groups.push(start..i);
+            (start, used) = (i, 0);
+        }
+        used += len;
+    }
+    if start < lengths.len() {
+        groups.push(start..lengths.len());
+    }
+    groups
+}
+
 /// Splits a rerank template at `{document}`; it must hold `{query}` before it.
 fn split_template(template: &str) -> Result<(String, String)> {
     let (before, after) = template
@@ -213,6 +254,18 @@ mod tests {
         // Logits: log-odds of yes against no.
         assert!((relevance(&[3.0, 1.0], 0) - 2.0).abs() < 1e-6);
         assert!((relevance(&[3.0, 1.0], 1) + 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pairs_pack_into_batches_within_the_token_and_sequence_limits() {
+        assert_eq!(pack(&[100, 200, 300], 1000, 16), vec![0..3]);
+        assert_eq!(pack(&[600, 600, 600], 1000, 16), vec![0..1, 1..2, 2..3]);
+        assert_eq!(
+            pack(&[400, 400, 300, 900], 1000, 16),
+            vec![0..2, 2..3, 3..4]
+        );
+        assert_eq!(pack(&[10; 5], 1000, 2), vec![0..2, 2..4, 4..5]);
+        assert!(pack(&[], 1000, 16).is_empty());
     }
 
     #[test]
