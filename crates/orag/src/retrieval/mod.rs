@@ -4,6 +4,7 @@ pub mod answer;
 pub mod hybrid;
 pub mod repetition;
 pub mod rerank;
+pub mod rerank_window;
 
 #[cfg(test)]
 pub(crate) mod testing {

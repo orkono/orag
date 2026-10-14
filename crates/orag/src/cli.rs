@@ -84,6 +84,10 @@ pub enum EvalCommand {
         /// Keep each list's promoted leaders in front of the reranked ones.
         #[arg(long, hide = true)]
         rerank_pin_leaders: bool,
+        /// Rerank only the sentences around the query's terms, at most this
+        /// many characters per chunk (100-4000).
+        #[arg(long, hide = true)]
+        rerank_window: Option<usize>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -187,6 +191,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     rerank_model,
                     rerank_depth,
                     rerank_pin_leaders,
+                    rerank_window,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -204,6 +209,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 rerank_model: rerank_model.as_deref(),
                 rerank_depth,
                 rerank_pin_leaders,
+                rerank_window,
                 dev_fake_models,
             },
         ),
@@ -328,10 +334,16 @@ fn run_eval_retrieval(
         rerank_model,
         rerank_depth,
         rerank_pin_leaders,
+        rerank_window,
         dev_fake_models,
     } = options;
     if !(8..=50).contains(&rerank_depth) {
         anyhow::bail!("--rerank-depth must be between 8 and 50, got {rerank_depth}");
+    }
+    if let Some(n) = rerank_window
+        && !(100..=4000).contains(&n)
+    {
+        anyhow::bail!("--rerank-window must be between 100 and 4000, got {n}");
     }
     use anyhow::Context;
     let mut config = crate::retrieval::hybrid::RetrievalConfig::default();
@@ -378,6 +390,7 @@ fn run_eval_retrieval(
                 pin_leaders: rerank_pin_leaders,
                 // An eval measures the reranker; it never falls back on time.
                 timeout: std::time::Duration::from_secs(600),
+                window_chars: rerank_window,
             })
         }
     };
@@ -408,6 +421,7 @@ struct EvalRetrievalOptions<'a> {
     rerank_model: Option<&'a str>,
     rerank_depth: usize,
     rerank_pin_leaders: bool,
+    rerank_window: Option<usize>,
     dev_fake_models: bool,
 }
 

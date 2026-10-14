@@ -66,6 +66,10 @@ pub struct QueryRanks {
     /// 1-based rank of each label within the retrieved candidates.
     pub ranks: Vec<Option<usize>>,
     pub in_context: bool,
+    /// With a reranker window: scored chunks read whole because no query key
+    /// matched them (step 65).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_whole: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -291,7 +295,17 @@ pub fn run_retrieval_eval_run(
             } else {
                 ""
             };
-            format!("{}, depth {}{pinned}", r.reranker.model_id(), r.depth)
+            {
+                let window = r
+                    .window_chars
+                    .map(|n| format!(", window {n}"))
+                    .unwrap_or_default();
+                format!(
+                    "{}, depth {}{pinned}{window}",
+                    r.reranker.model_id(),
+                    r.depth
+                )
+            }
         }),
         strategies,
     })
@@ -487,6 +501,14 @@ fn prompt_holds_evidence(
     Ok((question_found(&ranks, context, query.require_all), skipped))
 }
 
+/// A question with its score, label ranks and reranker whole-chunk count.
+type Scored<'q> = (
+    &'q EvalQuery,
+    QuestionScore,
+    Vec<Option<usize>>,
+    Option<usize>,
+);
+
 fn evaluate_strategy(
     retriever: &Retriever,
     strategy: Strategy,
@@ -501,21 +523,25 @@ fn evaluate_strategy(
     let depth = EVAL_DEPTH.max(pool).max(rank_depth);
     let mut latencies = Vec::new();
     let mut skipped_chunks = 0;
-    let mut scored: Vec<(&EvalQuery, QuestionScore, Vec<Option<usize>>)> = Vec::new();
+    let mut scored: Vec<Scored<'_>> = Vec::new();
     for query in queries {
         let started = Instant::now();
         let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
         let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
+        let whole = match (&retriever.reranker, &outcome.trace.rerank) {
+            (Some(r), Some(trace)) if r.window_chars.is_some() => Some(trace.whole),
+            _ => None,
+        };
         let mut score = score_question(&ranks, context, query.require_all);
         let (in_context, skipped) =
             prompt_holds_evidence(generator, query, outcome.candidates, pool, context)?;
         score.in_context = in_context;
         skipped_chunks += skipped;
-        scored.push((query, score, ranks));
+        scored.push((query, score, ranks, whole));
     }
     let mut all = GroupSums::default();
-    scored.iter().for_each(|(_, score, _)| all.add(score));
+    scored.iter().for_each(|(_, score, _, _)| all.add(score));
     let all = all.report();
     Ok(StrategyReport {
         strategy: strategy.as_str(),
@@ -528,21 +554,22 @@ fn evaluate_strategy(
         skipped_chunks,
         missed_in_context: scored
             .iter()
-            .filter(|(_, score, _)| !score.in_context)
-            .map(|(query, _, _)| query.id.clone())
+            .filter(|(_, score, _, _)| !score.in_context)
+            .map(|(query, _, _, _)| query.id.clone())
             .collect(),
         p50_ms: percentile(&latencies, 50.0),
         p95_ms: percentile(&latencies, 95.0),
-        by_category: group_reports(scored.iter().map(|(q, s, _)| (q.category_name(), s))),
-        by_split: group_reports(scored.iter().map(|(q, s, _)| (q.split_name(), s))),
+        by_category: group_reports(scored.iter().map(|(q, s, _, _)| (q.category_name(), s))),
+        by_split: group_reports(scored.iter().map(|(q, s, _, _)| (q.split_name(), s))),
         per_query: scored
             .into_iter()
-            .map(|(query, score, ranks)| QueryRanks {
+            .map(|(query, score, ranks, rerank_whole)| QueryRanks {
                 id: query.id.clone(),
                 category: query.category_name().to_string(),
                 split: query.split_name().to_string(),
                 ranks,
                 in_context: score.in_context,
+                rerank_whole,
             })
             .collect(),
     })

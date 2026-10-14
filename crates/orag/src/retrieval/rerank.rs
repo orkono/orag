@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::infer::Reranker;
 use crate::retrieval::hybrid::Candidate;
+use crate::retrieval::rerank_window::passage_window;
 
 /// A reranker and how far into the fused list it reads.
 #[derive(Clone)]
@@ -20,6 +21,9 @@ pub struct Rerank {
     pub pin_leaders: bool,
     /// Scoring that ends after this keeps the fused order.
     pub timeout: Duration,
+    /// Score only the sentences around the query's terms, at most this many
+    /// characters per chunk (step 65); `None` scores whole chunks.
+    pub window_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -30,6 +34,9 @@ pub struct RerankTrace {
     pub ms: u64,
     /// The fused order was kept: the reranker failed or ran out of time.
     pub fallback: bool,
+    /// Scored passages read whole because no query key matched their chunk
+    /// (only with a window).
+    pub whole: usize,
 }
 
 impl Rerank {
@@ -50,9 +57,18 @@ impl Rerank {
             0
         };
         let end = self.depth.min(candidates.len()).max(pinned);
+        let mut whole = 0;
         let passages: Vec<String> = candidates[pinned..end]
             .iter()
-            .map(|c| c.chunk.text.clone())
+            .map(|c| {
+                let window = self
+                    .window_chars
+                    .and_then(|max| passage_window(query, &c.chunk.text, max));
+                if self.window_chars.is_some() && window.is_none() {
+                    whole += 1;
+                }
+                window.unwrap_or_else(|| c.chunk.text.clone())
+            })
             .collect();
         let started = Instant::now();
         let scores = self
@@ -64,6 +80,7 @@ impl Rerank {
             scored: 0,
             ms,
             fallback: false,
+            whole,
         };
         match scores {
             Ok(scores) if scores.len() == passages.len() && started.elapsed() <= self.timeout => {
@@ -185,6 +202,22 @@ mod tests {
             depth,
             pin_leaders,
             timeout: Duration::from_secs(5),
+            window_chars: None,
+        }
+    }
+
+    /// Scores 0 and records the longest passage it was given.
+    struct Longest(std::sync::Mutex<usize>);
+    impl Reranker for Longest {
+        fn model_id(&self) -> &str {
+            "longest"
+        }
+        fn score(&self, _: &str, passages: &[String], _: Option<Instant>) -> Result<Vec<f32>> {
+            let mut longest = self.0.lock().unwrap();
+            for p in passages {
+                *longest = (*longest).max(p.chars().count());
+            }
+            Ok(vec![0.0; passages.len()])
         }
     }
 
@@ -288,5 +321,34 @@ mod tests {
         let slow = retriever.retrieve(1, query, Strategy::Hybrid, 5).unwrap();
         assert_eq!(titles(&slow.candidates), titles(&fused.candidates));
         assert!(slow.trace.rerank.unwrap().fallback);
+    }
+
+    #[test]
+    fn a_window_shortens_what_the_reranker_reads() {
+        let long = format!(
+            "# L\n\n{} filtre kartuşu burada.",
+            "Uzun bir giriş cümlesi. ".repeat(20)
+        );
+        let docs = [("l.md", long.as_str()), DOCS[0], DOCS[1]];
+        let (_dir, mut retriever) = indexed(FakeEmbedder::new(), &docs);
+        let whole = Arc::new(Longest(std::sync::Mutex::new(0)));
+        retriever.reranker = Some(rerank(whole.clone(), 8, false));
+        retriever
+            .retrieve(1, "filtre kartuşu", Strategy::Hybrid, 3)
+            .unwrap();
+        assert!(*whole.0.lock().unwrap() > 100);
+        let windowed = Arc::new(Longest(std::sync::Mutex::new(0)));
+        retriever.reranker = Some(Rerank {
+            window_chars: Some(100),
+            ..rerank(windowed.clone(), 8, false)
+        });
+        retriever
+            .retrieve(1, "filtre kartuşu", Strategy::Hybrid, 3)
+            .unwrap();
+        assert!(*windowed.0.lock().unwrap() <= 100);
+        let english = retriever
+            .retrieve(1, "spare cartridge", Strategy::Hybrid, 3)
+            .unwrap();
+        assert!(english.trace.rerank.unwrap().whole >= 1);
     }
 }

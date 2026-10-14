@@ -454,20 +454,24 @@ fn a_reranked_run_names_its_reranker_and_only_changes_hybrid() {
         depth: 20,
         pin_leaders: false,
         timeout: std::time::Duration::from_secs(5),
+        window_chars: Some(400),
     }));
     assert_eq!(plain.reranker, None);
     assert_eq!(
         reranked.reranker.as_deref(),
-        Some("fake-reranker, depth 20")
+        Some("fake-reranker, depth 20, window 400")
     );
     assert!(
         reranked
             .to_markdown()
-            .contains("reranker: `fake-reranker, depth 20`")
+            .contains("reranker: `fake-reranker, depth 20, window 400`")
     );
     for (a, b) in plain.strategies.iter().zip(&reranked.strategies) {
         if a.strategy != "hybrid" {
             assert_eq!(a.per_query, b.per_query, "{}", a.strategy);
+        } else {
+            assert!(a.per_query.iter().all(|q| q.rerank_whole.is_none()));
+            assert!(b.per_query.iter().all(|q| q.rerank_whole.is_some()));
         }
     }
 }
