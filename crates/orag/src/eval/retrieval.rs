@@ -291,7 +291,17 @@ pub fn run_retrieval_eval_run(
             } else {
                 ""
             };
-            format!("{}, depth {}{pinned}", r.reranker.model_id(), r.depth)
+            {
+                let window = r
+                    .window_chars
+                    .map(|n| format!(", window {n}"))
+                    .unwrap_or_default();
+                format!(
+                    "{}, depth {}{pinned}{window}",
+                    r.reranker.model_id(),
+                    r.depth
+                )
+            }
         }),
         strategies,
     })
