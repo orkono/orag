@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
-use crate::ingest::headings::demote_running_headers;
+use crate::ingest::headings::{demote_running_headers, demote_unsupported_titles};
 use crate::ingest::layout::{LayoutIssue, is_unmapped, page_looks_broken};
 use crate::ingest::parse::paragraph_blocks;
 
@@ -121,7 +121,9 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     warnings.extend(suspicious_layout_warnings(&suspicious));
     Ok(ParsedDocument {
         title: None,
-        blocks: demote_running_headers(blocks, &block_pages),
+        // Over the whole document, so a title at the foot of a page is judged
+        // by the text on the next page.
+        blocks: demote_unsupported_titles(demote_running_headers(blocks, &block_pages)),
         warnings,
         pages: block_pages,
     })
@@ -293,7 +295,7 @@ pub(crate) mod tests {
     fn heading_lines_on_a_page_become_headings_with_their_page() {
         let doc = parse_pdf(&test_pdf(&[
             Some("HAKKIMIZDA"),
-            Some("Firma 2009 yilinda kuruldu"),
+            Some("Firma 2009 yilinda Izmir ilinde kuruldu"),
         ]))
         .unwrap();
         assert_eq!(
@@ -303,10 +305,26 @@ pub(crate) mod tests {
                     level: 3,
                     text: "HAKKIMIZDA".into()
                 },
-                Block::Paragraph("Firma 2009 yilinda kuruldu".into()),
+                Block::Paragraph("Firma 2009 yilinda Izmir ilinde kuruldu".into()),
             ]
         );
         assert_eq!(doc.pages, vec![Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn a_label_at_the_foot_of_a_page_is_judged_by_the_next_page() {
+        let doc = parse_pdf(&test_pdf(&[
+            Some("Some body text here.\n\nTIME SET"),
+            Some("OFF"),
+        ]))
+        .unwrap();
+        assert!(
+            doc.blocks
+                .iter()
+                .all(|b| !matches!(b, Block::Heading { .. })),
+            "{:?}",
+            doc.blocks
+        );
     }
 
     #[test]
