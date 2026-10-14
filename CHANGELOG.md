@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.16] - 2026-10-14
+
+- **v0.4 retrieval decision: not adopted (step 63, D-005).** 26 combinations of embedder (qwen3-embedding, bge-m3) and reranker (none, Qwen3-Reranker-0.6B, bge-reranker-v2-m3; depth 16-30; leaders pinned or not) were scored on v0.2 dev under a rule written before scoring. The best reach +8 in context with no losses (bge-m3 with a reranker at depth 30), but every reranker variant adds 204-2010 ms of p95 latency against a 150 ms budget, and bge-m3 alone misses its gate, so retrieval is unchanged. The v0.4 holdout stays unread; the next step batches reranker pairs (`.docs/benchmarks/v0.4-retrieval-decision.md`).
+
 ## [0.3.0-alpha.15] - 2026-10-14
 
 - **Reranker for experiments (step 62, v0.4 plan Tasks 1-3 and 5).** A `Reranker` trait, a llama.cpp cross-encoder with rank pooling (pair input for bge-reranker-v2-m3, the GGUF rerank template for Qwen3-Reranker-0.6B; the passage is cut to fit, never the question; vocabulary special tokens are broken in question and passage), and an optional rerank step that scores the first fused candidates before the answer pool is cut, falling back to the fused order on error or timeout. Only the eval can switch it on (`orag eval retrieval --rerank-model <id>`); the served path is unchanged. Both candidates pass the qualification triples. Reranker packs use the new `reranking` role.
