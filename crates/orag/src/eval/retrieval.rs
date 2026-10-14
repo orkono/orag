@@ -181,7 +181,8 @@ pub fn run_retrieval_eval_with(
 }
 
 /// `run_retrieval_eval_with`, reporting each label's rank down to `rank_depth`
-/// (10..=50). Metrics stay at depth 10 and the answer context (diagnosis).
+/// (10..=50). Scores stay at depth 10 and the answer context (diagnosis);
+/// latencies then include the deeper retrieval.
 pub fn run_retrieval_eval_deep(
     embedder: Arc<dyn Embedder>,
     corpus: &Path,

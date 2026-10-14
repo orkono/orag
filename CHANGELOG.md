@@ -8,7 +8,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 ## [0.3.0-alpha.5] - 2026-10-14
 
 - **Lexical prefix stems (step 51, D-006).** Query words longer than 7 characters, with a letter and no digit, also search their first 7 characters as a prefix (`dinlenmeyi` finds `dinlenmek`); query side only, no reindex. Chosen among stems of 4-7 characters by a rule written before scoring: on the v02 set hybrid in context 0.920 → 0.931 (dev +1, holdout +1, no losses), the inflection set +1. Answers are net unchanged once scorer artefacts are removed (the raw expected-facts rise 0.875 → 0.925 is inflated by the `iş günü` probe defect); v2-ans-011, v2-ans-041 and v2-ans-047 are known answer regressions to recheck (`.docs/benchmarks/v0.3-lexical-stems.md`).
-- **Deeper ranks in the retrieval eval.** A hidden `orag eval retrieval --rank-depth <10-50>` reports each label's lexical, dense and hybrid rank below 10, to tell evidence fusion dropped from evidence no list returns; metrics are unchanged.
+- **Deeper ranks in the retrieval eval.** A hidden `orag eval retrieval --rank-depth <10-50>` reports each label's lexical, dense and hybrid rank below 10, to tell evidence fusion dropped from evidence no list returns; recall, MRR, nDCG and in-context are unchanged (latency covers the deeper retrieval).
 
 ## [0.3.0-alpha.4] - 2026-10-14
 

@@ -66,7 +66,7 @@ pub enum EvalCommand {
         #[arg(long, hide = true)]
         lexical_query: Option<String>,
         /// Report each label's rank down to this depth (10-50; diagnosis,
-        /// metrics are unchanged).
+        /// scores are unchanged, latency covers the deeper retrieval).
         #[arg(long, hide = true)]
         rank_depth: Option<usize>,
         #[arg(long, hide = true)]
