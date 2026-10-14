@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.10] - 2026-10-14
+
+- **Hedged refusals are abstentions (step 58, D-005).** An answer whose first sentence, uncited, says the documents do "not explicitly" state or mention the answer is now flagged as abstained, like "not stated" before (`v2-ans-041`). The answer eval no longer counts an expected fact inside an abstained answer (`v2-ans-011` said the period is not stated while quoting it). On the v0.2 answers: expected facts 0.950 → 0.925, abstention P/R 0.941/0.800 → 0.944/0.850; no answer text changed, only how two are counted.
+
 ## [0.3.0-alpha.9] - 2026-10-14
 
 - **Number words in the answer scorer (step 56, D-018).** An expected fact in words no longer matches inside a longer number: `iki iş gün` is not found in "on iki iş gündür", `iki` not in "iki yüz", `10` not in "10 bin", `four hours` not in "twenty-four hours", `on sekiz bin` not in "on sekiz bin beş yüz" (Turkish and English, by language, so English "on two days" still matches). Re-scoring the current answers changed no probe; expected facts stay 0.950.
