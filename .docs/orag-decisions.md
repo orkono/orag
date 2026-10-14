@@ -233,6 +233,12 @@ no document prefix).
 
 **Revisit.** v0.4, using evaluation results.
 
+**Reranker measured (step 63, 2026-10-14).** Qwen3-Reranker-0.6B and bge-reranker-v2-m3 (Q8_0,
+llama.cpp rank pooling) over the first 16-30 fused candidates, with both embedders: up to +8 on
+v0.2 dev in context with no losses (bge-m3 + either reranker, depth 30), but every variant adds
+more than the 150 ms p95 budget (204-2010 ms, pairs decoded one at a time), so retrieval stays
+deterministic hybrid. The v0.4 holdout was not read (`.docs/benchmarks/v0.4-retrieval-decision.md`).
+
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
 
 **Decision.** FTS5 indexes a *normalized shadow text*; original text is kept
