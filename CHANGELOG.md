@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.17] - 2026-10-14
+
+- **Reranker latency re-measured (step 64, D-005).** Batching reranker pairs into one decode is 8-12× faster on single sentences but not on 384-512-token chunks, so it was reverted; the best reranker variant still adds 825 ms of p95 on Metal (budget 150 ms), and on a 6-core x86-64 CPU the fastest adds 12.5 s. Retrieval is unchanged and the v0.4 holdout stays unread (`.docs/benchmarks/v0.4-reranker-batched.md`).
+
 ## [0.3.0-alpha.16] - 2026-10-14
 
 - **v0.4 retrieval decision: not adopted (step 63, D-005).** 26 combinations of embedder (qwen3-embedding, bge-m3) and reranker (none, Qwen3-Reranker-0.6B, bge-reranker-v2-m3; depth 16-30; leaders pinned or not) were scored on v0.2 dev under a rule written before scoring. The best reach +8 in context with no losses (bge-m3 with a reranker at depth 30), but every reranker variant adds 204-2010 ms of p95 latency against a 150 ms budget, and bge-m3 alone misses its gate, so retrieval is unchanged. The v0.4 holdout stays unread; the next step batches reranker pairs (`.docs/benchmarks/v0.4-retrieval-decision.md`).
