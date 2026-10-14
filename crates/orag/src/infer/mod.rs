@@ -128,6 +128,20 @@ pub trait Generator: Send + Sync {
     ) -> Result<GenerationStats>;
 }
 
+/// Cross-encoder relevance scoring of passages for one question (D-005,
+/// v0.4 candidate). Higher is more relevant; scores compare only within one call.
+pub trait Reranker: Send + Sync {
+    fn model_id(&self) -> &str;
+    /// One score per passage, in the order given. An implementation may stop
+    /// early with an error once `deadline` has passed.
+    fn score(
+        &self,
+        query: &str,
+        passages: &[String],
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Vec<f32>>;
+}
+
 pub trait VectorIndex: Send + Sync {
     /// Nearest chunks of `collection_id` in `space`, nearest first, as
     /// `(chunk_id, cosine_similarity)`. The collection filter applies before top-k.

@@ -19,6 +19,7 @@ use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
 use crate::retrieval::answer::{answer_context, answer_pool};
 use crate::retrieval::hybrid::{Candidate, RetrievalConfig, Retriever, Strategy};
+use crate::retrieval::rerank::Rerank;
 use crate::store::Store;
 use crate::store::documents::{DocumentStatus, NewDocument};
 use crate::store::search::SqliteVecIndex;
@@ -81,17 +82,20 @@ pub struct RetrievalReport {
     pub context_budget: Option<String>,
     /// `per_query` ranks reach this deep; metrics stay at depth 10.
     pub rank_depth: usize,
+    /// The reranker over hybrid candidates and its depth, if one ran.
+    pub reranker: Option<String>,
     pub strategies: Vec<StrategyReport>,
 }
 
 impl RetrievalReport {
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
-            "Embedding model: `{}` · lexical query: `{}` · context budget: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
+            "Embedding model: `{}` · lexical query: `{}` · reranker: `{}` · context budget: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
              | strategy | recall@5 | recall@10 | MRR@10 | nDCG@10 | in context (prompt, ≤ {}) | skipped | p50 ms | p95 ms |\n\
              |---|---|---|---|---|---|---|---|---|\n",
             self.embedding_model,
             self.lexical_query,
+            self.reranker.as_deref().unwrap_or("none"),
             self.context_budget.as_deref().unwrap_or("none"),
             self.corpus_documents,
             self.answerable,
@@ -205,6 +209,38 @@ pub fn run_retrieval_eval_deep(
     rank_depth: usize,
     generator: Option<Arc<dyn Generator>>,
 ) -> Result<RetrievalReport> {
+    let run = EvalRun {
+        rank_depth,
+        generator,
+        rerank: None,
+    };
+    run_retrieval_eval_run(embedder, corpus, dataset, work_dir, config, run)
+}
+
+/// How one experimental eval run differs from the served retrieval.
+pub struct EvalRun {
+    /// Labels' ranks are reported down to this (10..=50).
+    pub rank_depth: usize,
+    /// Budgets the answer context by this generator's token counter.
+    pub generator: Option<Arc<dyn Generator>>,
+    /// Reranks hybrid candidates (v0.4 candidate).
+    pub rerank: Option<Rerank>,
+}
+
+/// `run_retrieval_eval_deep` with an optional reranker.
+pub fn run_retrieval_eval_run(
+    embedder: Arc<dyn Embedder>,
+    corpus: &Path,
+    dataset: &[EvalQuery],
+    work_dir: &Path,
+    config: RetrievalConfig,
+    run: EvalRun,
+) -> Result<RetrievalReport> {
+    let EvalRun {
+        rank_depth,
+        generator,
+        rerank,
+    } = run;
     if !(EVAL_DEPTH..=MAX_RANK_DEPTH).contains(&rank_depth) {
         return Err(OragError::InvalidInput(format!(
             "rank depth must be between {EVAL_DEPTH} and {MAX_RANK_DEPTH}, got {rank_depth}"
@@ -225,6 +261,7 @@ pub fn run_retrieval_eval_deep(
         store,
         embedder: embedder.clone(),
         config,
+        reranker: rerank,
     };
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]
@@ -248,6 +285,14 @@ pub fn run_retrieval_eval_deep(
         context_chunks: retriever.config.max_context_chunks,
         context_budget: generator.map(|g| g.model_id().to_string()),
         rank_depth,
+        reranker: retriever.reranker.as_ref().map(|r| {
+            let pinned = if r.pin_leaders {
+                ", leaders pinned"
+            } else {
+                ""
+            };
+            format!("{}, depth {}{pinned}", r.reranker.model_id(), r.depth)
+        }),
         strategies,
     })
 }

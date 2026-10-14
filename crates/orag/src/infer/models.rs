@@ -18,6 +18,8 @@ pub const MIN_CONTEXT_TOKENS: usize = 512;
 pub enum ModelRole {
     Embedding,
     Generation,
+    /// A cross-encoder that scores (question, passage) pairs (v0.4 candidate).
+    Reranking,
 }
 
 impl ModelRole {
@@ -25,6 +27,7 @@ impl ModelRole {
         match self {
             ModelRole::Embedding => "embedding",
             ModelRole::Generation => "generation",
+            ModelRole::Reranking => "reranking",
         }
     }
 }
@@ -84,6 +87,29 @@ pub struct GenerationSpec {
     pub prompt_format: PromptFormat,
 }
 
+/// How a reranker sees a (question, passage) pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RerankInput {
+    /// BERT-style pair: BOS question EOS SEP passage EOS (bge-reranker).
+    Pair,
+    /// The GGUF's `tokenizer.chat_template.rerank`, `{query}` and `{document}`
+    /// filled in (Qwen3-Reranker).
+    GgufTemplate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RerankerSpec {
+    /// Tokens per pair; a longer passage is cut, the question never.
+    pub max_tokens: usize,
+    pub input: RerankInput,
+    /// Which classifier output means "relevant" when there are several
+    /// (Qwen3-Reranker: 0 = `yes`).
+    #[serde(default)]
+    pub relevant_output: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelManifest {
@@ -97,6 +123,8 @@ pub struct ModelManifest {
     pub revision: String,
     pub embedding: Option<EmbeddingSpec>,
     pub generation: Option<GenerationSpec>,
+    #[serde(default)]
+    pub reranker: Option<RerankerSpec>,
 }
 
 impl ModelManifest {
@@ -139,8 +167,15 @@ impl ModelManifest {
         {
             return invalid("sha256 must be 64 lowercase hex characters".into());
         }
-        match (self.role, &self.embedding, &self.generation) {
-            (ModelRole::Embedding, Some(spec), None) => {
+        match (self.role, &self.embedding, &self.generation, &self.reranker) {
+            (ModelRole::Reranking, None, None, Some(spec)) => {
+                if !(64..=32768).contains(&spec.max_tokens) || spec.relevant_output > 15 {
+                    return invalid(
+                        "reranker max_tokens must be 64-32768 and relevant_output 0-15".into(),
+                    );
+                }
+            }
+            (ModelRole::Embedding, Some(spec), None, None) => {
                 if !(1..=8192).contains(&spec.dimensions)
                     || !(16..=32768).contains(&spec.max_tokens)
                 {
@@ -149,7 +184,7 @@ impl ModelManifest {
                     );
                 }
             }
-            (ModelRole::Generation, None, Some(spec)) => {
+            (ModelRole::Generation, None, Some(spec), None) => {
                 if !(MIN_CONTEXT_TOKENS..=131072).contains(&spec.context_tokens)
                     || spec.max_output_tokens < 16
                     || spec.max_output_tokens > spec.context_tokens / 2
@@ -162,7 +197,7 @@ impl ModelManifest {
             }
             _ => {
                 return invalid(
-                    "role must match exactly one of [embedding] or [generation]".into(),
+                    "role must match exactly one of [embedding], [generation] or [reranker]".into(),
                 );
             }
         }
@@ -439,6 +474,7 @@ pub fn find_model(models_dir: &Path, id: &str, role: ModelRole) -> Result<Instal
         let wanted = match role {
             ModelRole::Embedding => "an embedding",
             ModelRole::Generation => "a generation",
+            ModelRole::Reranking => "a reranking",
         };
         return Err(OragError::InvalidInput(format!(
             "model `{id}` is not {wanted} model"
@@ -469,10 +505,10 @@ pub(crate) mod tests {
         std::fs::write(pack.join("model.gguf"), payload).unwrap();
         std::fs::write(pack.join("LICENSE"), "Apache-2.0 text").unwrap();
         let sha = hex::encode(Sha256::digest(payload));
-        let section = if role == "embedding" {
-            "[embedding]\ndimensions = 16\npooling = \"mean\"\nmax_tokens = 128\n"
-        } else {
-            "[generation]\ncontext_tokens = 2048\nmax_output_tokens = 256\n"
+        let section = match role {
+            "embedding" => "[embedding]\ndimensions = 16\npooling = \"mean\"\nmax_tokens = 128\n",
+            "reranking" => "[reranker]\nmax_tokens = 512\ninput = \"gguf-template\"\n",
+            _ => "[generation]\ncontext_tokens = 2048\nmax_output_tokens = 256\n",
         };
         std::fs::write(
             pack.join(MANIFEST_FILE),
@@ -483,6 +519,34 @@ pub(crate) mod tests {
         )
         .unwrap();
         pack
+    }
+
+    #[test]
+    fn reranker_packs_need_a_reranker_section_and_sane_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = dir.path().join("models");
+        let pack = write_pack(dir.path(), "rr-a", "reranking", b"weights");
+        let manifest = import_pack(&pack, &models).unwrap();
+        let spec = manifest.reranker.unwrap();
+        assert_eq!(
+            (spec.max_tokens, spec.input, spec.relevant_output),
+            (512, RerankInput::GgufTemplate, 0)
+        );
+        find_model(&models, "rr-a", ModelRole::Reranking).unwrap();
+        let base = "id = \"r\"\nrole = \"reranking\"\nfile = \"m.gguf\"\nsha256 = \"".to_string()
+            + &"a".repeat(64)
+            + "\"\nlicense = \"MIT\"\nlicense_file = \"LICENSE\"\nsource = \"s\"\nrevision = \"r\"\n";
+        assert!(
+            ModelManifest::parse(&base).is_err(),
+            "no [reranker] section"
+        );
+        let tiny = base.clone() + "[reranker]\nmax_tokens = 8\ninput = \"pair\"\n";
+        assert!(ModelManifest::parse(&tiny).is_err(), "max_tokens too small");
+        let ok = base + "[reranker]\nmax_tokens = 1024\ninput = \"pair\"\nrelevant_output = 1\n";
+        assert_eq!(
+            ModelManifest::parse(&ok).unwrap().reranker.unwrap().input,
+            RerankInput::Pair
+        );
     }
 
     #[test]

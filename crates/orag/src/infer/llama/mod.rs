@@ -3,6 +3,7 @@
 
 pub mod embedder;
 pub mod generator;
+pub mod reranker;
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -135,6 +136,7 @@ pub(crate) fn fixture_model(
     let role_name = match role {
         crate::infer::models::ModelRole::Embedding => "embedding",
         crate::infer::models::ModelRole::Generation => "generation",
+        crate::infer::models::ModelRole::Reranking => "reranking",
     };
     std::fs::write(
         pack.join(MANIFEST_FILE),

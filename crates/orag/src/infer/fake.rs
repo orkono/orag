@@ -9,7 +9,7 @@ use crate::domain::normalize::normalize_for_lexical;
 use crate::domain::space::SpaceDescriptor;
 use crate::error::{OragError, Result};
 use crate::infer::{
-    ChatMessage, Embedder, GenerationRequest, GenerationStats, Generator, l2_normalize,
+    ChatMessage, Embedder, GenerationRequest, GenerationStats, Generator, Reranker, l2_normalize,
 };
 
 pub const FAKE_DIMENSIONS: usize = 16;
@@ -243,11 +243,60 @@ impl Generator for FakeGenerator {
     }
 }
 
+/// Scores a passage by the share of the question's distinct terms it holds,
+/// so tests can predict the order a reranker gives.
+#[derive(Debug, Default)]
+pub struct FakeReranker;
+
+impl Reranker for FakeReranker {
+    fn model_id(&self) -> &str {
+        "fake-reranker"
+    }
+
+    fn score(
+        &self,
+        query: &str,
+        passages: &[String],
+        _deadline: Option<std::time::Instant>,
+    ) -> Result<Vec<f32>> {
+        let terms: std::collections::BTreeSet<String> =
+            crate::domain::normalize::lexical_terms(query)
+                .into_iter()
+                .collect();
+        Ok(passages
+            .iter()
+            .map(|passage| {
+                let text = normalize_for_lexical(passage);
+                let words: std::collections::BTreeSet<&str> =
+                    text.split(|c: char| !c.is_alphanumeric()).collect();
+                let hits = terms.iter().filter(|t| words.contains(t.as_str())).count();
+                hits as f32 / terms.len().max(1) as f32
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infer::{Role, SamplerProfile};
     use std::ops::ControlFlow;
+
+    #[test]
+    fn fake_reranker_prefers_passages_holding_the_question_terms() {
+        let passages = vec![
+            "Kargo ücretsizdir.".to_string(),
+            "İade süresi 14 gündür.".to_string(),
+            "İade süresi 14 gündür.".to_string(),
+        ];
+        let scores = FakeReranker
+            .score("iade süresi ne kadar", &passages, None)
+            .unwrap();
+        assert_eq!(scores.len(), 3);
+        assert!(scores[1] > scores[0]);
+        assert_eq!(scores[1], scores[2]);
+        assert!(FakeReranker.score("iade", &[], None).unwrap().is_empty());
+    }
 
     fn cosine(a: &[f32], b: &[f32]) -> f32 {
         a.iter().zip(b).map(|(x, y)| x * y).sum()

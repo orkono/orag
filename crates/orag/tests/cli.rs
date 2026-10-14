@@ -685,3 +685,34 @@ fn eval_retrieval_requires_named_queries_in_the_context() {
         assert!(String::from_utf8_lossy(&out.stderr).contains(bad), "{bad}");
     }
 }
+
+#[test]
+fn eval_retrieval_can_rerank_and_checks_the_depth() {
+    let home = tempfile::tempdir().unwrap();
+    let run = eval_seed(
+        home.path(),
+        &[
+            "--rerank-model".as_ref(),
+            "fake".as_ref(),
+            "--rerank-depth".as_ref(),
+            "20".as_ref(),
+        ],
+    );
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(String::from_utf8_lossy(&run.stdout).contains("reranker: `fake-reranker, depth 20`"));
+    let bad = eval_seed(
+        home.path(),
+        &[
+            "--rerank-model".as_ref(),
+            "fake".as_ref(),
+            "--rerank-depth".as_ref(),
+            "60".as_ref(),
+        ],
+    );
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("between 8 and 50"));
+}

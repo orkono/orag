@@ -103,6 +103,7 @@ impl AppState {
             store: store.clone(),
             embedder,
             config: RetrievalConfig::default(),
+            reranker: None,
         };
         AppState {
             store,
