@@ -346,6 +346,12 @@ generator: faster, but four expected facts fewer and a lower abstention F1.
 Both embedder challengers have pack presets in `scripts/fetch-model-pack.sh`
 so the comparison can be repeated.
 
+**bge-m3 on the rewritten set (step 59, 2026-10-14).** Re-measured on the 0.3.0-alpha.10 engine
+under Task 44's rule plus answer-context conditions: recall@10 dev +5 (rule ≥ 6), holdout +3,
+in context 0.931 → 0.971, no category loss. Not adopted (one question short); it remains the
+first candidate of the v0.4 model review, to be decided with a fresh holdout and the latency and
+memory measurements (`.docs/benchmarks/v0.3-bge-m3.md`).
+
 ## D-008 — Ingestion is asynchronous and durable
 
 **Decision.** `POST …/documents` stores an immutable source snapshot and
