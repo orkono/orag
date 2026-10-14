@@ -478,8 +478,20 @@ mod tests {
         assert_eq!((shallow.rank_depth, deep.rank_depth), (10, 50));
         for (a, b) in shallow.strategies.iter().zip(&deep.strategies) {
             assert_eq!(
-                (a.recall_at_5, a.recall_at_10, a.mrr_at_10, a.ndcg_at_10, a.in_context),
-                (b.recall_at_5, b.recall_at_10, b.mrr_at_10, b.ndcg_at_10, b.in_context),
+                (
+                    a.recall_at_5,
+                    a.recall_at_10,
+                    a.mrr_at_10,
+                    a.ndcg_at_10,
+                    a.in_context
+                ),
+                (
+                    b.recall_at_5,
+                    b.recall_at_10,
+                    b.mrr_at_10,
+                    b.ndcg_at_10,
+                    b.in_context
+                ),
                 "{}",
                 a.strategy
             );
