@@ -504,7 +504,7 @@ fn is_special_attr(vocab: &LlamaVocab, token: LlamaToken) -> bool {
 /// The guarded special tokens of a vocabulary, as texts and as token ids,
 /// read once at load. Both use `is_guarded_special`, so what is removed from
 /// content and what is checked afterwards are the same set.
-fn special_tokens_of(model: &LlamaModel) -> (SpecialTexts, HashSet<LlamaToken>) {
+pub(crate) fn special_tokens_of(model: &LlamaModel) -> (SpecialTexts, HashSet<LlamaToken>) {
     let vocab = model.vocab();
     let mut texts = Vec::new();
     let mut ids = HashSet::new();

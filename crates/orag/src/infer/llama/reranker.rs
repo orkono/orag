@@ -13,9 +13,10 @@ use llama_cpp_2::token::LlamaToken;
 
 use crate::error::{OragError, Result};
 use crate::infer::Reranker;
+use crate::infer::llama::generator::special_tokens_of;
 use crate::infer::llama::{backend, load_model, model_error, tokenize};
 use crate::infer::models::{InstalledModel, RerankInput, RerankerSpec};
-use crate::infer::prompt::neutralize_special_markers;
+use crate::infer::prompt::{SpecialTexts, neutralize_special_markers};
 
 /// GGUF metadata key of the Qwen3-Reranker prompt.
 const TEMPLATE_KEY: &str = "tokenizer.chat_template.rerank";
@@ -27,6 +28,9 @@ pub struct LlamaReranker {
     /// `(before the document, after it)` for template input; the question
     /// is filled in per call.
     template: Option<(String, String)>,
+    /// The vocabulary's control and user-defined token texts (`<think>`),
+    /// broken in the question and passage so neither can fake the template.
+    specials: SpecialTexts,
 }
 
 impl LlamaReranker {
@@ -52,11 +56,13 @@ impl LlamaReranker {
                 model.n_cls_out()
             )));
         }
+        let (specials, _) = special_tokens_of(&model);
         Ok(LlamaReranker {
             model_id: manifest.id.clone(),
             spec,
             model,
             template,
+            specials,
         })
     }
 
@@ -64,8 +70,10 @@ impl LlamaReranker {
     /// question and the template's fixed parts never are.
     fn pair_tokens(&self, query: &str, passage: &str) -> Result<Vec<LlamaToken>> {
         let model = self.model.as_ref();
-        let query = neutralize_special_markers(query);
-        let passage = neutralize_special_markers(passage);
+        let query = self.specials.neutralize(&neutralize_special_markers(query));
+        let passage = self
+            .specials
+            .neutralize(&neutralize_special_markers(passage));
         let doc = tokenize(model, &passage, false, false);
         let (head, tail) = match &self.template {
             None => {
@@ -133,6 +141,8 @@ impl Reranker for LlamaReranker {
             .model
             .new_context(backend()?, params)
             .map_err(model_error)?;
+        // The deadline is checked between pairs: a call can overrun it by
+        // one pair's decode, never by the whole list.
         let mut scores = Vec::with_capacity(passages.len());
         for passage in passages {
             if deadline.is_some_and(|d| Instant::now() > d) {

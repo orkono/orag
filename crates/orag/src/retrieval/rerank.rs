@@ -25,7 +25,7 @@ pub struct Rerank {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RerankTrace {
     pub model: String,
-    /// Candidates the reranker scored.
+    /// Candidates the reranker scored (0 when it fell back).
     pub scored: usize,
     pub ms: u64,
     /// The fused order was kept: the reranker failed or ran out of time.
@@ -61,12 +61,13 @@ impl Rerank {
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let mut trace = RerankTrace {
             model: self.reranker.model_id().to_string(),
-            scored: passages.len(),
+            scored: 0,
             ms,
             fallback: false,
         };
         match scores {
             Ok(scores) if scores.len() == passages.len() && started.elapsed() <= self.timeout => {
+                trace.scored = scores.len();
                 let order = order_by_score(&scores);
                 let mut slots: Vec<Option<Candidate>> = candidates.into_iter().map(Some).collect();
                 let head: Vec<Candidate> = slots[..pinned]
@@ -107,7 +108,12 @@ fn is_leader(candidate: &Candidate, leaders: usize) -> bool {
 fn order_by_score(scores: &[f32]) -> Vec<usize> {
     let key = |i: usize| {
         let s = scores[i];
-        if s.is_nan() { f32::NEG_INFINITY } else { s }
+        // `+ 0.0` turns -0.0 into 0.0, so the two tie as equal scores.
+        if s.is_nan() {
+            f32::NEG_INFINITY
+        } else {
+            s + 0.0
+        }
     };
     let mut order: Vec<usize> = (0..scores.len()).collect();
     order.sort_by(|&a, &b| {
@@ -135,6 +141,7 @@ mod tests {
             vec![3, 1, 0, 2]
         );
         assert_eq!(order_by_score(&[f32::NEG_INFINITY, f32::NAN]), vec![0, 1]);
+        assert_eq!(order_by_score(&[-0.0, 0.0, -0.0]), vec![0, 1, 2]);
     }
 
     struct Failing;
@@ -272,7 +279,8 @@ mod tests {
         retriever.reranker = Some(rerank(Arc::new(Failing), 5, false));
         let failed = retriever.retrieve(1, query, Strategy::Hybrid, 5).unwrap();
         assert_eq!(titles(&failed.candidates), titles(&fused.candidates));
-        assert!(failed.trace.rerank.unwrap().fallback);
+        let trace = failed.trace.rerank.unwrap();
+        assert!(trace.fallback && trace.scored == 0, "{trace:?}");
         retriever.reranker = Some(Rerank {
             timeout: Duration::from_millis(1),
             ..rerank(Arc::new(Slow), 5, false)
