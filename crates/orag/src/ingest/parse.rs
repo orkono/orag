@@ -7,7 +7,7 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use crate::domain::document::{Block, ParsedDocument};
 use crate::error::{OragError, Result};
 use crate::ingest::format::SourceFormat;
-use crate::ingest::headings::{Line, Outline, demote_unsupported_titles};
+use crate::ingest::headings::{Line, Outline};
 
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
@@ -82,7 +82,7 @@ fn lines_any(text: &str) -> impl Iterator<Item = &str> {
 fn parse_plain(text: &str) -> ParsedDocument {
     ParsedDocument {
         title: None,
-        blocks: demote_unsupported_titles(paragraph_blocks(text)),
+        blocks: paragraph_blocks(text),
         warnings: Vec::new(),
         pages: Vec::new(),
     }
@@ -95,12 +95,12 @@ fn parse_plain(text: &str) -> ParsedDocument {
 /// so old Mac files with lone CRs split like the rest.
 pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
-    let mut lines: Vec<Cow<'_, str>> = Vec::new();
+    let mut lines: Vec<&str> = Vec::new();
     let mut outline = Outline::default();
     for line in lines_any(text) {
         match outline.line(line) {
             Line::Blank => flush_paragraph(&mut lines, &mut blocks),
-            Line::Body => lines.push(Cow::Borrowed(line.trim())),
+            Line::Body => lines.push(line.trim()),
             Line::Heading { level, text } => {
                 flush_paragraph(&mut lines, &mut blocks);
                 blocks.push(Block::Heading { level, text });
@@ -110,20 +110,13 @@ pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
                     text.push_str(&extra);
                 }
             }
-            Line::RetractHeading => {
-                // The title and the lines joined into it start the paragraph.
-                if let Some(Block::Heading { text, .. }) = blocks.pop() {
-                    lines.push(Cow::Owned(text));
-                }
-                lines.push(Cow::Borrowed(line.trim()));
-            }
         }
     }
     flush_paragraph(&mut lines, &mut blocks);
     blocks
 }
 
-fn flush_paragraph(lines: &mut Vec<Cow<'_, str>>, blocks: &mut Vec<Block>) {
+fn flush_paragraph(lines: &mut Vec<&str>, blocks: &mut Vec<Block>) {
     if !lines.is_empty() {
         blocks.push(Block::Paragraph(collapse_whitespace(&lines.join(" "))));
         lines.clear();
@@ -474,27 +467,6 @@ mod tests {
             ]
         );
         assert_eq!(doc.title, None);
-    }
-
-    #[test]
-    fn a_label_block_in_capitals_stays_body_text() {
-        let text = "User memo:\nDATE OF PURCHASE\nDEALER NAME\nDEALER ADDRESS\n\nSpecifications follow here.";
-        let doc = parse_document(SourceFormat::PlainText, text.as_bytes()).unwrap();
-        assert!(
-            doc.blocks
-                .iter()
-                .all(|b| !matches!(b, Block::Heading { .. })),
-            "{:?}",
-            doc.blocks
-        );
-        assert_eq!(
-            doc.blocks,
-            vec![
-                Block::Paragraph("User memo:".into()),
-                Block::Paragraph("DATE OF PURCHASE DEALER NAME DEALER ADDRESS".into()),
-                Block::Paragraph("Specifications follow here.".into()),
-            ]
-        );
     }
 
     #[test]

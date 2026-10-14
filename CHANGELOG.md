@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.6] - 2026-10-14
 
-- **Manual-style heading variant tried and rejected (step 53).** On an appliance manual PDF, heading detection finds many false headings (diagram labels, paragraphs in capitals). A stricter variant (no hyphen-broken lines, no runs of three or more capitals lines, a capitals title needs real text after it) changed no v0.2 question and kept 229 of 230 step 52 headings, and cut the manual's headings from 105 to 15, but missed its pre-registered limit of 10, so parsing is unchanged (`.docs/benchmarks/v0.3-manual-headings.md`, D-024).
+- **Manual-style heading variant tried and rejected (step 53).** On an appliance manual PDF, heading detection finds many false headings (diagram labels, paragraphs in capitals). A stricter variant (no hyphen-broken lines, no runs of three or more capitals lines, a capitals title needs real text after it) changed no v0.2 question and kept 229 of 230 step 52 headings, and cut the manual's headings from 105 to 16, but missed its pre-registered limit of 10 (also when re-scored once after two implementation defects were fixed), so parsing is unchanged (`.docs/benchmarks/v0.3-manual-headings.md`, D-024).
 
 ## [0.3.0-alpha.5] - 2026-10-14
 
