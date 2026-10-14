@@ -569,6 +569,16 @@ the v0.3 fusion decision) stay recorded as old-set results and are not
 re-decided; `.docs/benchmarks/v0.3-set-rewrite.md` holds the new baseline. The
 set is frozen again under the rule above.
 
+**Amendment (step 54, 2026-10-14): working-day probes.** Five answer probes
+(`v2-ans-011`, `031`, `035`, `036`, `038`) listed only `iş günü`, so the
+correct "10 iş gündür" scored as a miss (found by both sessions in steps 51
+and 52). They now expect `iş gün` (and `business day`), which every inflection
+matches; a wrong number still does not (`20 iş gündür` for `10 iş gün`;
+pinned by `v02_working_day_probes_accept_every_inflection`). gpt-6-sol read
+all 60 probes and found no other row of this class. Nothing else changed; the
+new answers baseline is in `.docs/benchmarks/v0.3-set-rewrite.md`. Any rise is
+a scoring correction, not an engine gain.
+
 ## D-019 — Configuration file, read once at startup (owner decision, 2026-10-01)
 
 **Decision.** `$ORAG_HOME/config.toml` (default `~/.orag/config.toml`) is the
