@@ -709,6 +709,52 @@ mod tests {
     }
 
     #[test]
+    fn v02_working_day_probes_accept_every_inflection() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../eval/datasets/v02-answers.jsonl");
+        let probes = load_probes(&path).unwrap();
+        let found = |id: &str, answer: &str| {
+            let probe = probes.iter().find(|p| p.id == id).unwrap();
+            score_answer(probe, answer, false, 1, 0, &[]).found
+        };
+        for (id, right, wrong) in [
+            (
+                "v2-ans-011",
+                "İtiraz süresi 10 iş gündür [1].",
+                "İtiraz süresi 20 iş gündür [1].",
+            ),
+            (
+                "v2-ans-031",
+                "Teslim 10 iş gününde yapılır [1].",
+                "Teslim 110 iş gününde yapılır [1].",
+            ),
+            (
+                "v2-ans-035",
+                "İzin bir iş günüdür [1].",
+                "İzin iki iş günüdür [1].",
+            ),
+            (
+                "v2-ans-036",
+                "Süre 3 iş gündür [1].",
+                "Süre 13 iş gündür [1].",
+            ),
+            (
+                "v2-ans-038",
+                "Cevap 2 iş gün içinde verilir [1].",
+                "Cevap 12 iş gün içinde verilir [1].",
+            ),
+        ] {
+            assert_eq!(found(id, right), 1, "{id}: {right}");
+            assert_eq!(found(id, wrong), 0, "{id}: {wrong}");
+        }
+        assert_eq!(
+            found("v2-ans-011", "The deadline is 10 business days [1]."),
+            1
+        );
+        assert_eq!(found("v2-ans-011", "It is one business day [1]."), 0);
+    }
+
+    #[test]
     fn v02_probes_load_with_the_planned_mix() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../eval/datasets/v02-answers.jsonl");

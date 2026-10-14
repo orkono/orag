@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.7] - 2026-10-14
+
+- **Working-day answer probes fixed (step 54, D-018).** Five probes of `v02-answers.jsonl` expected only `iş günü`, so the correct "10 iş gündür" scored as a miss; they now expect `iş gün`, which every inflection matches while a wrong number in digits still does not (number words such as `on iki` for `iki` were and stay a scorer limitation). On 0.3.0-alpha.6 expected facts read 0.950 instead of 0.925 (`v2-ans-038`); a scoring correction, not an engine gain (`.docs/benchmarks/v0.3-set-rewrite.md`).
+
 ## [0.3.0-alpha.6] - 2026-10-14
 
 - **Manual-style heading variant tried and rejected (step 53).** On an appliance manual PDF, heading detection finds many false headings (diagram labels, paragraphs in capitals). A stricter variant (no hyphen-broken lines, no runs of three or more capitals lines, a capitals title needs real text after it) changed no v0.2 question and kept 229 of 230 step 52 headings, and cut the manual's headings from 105 to 16, but missed its pre-registered limit of 10 (also when re-scored once after two implementation defects were fixed), so parsing is unchanged (`.docs/benchmarks/v0.3-manual-headings.md`, D-024).
