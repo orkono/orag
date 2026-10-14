@@ -227,6 +227,12 @@ no document prefix).
 
 **Revisit.** v0.4, using evaluation results.
 
+**10-chunk context tried and rejected (step 57, 0.3.0-alpha.10).** Five
+leaders per list in a 10-chunk context recovered two dev near misses (dev +2,
+holdout 0) but made answers 38% slower at the median and turned one
+unanswerable probe into an unsupported answer, so the context stays at 8
+(`.docs/benchmarks/v0.3-fusion-near-miss.md`).
+
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
 
 **Decision.** FTS5 indexes a *normalized shadow text*; original text is kept
