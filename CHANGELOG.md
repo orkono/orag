@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.12] - 2026-10-14
+
+- **10-chunk answer context tried and rejected (step 57, D-005).** Five leaders per list in a 10-chunk context recovered two dev near misses (dev hybrid in context 81/89 → 83/89; holdout unchanged), but answers became 38% slower at the median and one unanswerable question got an unsupported answer, so the context stays at 8 chunks (`.docs/benchmarks/v0.3-fusion-near-miss.md`).
+
 ## [0.3.0-alpha.11] - 2026-10-14
 
 - **bge-m3 re-measured, not adopted (step 59, D-007).** On the rewritten v0.2 set and the current engine `bge-m3-q8_0` raises hybrid in context from 0.931 to 0.971 and fixes both remaining multi-document misses, but its recall@10 dev gain is +5 against the pre-registered ≥ 6, so the default embedder stays `qwen3-embedding-0.6b-q8_0`; bge-m3 is the first candidate of the v0.4 model review (`.docs/benchmarks/v0.3-bge-m3.md`).
