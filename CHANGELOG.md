@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.5] - 2026-10-14
+
+- **Lexical prefix stems (step 51, D-006).** Query words longer than 7 characters, with a letter and no digit, also search their first 7 characters as a prefix (`dinlenmeyi` finds `dinlenmek`); query side only, no reindex. Chosen among stems of 4-7 characters by a rule written before scoring: on the v02 set hybrid in context 0.920 → 0.931 (dev +1, holdout +1, no losses), the inflection set +1; answers moved with the context but not consistently with stems (`.docs/benchmarks/v0.3-lexical-stems.md`).
+- **Deeper ranks in the retrieval eval.** A hidden `orag eval retrieval --rank-depth <10-50>` reports each label's lexical, dense and hybrid rank below 10, to tell evidence fusion dropped from evidence no list returns; metrics are unchanged.
+
 ## [0.3.0-alpha.4] - 2026-10-14
 
 - **Headings in plain text and PDF.** TXT and PDF documents have no heading markup, so heading lines are now recognised: lines in capitals (ranked by `KISIM`/`PART` and `BÖLÜM`/`CHAPTER`/`SECTION`), `-- name --` lines, and titles numbered with a Roman numeral or a letter (`IV. Egemenlik`, `A. Özel hayatın gizliliği`). A chunk now starts at such a heading and sources show its heading path, as for Markdown and DOCX (D-024). Running headers repeated on most PDF pages are not headings. On the v0.2 set hybrid in context rises from 0.909 to 0.920; answers stay as correct (two of three string-check misses are correct answers worded “iş gündür”) and prompts are shorter (p50 1.7 s → 0.9 s). Decided by a rule written before scoring (`.docs/benchmarks/v0.3-plain-headings.md`). No reindex is forced: existing TXT and PDF documents get headings when their collection is reindexed.

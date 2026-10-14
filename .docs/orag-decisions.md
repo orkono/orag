@@ -275,8 +275,14 @@ crude Turkish stem, still query side only. Chosen among stems of 4-7 characters
 by a rule written before scoring: on the v02 set hybrid answer context dev
 W−L +2, holdout +1 (read once), no category loses, `anayasa-cekim-tr` +3,
 seed and `anayasa-tr` unchanged, p95 +1.1 ms; over the whole set 0.909 →
-0.926. Shorter stems matched too broadly (`stem:6` was −1 on dev)
-(`.docs/benchmarks/v0.3-lexical-stems.md`).
+0.926. Shorter stems matched too broadly (`stem:6` was −1 on dev). Step 52's
+headings merged first, so the same variant was re-run on 0.3.0-alpha.4 as a
+confirmation (a second holdout read on a changed baseline, not a tuning
+round): dev +1, holdout +1, no losses, 0.920 → 0.931. Answers are reported
+outside the rule and moved with the context, not consistently with stems
+(expected facts 0.925 → 0.850 on alpha.3, 0.875 → 0.925 on alpha.4)
+(`.docs/benchmarks/v0.3-lexical-stems.md`). gpt-6-sol reviewed the evidence
+independently and also recommended adoption.
 
 **Deferred.** A real stemmer and an accent-folded secondary field are added
 only if the evaluation set (which includes accentless-typing queries) shows a
