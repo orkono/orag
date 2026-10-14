@@ -38,9 +38,11 @@ pub fn score_answer(
 ) -> AnswerScore {
     let answer = normalized(answer);
     let alternatives = |text: &str| text.split('|').map(normalized).collect::<Vec<_>>();
+    // A refusal does not give the fact, even when it quotes it in passing.
     let found = probe
         .expect
         .iter()
+        .filter(|_| !abstained)
         .filter(|text| {
             alternatives(text)
                 .iter()
@@ -121,7 +123,7 @@ pub struct AnswerMetrics {
     /// Answerable probes with an expected text in a cited chunk (`None`
     /// without answerable probes).
     pub cited_evidence_coverage: Option<f64>,
-    /// Answerable probes whose answer holds every expected text (`None`
+    /// Answerable, not refused probes whose answer holds every expected text (`None`
     /// without answerable probes).
     pub expected_fact_rate: Option<f64>,
     pub abstention: Abstention,
@@ -251,6 +253,17 @@ mod tests {
             &sources(&["14 gün içinde iade"]),
         );
         assert!(!refused.cited_evidence);
+        // Nor does it hold the fact it quotes while saying it is not there.
+        assert_eq!(refused.found, 0);
+        let quoting = score_answer(
+            &p,
+            "Süre doğrudan belirtilmemiştir; belgede 14 gün geçer.",
+            true,
+            0,
+            0,
+            &[],
+        );
+        assert_eq!(quoting.found, 0);
     }
 
     #[test]

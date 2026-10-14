@@ -167,6 +167,9 @@ fn a_refusal_in_other_words_without_citations_is_an_abstention() {
         "There is no information about this in the documents.",
         "Verilen kaynaklarda hapis cezasının süresi belirtilmemiştir. Kaynak [1] yalnızca bozma kararını anlatır.",
         "Kaynaklarda asgari ücretin miktarı belirtilmemiştir.\n\nSadece tespit ilkeleri vardır [2].",
+        "The warranty period is not explicitly stated in the provided documents. Source [1] points to a separate warranty sheet.",
+        "The documents do not explicitly mention the founding year.",
+        "The founding year is not explicitly specified in the sources.",
     ] {
         let (_dir, engine, _) = engine(FakeGenerator::new(reply), &[("k.md", DOC)]);
         let s = summary(&collect(&engine, "Şirketin kuruluş yılı nedir?")).clone();
@@ -188,6 +191,9 @@ fn an_answer_that_opens_with_a_cited_fact_is_not_an_abstention() {
         "Kaynaklara göre ölüm cezası bulunmamaktadır. [1]",
         // A negative fact without a word for the sources is an answer.
         "Anayasada ölüm cezası bulunmamaktadır.",
+        // A fact first, then what the sources leave open.
+        "The documents give a 14-day return period but do not explicitly define whether weekends count.",
+        "Belgelere göre iade süresi 14 gündür, ancak hafta sonları belirtilmemiştir.",
     ] {
         let (_dir, engine, _) = engine(FakeGenerator::new(reply), &[("k.md", DOC)]);
         assert!(

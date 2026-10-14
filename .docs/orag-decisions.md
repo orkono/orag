@@ -172,7 +172,13 @@ multi-document misses are single-passage recall problems
 are empty. The `abstained` flag also marks a model answer that is the refusal
 sentence or whose first sentence, uncited, says the sources do not answer
 (0.2.0-alpha.5: on the answer sets 4 of 4 unanswerable questions flagged,
-before 1 of 4; 0 of 15 answerable ones).
+before 1 of 4; 0 of 15 answerable ones). Step 58 (2026-10-14) adds "not
+explicitly stated/mentioned/specified": on `v02-answers.jsonl` `v2-ans-041`
+is flagged, no answerable probe newly is. A not-found phrase after a contrast
+word (`but`, `however`, `ancak`, `ama`, `fakat`, `yalnız`) is a gap beside an
+answer, not a refusal ("14 days, but weekends are not stated"). The answer eval no longer counts an
+expected fact in an abstained answer (a refusal that quotes the fact while
+saying it is absent, `v2-ans-011`), as it already did for cited evidence.
 Otherwise the generation prompt instructs the model to answer only from the
 numbered sources and to reply with a fixed refusal sentence when they are
 insufficient. If retrieval found chunks but none fits the

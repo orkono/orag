@@ -161,11 +161,11 @@ alternatives (`600|altıyüz`).
 
 | column | meaning |
 |---|---|
-| expected facts | answerable probes whose answer holds every `expect` text (`expected_fact_rate`) |
+| expected facts | answerable, not refused probes whose answer holds every `expect` text (`expected_fact_rate`); a refusal that quotes the fact while saying it is absent does not count |
 | cited evidence | answerable, not refused probes where an `expect` text occurs in a chunk the answer **cites** (`cited_evidence_coverage`). Evidence coverage, not faithfulness: the cited chunk can hold the fact while the answer says something else |
 | valid citations | answered (not refused) probes with at least one `[n]`, every one naming a source that was given (`valid_citation_rate`); an answer without any `[n]` is not validly cited |
 | abstention P / R | refusals as a confusion matrix with "no answer in the corpus" as positive: precision = refused unanswerable / all refusals, recall = refused unanswerable / all unanswerable |
-| coverage | mean share of `expect` texts found, over answerable probes |
+| coverage | mean share of `expect` texts found, over answerable probes (0 for a refused one) |
 | length stops | answers cut by `max_output_tokens` (`finish_reason: length`) |
 | repetition stops | answers stopped by the repeated-line guard (`finish_reason: repetition`) |
 | distinct lines | mean share of unique non-empty lines per answer |
