@@ -65,6 +65,10 @@ pub enum EvalCommand {
         /// (`exact` or `prefix:<n>`; experiments).
         #[arg(long, hide = true)]
         lexical_query: Option<String>,
+        /// Report each label's rank down to this depth (10-50; diagnosis,
+        /// metrics are unchanged).
+        #[arg(long, hide = true)]
+        rank_depth: Option<usize>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -163,6 +167,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     min_recall_at_10,
                     require_in_context,
                     lexical_query,
+                    rank_depth,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -174,6 +179,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 require_in_context,
             },
             lexical_query.as_deref(),
+            rank_depth,
             dev_fake_models,
         ),
         Command::Eval {
@@ -289,6 +295,7 @@ fn run_eval_retrieval(
     out: Option<&std::path::Path>,
     gates: EvalGates,
     lexical_query: Option<&str>,
+    rank_depth: Option<usize>,
     dev_fake_models: bool,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
@@ -296,6 +303,11 @@ fn run_eval_retrieval(
     if let Some(mode) = lexical_query {
         config.lexical_query = crate::domain::lexical_query::LexicalQuery::parse(mode)
             .with_context(|| format!("unknown lexical query {mode:?} (exact or prefix:<n>)"))?;
+    }
+    let rank_depth = rank_depth.unwrap_or(10);
+    let max_depth = crate::eval::retrieval::MAX_RANK_DEPTH;
+    if !(10..=max_depth).contains(&rank_depth) {
+        anyhow::bail!("--rank-depth must be between 10 and {max_depth}, got {rank_depth}");
     }
     if let Some(floor) = gates.min_recall_at_10
         && !(0.0..=1.0).contains(&floor)
@@ -322,12 +334,13 @@ fn run_eval_retrieval(
     };
     // Exclusively created and removed on drop; never touches pre-existing paths.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
-    let report = crate::eval::retrieval::run_retrieval_eval_with(
+    let report = crate::eval::retrieval::run_retrieval_eval_deep(
         embedder,
         corpus,
         &queries,
         work.path(),
         config,
+        rank_depth,
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
