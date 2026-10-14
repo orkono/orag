@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.18] - 2026-10-14
+
+- **Reranker on sentence windows (step 65, D-005).** `orag eval retrieval --rerank-window N` scores only the sentences of each chunk around the query terms (long lines split around the match, unmatched chunks scored whole, the rate reported per question). Every run still adds 214 ms or more of hybrid p95 on Metal (budget 150 ms), and with bge-m3 the reranker adds one dev question; retrieval is unchanged, the reranker track is closed for v0.4 and the v0.4 holdout stays unread (`.docs/benchmarks/v0.4-rerank-windows.md`).
+
 ## [0.3.0-alpha.17] - 2026-10-14
 
 - **Reranker latency re-measured (step 64, D-005).** Batching reranker pairs into one decode is 8-12× faster on single sentences but not on 384-512-token chunks, so it was reverted; the best reranker variant still adds 825 ms of p95 on Metal (budget 150 ms), and on a 6-core x86-64 CPU the fastest adds 12.5 s. Retrieval is unchanged and the v0.4 holdout stays unread (`.docs/benchmarks/v0.4-reranker-batched.md`).

@@ -242,6 +242,9 @@ Batching the pairs (step 64) did not lower it on 384-512-token chunks (added p95
 best variant on Metal); on a 6-core x86-64 CPU the fastest variant adds 12.5 s
 (`.docs/benchmarks/v0.4-reranker-batched.md`). A reranker needs a shorter input per pair before it
 fits ORAG's offline targets.
+Reranking a sentence window of each chunk (step 65) still adds 214 ms or more on Metal, and with
+bge-m3 the reranker adds only +1 dev question over bge-m3 alone; the reranker track is closed for
+v0.4 and stays an eval-only experiment (`.docs/benchmarks/v0.4-rerank-windows.md`).
 
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
 
