@@ -578,7 +578,8 @@ matches; a wrong number in digits still does not (`20 iş gündür` for
 Number words kept a limitation the old probes had too (`iki iş gün` matched
 "on iki iş gündür"); step 56 closed it in the scorer: a number word or digits
 that a tens or scale word of the same language precedes (`on iki`, `yüz on`,
-`twenty two`), or a scale word follows (`iki yüz`, `10 bin`), is part of a
+`twenty two`, `twenty-four`), or a scale word follows (`iki yüz`, `10 bin`),
+or a number follows a final scale word (`on sekiz bin beş yüz`), is part of a
 longer number and does not match. Re-scoring the alpha.8 answers changed no
 probe. gpt-6-sol read
 all 60 probes and found no other row of this class. Nothing else changed; the

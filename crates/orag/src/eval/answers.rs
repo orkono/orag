@@ -465,20 +465,30 @@ fn number_word_joins(haystack: &str, start: usize, needle: &str) -> bool {
     let first = needle.split(' ').next().unwrap_or("");
     let last = needle.rsplit(' ').next().unwrap_or("");
     let numeric = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit());
+    // Hyphens and other marks separate words too (`twenty-four`).
+    let separator = |c: char| !c.is_alphanumeric();
     let previous = haystack[..start]
-        .trim_end()
-        .rsplit(' ')
+        .trim_end_matches(separator)
+        .rsplit(separator)
         .next()
         .unwrap_or("");
     let rest = &haystack[start + needle.len()..];
-    let next = rest.trim_start().split(' ').next().unwrap_or("");
+    let next = rest
+        .trim_start_matches(separator)
+        .split(separator)
+        .next()
+        .unwrap_or("");
     let turkish: &[&[&str]] = &[&TURKISH_UNITS, &TURKISH_TENS, &SCALES[..3]];
     let english: &[&[&str]] = &[&ENGLISH_UNITS, &ENGLISH_TENS, &SCALES[3..]];
     let joined_before = (is_one_of(first, turkish)
         && is_one_of(previous, &[&TURKISH_TENS, &SCALES[..3]]))
         || (is_one_of(first, english) && is_one_of(previous, &[&ENGLISH_TENS, &SCALES[3..]]));
     let ends_number = numeric(last) || is_one_of(last, turkish) || is_one_of(last, english);
-    let joined_after = ends_number && rest.starts_with(' ') && is_one_of(next, &[&SCALES]);
+    // A scale word goes on with any number (`on sekiz bin beş yüz`).
+    let next_continues = is_one_of(next, &[&SCALES])
+        || (is_one_of(last, &[&SCALES])
+            && (numeric(next) || is_one_of(next, turkish) || is_one_of(next, english)));
+    let joined_after = ends_number && rest.starts_with(separator) && next_continues;
     joined_before || joined_after
 }
 
@@ -584,6 +594,9 @@ mod tests {
         assert!(!found("Bedel iki yüz TL.", "iki"));
         assert!(!found("Bütçe on sekiz bin lira.", "on sekiz"));
         assert!(!found("Toplam yüz on sekiz bin.", "on sekiz bin"));
+        assert!(!found("It takes twenty-four hours.", "four hours"));
+        assert!(!found("Bütçe on sekiz bin beş yüz lira.", "on sekiz bin"));
+        assert!(found("Bütçe on sekiz bin, yani yeterli.", "on sekiz bin"));
         assert!(!found("It takes twenty two days.", "two days"));
         assert!(!found("Kapasite 10 bin litre.", "10"));
         assert!(found("Bütçe on sekiz bin lira.", "on sekiz bin"));

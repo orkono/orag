@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.9] - 2026-10-14
 
-- **Number words in the answer scorer (step 56, D-018).** An expected fact in words no longer matches inside a longer number: `iki iş gün` is not found in "on iki iş gündür", `iki` not in "iki yüz", `10` not in "10 bin" (Turkish and English, by language, so English "on two days" still matches). Re-scoring the current answers changed no probe; expected facts stay 0.950.
+- **Number words in the answer scorer (step 56, D-018).** An expected fact in words no longer matches inside a longer number: `iki iş gün` is not found in "on iki iş gündür", `iki` not in "iki yüz", `10` not in "10 bin", `four hours` not in "twenty-four hours", `on sekiz bin` not in "on sekiz bin beş yüz" (Turkish and English, by language, so English "on two days" still matches). Re-scoring the current answers changed no probe; expected facts stay 0.950.
 
 ## [0.3.0-alpha.8] - 2026-10-14
 
