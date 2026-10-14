@@ -353,6 +353,15 @@ documents do not support an answer it abstains (`"abstained": true`).
 `heading_path`) and for PDF chunks indexed before 0.2.0-alpha.16, until the
 collection is reindexed.
 
+`heading_path` is the headings above the passage, outermost first. Markdown
+and DOCX take them from their markup. TXT and PDF have none, so since
+0.3.0-alpha.4 heading lines are recognised: lines in capitals (parts and
+chapters such as `BİRİNCİ KISIM` or `BÖLÜM 2` rank highest), `-- name --`
+lines, and titles numbered with a Roman numeral or a letter (`IV. Egemenlik`,
+`A. Özel hayatın gizliliği`). Headers repeated on most pages of a PDF are not
+headings (D-024). TXT and PDF chunks indexed before that
+keep `[]` until the collection is reindexed.
+
 `rank_score` is a ranking signal (reciprocal rank fusion), **not** a
 confidence or a probability. Candidates are taken in fused order, except that
 the top hits of the lexical list and of the dense list are offered first: both

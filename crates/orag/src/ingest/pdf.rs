@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
+use crate::ingest::headings::demote_running_headers;
 use crate::ingest::layout::{LayoutIssue, is_unmapped, page_looks_broken};
 use crate::ingest::parse::paragraph_blocks;
 
@@ -120,7 +121,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     warnings.extend(suspicious_layout_warnings(&suspicious));
     Ok(ParsedDocument {
         title: None,
-        blocks,
+        blocks: demote_running_headers(blocks, &block_pages),
         warnings,
         pages: block_pages,
     })
@@ -286,6 +287,26 @@ pub(crate) mod tests {
                 ("Third page".into(), Some(3))
             ]
         );
+    }
+
+    #[test]
+    fn heading_lines_on_a_page_become_headings_with_their_page() {
+        let doc = parse_pdf(&test_pdf(&[
+            Some("HAKKIMIZDA"),
+            Some("Firma 2009 yilinda kuruldu"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            doc.blocks,
+            vec![
+                Block::Heading {
+                    level: 3,
+                    text: "HAKKIMIZDA".into()
+                },
+                Block::Paragraph("Firma 2009 yilinda kuruldu".into()),
+            ]
+        );
+        assert_eq!(doc.pages, vec![Some(1), Some(2)]);
     }
 
     #[test]

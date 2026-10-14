@@ -822,3 +822,47 @@ startup: setup mode hides only "not installed".
 - pdfium-render: https://docs.rs/pdfium-render ; pdf_oxide: https://github.com/yfedoseev/pdf_oxide
 - Tauri sidecar: https://v2.tauri.app/develop/sidecar/
 - ort linking: https://ort.pyke.io/setup/cargo-features
+
+## D-024 — Heading lines in plain text and PDF (step 52, 2026-10-14)
+
+**Decision.** Plain text and PDF page text carry no markup, so the parser
+recognises heading lines itself (`ingest/headings.rs`), in the one place both
+formats split paragraphs. A heading line ends the paragraph and becomes a
+heading block, so the chunker starts a chunk there and the heading path is
+embedded, indexed and shown with the source, as for Markdown and DOCX.
+
+A line counts only if it is short (at most 80 characters and 12 words), does
+not end like a sentence (`. , ; : ! ?`), is not laid out in columns (a tab,
+` | `, or two gaps of three spaces), and is one of:
+
+- capitals with at least 4 letters and no lower-case letter, not a one-word
+  warning label (`UYARI`, `WARNING`): level 1 for a part (`BİRİNCİ KISIM`,
+  `PART 2`), level 2 for a chapter (`İKİNCİ BÖLÜM`, `BÖLÜM 2`, `CHAPTER 3`),
+  else level 3;
+- `-- name --`: level 4, the name only;
+- a Roman numeral (`IV.`) or a letter (`A.`, `Ç.`) and a capitalised title,
+  only after a line that ends a sentence, a heading or a blank line (so an
+  initial in wrapped prose is not one): level 5 and 6. `I.` after `H.` (and
+  `V.` after `U.`/`Ü.`) continues the letters.
+
+Lines are read in order (`Outline`): a part or chapter takes its name from the
+next line (`BİRİNCİ KISIM - Genel Esaslar`), a title in capitals wrapped over
+two lines is one title, and a footnote number glued to a title is dropped. In a
+PDF, a heading text found on at least 3 pages and half of the pages is a
+running header and stays body text.
+
+Decimal numbering (`1.`, `2.3`) stays body text: in manuals it numbers steps
+far more often than sections, and it gained nothing over the variant without
+it. Chosen under a rule written before scoring
+(`.docs/benchmarks/v0.3-plain-headings.md`).
+
+**No reindex is forced.** The chunker version stays 1, so the embedding-space
+fingerprint (D-009) does not change and no collection goes to
+`409 reindex_required`: vectors of chunks parsed the old way are still valid
+vectors of the same space. Old TXT and PDF chunks keep an empty heading path
+until the user reindexes the collection (D-022); new uploads get headings
+at once.
+
+**Known limit.** Title-case headings (`Seçim Rehberi`) and decimal outlines
+are not recognised; two separate titles in capitals with nothing between them
+are joined as one.
