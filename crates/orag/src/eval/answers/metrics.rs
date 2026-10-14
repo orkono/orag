@@ -123,7 +123,7 @@ pub struct AnswerMetrics {
     /// Answerable probes with an expected text in a cited chunk (`None`
     /// without answerable probes).
     pub cited_evidence_coverage: Option<f64>,
-    /// Answerable probes whose answer holds every expected text (`None`
+    /// Answerable, not refused probes whose answer holds every expected text (`None`
     /// without answerable probes).
     pub expected_fact_rate: Option<f64>,
     pub abstention: Abstention,

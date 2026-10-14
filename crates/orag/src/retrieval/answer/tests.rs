@@ -191,6 +191,9 @@ fn an_answer_that_opens_with_a_cited_fact_is_not_an_abstention() {
         "Kaynaklara göre ölüm cezası bulunmamaktadır. [1]",
         // A negative fact without a word for the sources is an answer.
         "Anayasada ölüm cezası bulunmamaktadır.",
+        // A fact first, then what the sources leave open.
+        "The documents give a 14-day return period but do not explicitly define whether weekends count.",
+        "Belgelere göre iade süresi 14 gündür, ancak hafta sonları belirtilmemiştir.",
     ] {
         let (_dir, engine, _) = engine(FakeGenerator::new(reply), &[("k.md", DOC)]);
         assert!(

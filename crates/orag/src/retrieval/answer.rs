@@ -299,13 +299,31 @@ fn abstained(answer: &str) -> bool {
         return true;
     }
     let first = normalize_for_lexical(first_sentence(answer));
+    // What the sources leave open after a "but" is a gap beside an answer
+    // ("14 days, but weekends are not stated"), not a refusal.
+    let before_contrast = CONTRAST_WORDS
+        .iter()
+        .filter_map(|word| first.find(word))
+        .min()
+        .map_or(first.as_str(), |at| &first[..at]);
     // Any `[n]` in it counts as a citation, valid or not.
     !first.contains('[')
         && SOURCE_WORDS.iter().any(|word| first.contains(word))
         && NOT_FOUND_PHRASES
             .iter()
-            .any(|phrase| first.contains(phrase))
+            .any(|phrase| before_contrast.contains(phrase))
 }
+
+/// Words that turn from what the sources give to what they leave open, in
+/// normalized form with spaces, so `ama` is not found inside `amaç`.
+const CONTRAST_WORDS: &[&str] = &[
+    " but ",
+    " however",
+    " ancak ",
+    " ama ",
+    " fakat ",
+    " yalnız ",
+];
 
 /// Text up to the first `.`, `!` or `?` followed by whitespace (or the end),
 /// or the first line break. A dot after a digit is an ordinal or a number
