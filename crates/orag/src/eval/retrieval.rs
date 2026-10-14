@@ -23,6 +23,9 @@ use crate::store::documents::{DocumentStatus, NewDocument};
 use crate::store::search::SqliteVecIndex;
 
 const EVAL_DEPTH: usize = 10;
+/// Deepest `--rank-depth`: the lexical and dense lists hold 50 hits each, so
+/// a deeper hybrid rank would only show the fused tail of the same lists.
+pub const MAX_RANK_DEPTH: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StrategyReport {
@@ -68,6 +71,8 @@ pub struct RetrievalReport {
     pub unanswerable: usize,
     /// At most this many chunks reach the answer prompt (D-005).
     pub context_chunks: usize,
+    /// `per_query` ranks reach this deep; metrics stay at depth 10.
+    pub rank_depth: usize,
     pub strategies: Vec<StrategyReport>,
 }
 
@@ -172,6 +177,25 @@ pub fn run_retrieval_eval_with(
     work_dir: &Path,
     config: RetrievalConfig,
 ) -> Result<RetrievalReport> {
+    run_retrieval_eval_deep(embedder, corpus, dataset, work_dir, config, EVAL_DEPTH)
+}
+
+/// `run_retrieval_eval_with`, reporting each label's rank down to `rank_depth`
+/// (10..=50). Scores stay at depth 10 and the answer context (diagnosis);
+/// latencies then include the deeper retrieval.
+pub fn run_retrieval_eval_deep(
+    embedder: Arc<dyn Embedder>,
+    corpus: &Path,
+    dataset: &[EvalQuery],
+    work_dir: &Path,
+    config: RetrievalConfig,
+    rank_depth: usize,
+) -> Result<RetrievalReport> {
+    if !(EVAL_DEPTH..=MAX_RANK_DEPTH).contains(&rank_depth) {
+        return Err(OragError::InvalidInput(format!(
+            "rank depth must be between {EVAL_DEPTH} and {MAX_RANK_DEPTH}, got {rank_depth}"
+        )));
+    }
     let db = work_dir.join("eval.db");
     if db.exists() {
         return Err(OragError::InvalidInput(format!(
@@ -191,7 +215,7 @@ pub fn run_retrieval_eval_with(
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]
         .into_iter()
-        .map(|strategy| evaluate_strategy(&retriever, strategy, &answerable))
+        .map(|strategy| evaluate_strategy(&retriever, strategy, &answerable, rank_depth))
         .collect::<Result<Vec<_>>>()?;
     Ok(RetrievalReport {
         embedding_model: embedder.descriptor().model_id.clone(),
@@ -200,6 +224,7 @@ pub fn run_retrieval_eval_with(
         answerable: answerable.len(),
         unanswerable: dataset.len() - answerable.len(),
         context_chunks: retriever.config.max_context_chunks,
+        rank_depth,
         strategies,
     })
 }
@@ -373,10 +398,12 @@ fn evaluate_strategy(
     retriever: &Retriever,
     strategy: Strategy,
     queries: &[&EvalQuery],
+    rank_depth: usize,
 ) -> Result<StrategyReport> {
     let context = retriever.config.max_context_chunks;
-    // Deep enough for both the metrics and the context check.
-    let depth = EVAL_DEPTH.max(context);
+    // Deep enough for the metrics, the context check and the reported ranks;
+    // `score_question` caps every metric itself.
+    let depth = EVAL_DEPTH.max(context).max(rank_depth);
     let mut latencies = Vec::new();
     let mut scored: Vec<(&EvalQuery, QuestionScore, Vec<Option<usize>>)> = Vec::new();
     for query in queries {
@@ -431,6 +458,81 @@ mod tests {
     use super::*;
     use crate::eval::dataset::load_dataset;
     use crate::infer::fake::FakeEmbedder;
+
+    #[test]
+    fn deeper_ranks_change_no_metric() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+        let run = |depth| {
+            let work = tempfile::tempdir().unwrap();
+            run_retrieval_eval_deep(
+                Arc::new(FakeEmbedder::new()),
+                &root.join("corpus/seed"),
+                &dataset,
+                work.path(),
+                RetrievalConfig::default(),
+                depth,
+            )
+            .unwrap()
+        };
+        let (shallow, deep) = (run(EVAL_DEPTH), run(50));
+        assert_eq!((shallow.rank_depth, deep.rank_depth), (10, 50));
+        for (a, b) in shallow.strategies.iter().zip(&deep.strategies) {
+            assert_eq!(
+                (
+                    a.recall_at_5,
+                    a.recall_at_10,
+                    a.mrr_at_10,
+                    a.ndcg_at_10,
+                    a.in_context
+                ),
+                (
+                    b.recall_at_5,
+                    b.recall_at_10,
+                    b.mrr_at_10,
+                    b.ndcg_at_10,
+                    b.in_context
+                ),
+                "{}",
+                a.strategy
+            );
+            for (qa, qb) in a.per_query.iter().zip(&b.per_query) {
+                for (ra, rb) in qa.ranks.iter().zip(&qb.ranks) {
+                    match ra {
+                        Some(r) => assert_eq!(rb, &Some(*r), "{}", qa.id),
+                        None => assert!(rb.is_none_or(|r| r > 10), "{}", qa.id),
+                    }
+                }
+            }
+        }
+        assert!(
+            deep.strategies.iter().any(|s| s
+                .per_query
+                .iter()
+                .any(|q| q.ranks.iter().any(|r| r.is_some_and(|r| r > 10)))),
+            "the deep run should find some label below rank 10 with the fake embedder"
+        );
+    }
+
+    #[test]
+    fn rank_depth_outside_10_to_50_is_refused() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+        let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+        for depth in [9, 51] {
+            let work = tempfile::tempdir().unwrap();
+            let err = run_retrieval_eval_deep(
+                Arc::new(FakeEmbedder::new()),
+                &root.join("corpus/seed"),
+                &dataset,
+                work.path(),
+                RetrievalConfig::default(),
+                depth,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains("rank depth"), "{err}");
+        }
+    }
 
     #[test]
     fn seed_eval_reports_all_strategies_with_sane_metrics() {
@@ -501,7 +603,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((report.answerable, report.unanswerable), (30, 0));
-        assert_eq!(report.lexical_query, "prefix:3");
+        assert_eq!(report.lexical_query, "prefix:3+stem:7");
     }
 
     fn corpus(files: &[(&str, &str)]) -> tempfile::TempDir {

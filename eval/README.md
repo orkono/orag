@@ -130,6 +130,10 @@ to be reproduced freely.
 `ana-001` (`resmi dil`, evidence `resmî dili`) was missed until query terms
 became prefix terms in 0.2.0-alpha.4 (D-006).
 
+`cek-19` reaches the answer context since query words longer than 7 characters also add a
+7-character prefix stem (step 51, D-006; `cek-24` and `cek-30` gained too before step 52's
+headings, which reach them on their own).
+
 ## Answer evaluation
 
 `orag eval answers` runs the whole answer path (retrieval, prompt, generation

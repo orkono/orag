@@ -41,9 +41,11 @@ pub struct RetrievalConfig {
 }
 
 /// How questions are matched lexically (D-006), chosen with `orag eval retrieval`:
-/// terms of 3+ characters also match suffixed words (`dil` finds `dili`).
+/// terms of 3+ characters also match suffixed words (`dil` finds `dili`), and
+/// words longer than 7 characters add their first 7 (`dinlenmeyi` finds `dinlenmek`).
 pub const LEXICAL_QUERY: LexicalQuery = LexicalQuery {
     prefix_min_chars: Some(3),
+    stem_chars: Some(7),
 };
 
 impl Default for RetrievalConfig {
