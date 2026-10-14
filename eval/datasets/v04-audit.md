@@ -32,3 +32,13 @@ that did not write it, then checked all 130 rows against the documents: 3 wrong,
 | v4-ans-019 | wrong | “yargı yolu” also appears in the wrong answer “yargı yolu kapalı,” and a correct “evet, başvurabilir” answer need not contain it. |
 | v4-ans-020 | weak | tr-insan-kaynaklari.md requires voluntary resignation within twelve months after completing training costing over 30,000 TL; the probe omits those conditions. |
 | v4-ans-024 | weak | The retrieval family asks for the DS-3120 carton weight, while this probe asks for the filter’s own weight; tr-sulama-katalogu.pdf gives neither. |
+
+## Review fixes (step 60 code review, gpt-6-sol)
+
+- `v4-md-002` / `v4-ans-012` asked for the DS-5020 warranty, a fact the v0.2 set measures
+  (`v2-tab-024`, `v2-ans-030`); they now ask for its price and the wall-mount bracket in the box
+  (family `md-ds5020-fiyat-kutu`).
+- `v4-tab-005` and `v4-acc-001` now say "belirsiz süreli, müdür olmayan": the notice table applies
+  to open-ended contracts, and managers get ten weeks regardless of tenure.
+
+The served-default baselines stayed hybrid in context 0.909 and expected facts 0.950.
