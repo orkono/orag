@@ -168,6 +168,12 @@ lists push the single-list #2-#4 out. The ordering above stays; the remaining
 multi-document misses are single-passage recall problems
 (`.docs/benchmarks/v0.3-context-diversity.md`).
 
+**10-chunk context, rejected (step 57).** Five leaders per list in a
+10-chunk context recovered two dev near misses (dev 81/89 → 83/89, holdout
+unchanged) but made answers 38% slower at the median and turned one
+unanswerable probe into an unsupported answer, so the context stays at 8
+(`.docs/benchmarks/v0.3-fusion-near-miss.md`).
+
 **Abstention.** Hard abstain (no model call) only when both candidate lists
 are empty. The `abstained` flag also marks a model answer that is the refusal
 sentence or whose first sentence, uncited, says the sources do not answer
@@ -226,12 +232,6 @@ translation. The query prefix stays as Qwen recommends (English instruction,
 no document prefix).
 
 **Revisit.** v0.4, using evaluation results.
-
-**10-chunk context tried and rejected (step 57, 0.3.0-alpha.10).** Five
-leaders per list in a 10-chunk context recovered two dev near misses (dev +2,
-holdout 0) but made answers 38% slower at the median and turned one
-unanswerable probe into an unsupported answer, so the context stays at 8
-(`.docs/benchmarks/v0.3-fusion-near-miss.md`).
 
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
 

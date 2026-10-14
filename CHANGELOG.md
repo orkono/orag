@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.12] - 2026-10-14
 
-- **10-chunk answer context tried and rejected (step 57, D-005).** Five leaders per list in a 10-chunk context recovered two dev near misses (hybrid in context 0.931 → 0.943; holdout unchanged), but answers became 38% slower at the median and one unanswerable question got an unsupported answer, so the context stays at 8 chunks (`.docs/benchmarks/v0.3-fusion-near-miss.md`).
+- **10-chunk answer context tried and rejected (step 57, D-005).** Five leaders per list in a 10-chunk context recovered two dev near misses (dev hybrid in context 81/89 → 83/89; holdout unchanged), but answers became 38% slower at the median and one unanswerable question got an unsupported answer, so the context stays at 8 chunks (`.docs/benchmarks/v0.3-fusion-near-miss.md`).
 
 ## [0.3.0-alpha.11] - 2026-10-14
 
