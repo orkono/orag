@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.4] - 2026-10-14
+
+- **Headings in plain text and PDF.** TXT and PDF documents have no heading markup, so heading lines are now recognised: lines in capitals (ranked by `KISIM`/`PART` and `BÖLÜM`/`CHAPTER`/`SECTION`), `-- name --` lines, and titles numbered with a Roman numeral or a letter (`IV. Egemenlik`, `A. Özel hayatın gizliliği`). A chunk now starts at such a heading and sources show its heading path, as for Markdown and DOCX (D-024). On the v0.2 set hybrid in context rises from 0.909 to 0.920 and answers with the expected facts from 0.925 to 0.950, with shorter prompts (p50 1.7 s → 1.35 s). Decided by a rule written before scoring (`.docs/benchmarks/v0.3-plain-headings.md`). No reindex is forced: existing TXT and PDF documents get headings when their collection is reindexed.
+
 ## [0.3.0-alpha.3] - 2026-10-13
 
 - **Context diversity tried and rejected.** A per-document cap in the answer context and a tier for chunks both retrieval lists found were scored on the rewritten v0.2 set under a rule written before scoring; neither passed (the consensus tier: dev −1, holdout −2, cross-language 0.880 → 0.680), so retrieval ordering is unchanged. The remaining multi-document misses are single-passage recall problems (`.docs/benchmarks/v0.3-context-diversity.md`, D-005).

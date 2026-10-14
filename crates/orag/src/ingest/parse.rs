@@ -7,6 +7,7 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use crate::domain::document::{Block, ParsedDocument};
 use crate::error::{OragError, Result};
 use crate::ingest::format::SourceFormat;
+use crate::ingest::headings::heading_level as line_heading_level;
 
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
@@ -88,6 +89,8 @@ fn parse_plain(text: &str) -> ParsedDocument {
 }
 
 /// Blank-line separated paragraphs; lines are trimmed and joined with spaces.
+/// A heading line (`headings::heading_level`) ends the paragraph and becomes a
+/// heading block.
 /// Shared by plain text and PDF page text. Any line ending counts (`lines_any`),
 /// so old Mac files with lone CRs split like the rest.
 pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
@@ -96,6 +99,12 @@ pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
     for line in lines_any(text) {
         if line.trim().is_empty() {
             flush_paragraph(&mut lines, &mut blocks);
+        } else if let Some(level) = line_heading_level(line) {
+            flush_paragraph(&mut lines, &mut blocks);
+            blocks.push(Block::Heading {
+                level,
+                text: collapse_whitespace(line),
+            });
         } else {
             lines.push(line.trim());
         }
@@ -455,6 +464,30 @@ mod tests {
             ]
         );
         assert_eq!(doc.title, None);
+    }
+
+    #[test]
+    fn plain_text_heading_lines_become_headings_and_end_the_paragraph() {
+        let text = "Giriş metni\nBİRİNCİ KISIM\nGenel Esaslar\nI. Devletin şekli\n\
+                    MADDE 1- Türkiye Devleti bir Cumhuriyettir.\n\n\
+                    -- BAĞLANTI PARÇALARI --\nDS-2050    Geçmeli birleştirici    3,90\n";
+        let doc = parse_document(SourceFormat::PlainText, text.as_bytes()).unwrap();
+        let heading = |level, text: &str| Block::Heading {
+            level,
+            text: text.into(),
+        };
+        assert_eq!(
+            doc.blocks,
+            vec![
+                Block::Paragraph("Giriş metni".into()),
+                heading(1, "BİRİNCİ KISIM"),
+                Block::Paragraph("Genel Esaslar".into()),
+                heading(4, "I. Devletin şekli"),
+                Block::Paragraph("MADDE 1- Türkiye Devleti bir Cumhuriyettir.".into()),
+                heading(3, "-- BAĞLANTI PARÇALARI --"),
+                Block::Paragraph("DS-2050 Geçmeli birleştirici 3,90".into()),
+            ]
+        );
     }
 
     #[test]

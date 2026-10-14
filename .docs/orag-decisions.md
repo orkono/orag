@@ -822,3 +822,37 @@ startup: setup mode hides only "not installed".
 - pdfium-render: https://docs.rs/pdfium-render ; pdf_oxide: https://github.com/yfedoseev/pdf_oxide
 - Tauri sidecar: https://v2.tauri.app/develop/sidecar/
 - ort linking: https://ort.pyke.io/setup/cargo-features
+
+## D-024 — Heading lines in plain text and PDF (step 52, 2026-10-14)
+
+**Decision.** Plain text and PDF page text carry no markup, so the parser
+recognises heading lines itself (`ingest/headings.rs`), in the one place both
+formats split paragraphs. A heading line ends the paragraph and becomes a
+heading block, so the chunker starts a chunk there and the heading path is
+embedded, indexed and shown with the source, as for Markdown and DOCX.
+
+A line counts only if it is short (at most 80 characters and 12 words), does
+not end like a sentence (`. , ; : ! ?`), is not laid out in columns (a tab,
+three spaces or ` | `), and is one of:
+
+- capitals with at least 4 letters and no lower-case letter: level 1 with
+  `KISIM`/`PART`, level 2 with `BÖLÜM`/`CHAPTER`/`SECTION`, else level 3;
+- `-- name --`: level 3;
+- a Roman numeral (`IV.`) or a letter (`A.`, `Ç.`) and a capitalised title:
+  level 4 and 5.
+
+Decimal numbering (`1.`, `2.3`) stays body text: in manuals it numbers steps
+far more often than sections, and it gained nothing over the variant without
+it. Chosen under a rule written before scoring
+(`.docs/benchmarks/v0.3-plain-headings.md`).
+
+**No reindex is forced.** The chunker version stays 1, so the embedding-space
+fingerprint (D-009) does not change and no collection goes to
+`409 reindex_required`: vectors of chunks parsed the old way are still valid
+vectors of the same space. Old TXT and PDF chunks keep an empty heading path
+until the user reindexes the collection (D-022); new uploads get headings
+at once.
+
+**Known limit.** A PDF heading wrapped over two lines becomes two headings
+(`DS-1620 YASSI DAMLA SULAMA` then `ŞERİDİ 16 MM, 6 MİL`); title-case
+headings (`Seçim Rehberi`) are not recognised.

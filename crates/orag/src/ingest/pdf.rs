@@ -289,6 +289,26 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn heading_lines_on_a_page_become_headings_with_their_page() {
+        let doc = parse_pdf(&test_pdf(&[
+            Some("HAKKIMIZDA"),
+            Some("Firma 2009 yilinda kuruldu"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            doc.blocks,
+            vec![
+                Block::Heading {
+                    level: 3,
+                    text: "HAKKIMIZDA".into()
+                },
+                Block::Paragraph("Firma 2009 yilinda kuruldu".into()),
+            ]
+        );
+        assert_eq!(doc.pages, vec![Some(1), Some(2)]);
+    }
+
+    #[test]
     fn blank_pages_are_reported_as_ocr_required() {
         let doc = parse_pdf(&test_pdf(&[
             Some("Hello world"),
