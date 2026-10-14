@@ -326,12 +326,9 @@ fn run_eval_retrieval(
     {
         anyhow::bail!("{} already exists; choose a new --out file", path.display());
     }
-    let embedder: std::sync::Arc<dyn crate::infer::Embedder> = if dev_fake_models {
-        // No config is loaded: fake models need none, and ORAG_HOME is not created.
-        std::sync::Arc::new(crate::infer::fake::FakeEmbedder::new())
-    } else {
-        crate::app::load_embedder(&load_config()?)?
-    };
+    // The generator only counts tokens here: the answer context is budgeted as
+    // `orag serve` budgets it (D-018).
+    let (embedder, generator) = load_answer_models(dev_fake_models)?;
     // Exclusively created and removed on drop; never touches pre-existing paths.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
     let report = crate::eval::retrieval::run_retrieval_eval_deep(
@@ -341,6 +338,7 @@ fn run_eval_retrieval(
         work.path(),
         config,
         rank_depth,
+        Some(generator),
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {

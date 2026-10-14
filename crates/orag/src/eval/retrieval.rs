@@ -14,9 +14,10 @@ use crate::eval::metrics::{label_ranks, percentile};
 use crate::eval::scoring::{
     GroupReport, GroupSums, QuestionScore, group_reports, question_found, score_question,
 };
-use crate::infer::Embedder;
+use crate::infer::{Embedder, Generator};
 use crate::ingest::format::SourceFormat;
 use crate::ingest::worker::{IngestContext, run_once};
+use crate::retrieval::answer::{CANDIDATES_PER_SLOT, answer_context};
 use crate::retrieval::hybrid::{Candidate, RetrievalConfig, Retriever, Strategy};
 use crate::store::Store;
 use crate::store::documents::{DocumentStatus, NewDocument};
@@ -35,12 +36,16 @@ pub struct StrategyReport {
     pub recall_at_10: f64,
     pub mrr_at_10: f64,
     pub ndcg_at_10: f64,
-    /// Share of queries found within the first `context_chunks` candidates,
-    /// the most the answer prompt can hold (D-005): any one label, or every
-    /// label for `require_all` questions. An approximation of what the
-    /// generator sees: the answer path can still skip a candidate that does
-    /// not fit its token budget.
+    /// Share of queries whose evidence reaches the answer prompt: any one
+    /// label, or every label for `require_all` questions. The prompt is chosen
+    /// as the answer path chooses it (`answer_context`): from the first
+    /// `context_chunks × CANDIDATES_PER_SLOT` candidates, at most
+    /// `context_chunks` chunks, skipping any that does not fit the generator's
+    /// token budget. Without a generator (`context_budget` is `None`) no chunk
+    /// is skipped.
     pub in_context: f64,
+    /// Candidates skipped over all queries because they did not fit the budget.
+    pub skipped_chunks: usize,
     /// Ids of the queries that miss it, so one subgroup cannot hide in a mean.
     pub missed_in_context: Vec<String>,
     pub p50_ms: f64,
@@ -71,6 +76,9 @@ pub struct RetrievalReport {
     pub unanswerable: usize,
     /// At most this many chunks reach the answer prompt (D-005).
     pub context_chunks: usize,
+    /// The generator whose token budget chose the answer context, or `None`
+    /// when the context is simply the first `context_chunks` candidates.
+    pub context_budget: Option<String>,
     /// `per_query` ranks reach this deep; metrics stay at depth 10.
     pub rank_depth: usize,
     pub strategies: Vec<StrategyReport>,
@@ -79,11 +87,12 @@ pub struct RetrievalReport {
 impl RetrievalReport {
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
-            "Embedding model: `{}` · lexical query: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
+            "Embedding model: `{}` · lexical query: `{}` · context budget: `{}` · documents: {} · answerable: {} · unanswerable: {}\n\n\
              | strategy | recall@5 | recall@10 | MRR@10 | nDCG@10 | in context (top {}) | p50 ms | p95 ms |\n\
              |---|---|---|---|---|---|---|---|\n",
             self.embedding_model,
             self.lexical_query,
+            self.context_budget.as_deref().unwrap_or("none"),
             self.corpus_documents,
             self.answerable,
             self.unanswerable,
@@ -177,12 +186,20 @@ pub fn run_retrieval_eval_with(
     work_dir: &Path,
     config: RetrievalConfig,
 ) -> Result<RetrievalReport> {
-    run_retrieval_eval_deep(embedder, corpus, dataset, work_dir, config, EVAL_DEPTH)
+    run_retrieval_eval_deep(
+        embedder, corpus, dataset, work_dir, config, EVAL_DEPTH, None,
+    )
+}
+
+/// How many fused candidates the answer path considers for its context.
+pub fn answer_pool(config: &RetrievalConfig) -> usize {
+    config.max_context_chunks * CANDIDATES_PER_SLOT
 }
 
 /// `run_retrieval_eval_with`, reporting each label's rank down to `rank_depth`
 /// (10..=50). Scores stay at depth 10 and the answer context (diagnosis);
-/// latencies then include the deeper retrieval.
+/// latencies then include the deeper retrieval. With `generator`, the answer
+/// context is budgeted by its token counter, as `orag serve` does.
 pub fn run_retrieval_eval_deep(
     embedder: Arc<dyn Embedder>,
     corpus: &Path,
@@ -190,6 +207,7 @@ pub fn run_retrieval_eval_deep(
     work_dir: &Path,
     config: RetrievalConfig,
     rank_depth: usize,
+    generator: Option<Arc<dyn Generator>>,
 ) -> Result<RetrievalReport> {
     if !(EVAL_DEPTH..=MAX_RANK_DEPTH).contains(&rank_depth) {
         return Err(OragError::InvalidInput(format!(
@@ -215,7 +233,15 @@ pub fn run_retrieval_eval_deep(
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]
         .into_iter()
-        .map(|strategy| evaluate_strategy(&retriever, strategy, &answerable, rank_depth))
+        .map(|strategy| {
+            evaluate_strategy(
+                &retriever,
+                strategy,
+                &answerable,
+                rank_depth,
+                generator.as_deref(),
+            )
+        })
         .collect::<Result<Vec<_>>>()?;
     Ok(RetrievalReport {
         embedding_model: embedder.descriptor().model_id.clone(),
@@ -224,6 +250,7 @@ pub fn run_retrieval_eval_deep(
         answerable: answerable.len(),
         unanswerable: dataset.len() - answerable.len(),
         context_chunks: retriever.config.max_context_chunks,
+        context_budget: generator.map(|g| g.model_id().to_string()),
         rank_depth,
         strategies,
     })
@@ -399,23 +426,37 @@ fn evaluate_strategy(
     strategy: Strategy,
     queries: &[&EvalQuery],
     rank_depth: usize,
+    generator: Option<&dyn Generator>,
 ) -> Result<StrategyReport> {
     let context = retriever.config.max_context_chunks;
-    // Deep enough for the metrics, the context check and the reported ranks;
+    let pool = answer_pool(&retriever.config);
+    // Deep enough for the metrics, the answer pool and the reported ranks;
     // `score_question` caps every metric itself.
-    let depth = EVAL_DEPTH.max(context).max(rank_depth);
+    let depth = EVAL_DEPTH.max(pool).max(rank_depth);
     let mut latencies = Vec::new();
+    let mut skipped_chunks = 0;
     let mut scored: Vec<(&EvalQuery, QuestionScore, Vec<Option<usize>>)> = Vec::new();
     for query in queries {
         let started = Instant::now();
         let outcome = retriever.retrieve(1, &query.query, strategy, depth)?;
         latencies.push(started.elapsed().as_secs_f64() * 1000.0);
         let ranks = candidate_ranks(&outcome.candidates, &query.relevant);
-        scored.push((
-            query,
-            score_question(&ranks, context, query.require_all),
-            ranks,
-        ));
+        let pooled: Vec<Candidate> = outcome.candidates.into_iter().take(pool).collect();
+        let prompt = match generator {
+            Some(generator) => {
+                let (chosen, skipped) = answer_context(generator, &query.query, pooled, context)?;
+                skipped_chunks += skipped;
+                chosen
+            }
+            None => pooled.into_iter().take(context).collect(),
+        };
+        let mut score = score_question(&ranks, context, query.require_all);
+        score.in_context = question_found(
+            &candidate_ranks(&prompt, &query.relevant),
+            context,
+            query.require_all,
+        );
+        scored.push((query, score, ranks));
     }
     let mut all = GroupSums::default();
     scored.iter().for_each(|(_, score, _)| all.add(score));
@@ -428,6 +469,7 @@ fn evaluate_strategy(
         mrr_at_10: all.mrr_at_10,
         ndcg_at_10: all.ndcg_at_10,
         in_context: all.in_context,
+        skipped_chunks,
         missed_in_context: scored
             .iter()
             .filter(|(_, score, _)| !score.in_context)
@@ -457,7 +499,8 @@ mod tests {
 
     use super::*;
     use crate::eval::dataset::load_dataset;
-    use crate::infer::fake::FakeEmbedder;
+    use crate::infer::Generator;
+    use crate::infer::fake::{FakeEmbedder, FakeGenerator};
 
     #[test]
     fn deeper_ranks_change_no_metric() {
@@ -472,6 +515,7 @@ mod tests {
                 work.path(),
                 RetrievalConfig::default(),
                 depth,
+                None,
             )
             .unwrap()
         };
@@ -514,6 +558,69 @@ mod tests {
         );
     }
 
+    /// A corpus whose only matching chunk for "zebra" is far larger than a
+    /// small generator's prompt budget, plus small chunks that fit.
+    fn oversized_corpus(dir: &Path) -> Vec<EvalQuery> {
+        let corpus = dir.join("corpus");
+        std::fs::create_dir(&corpus).unwrap();
+        let big = format!("zebra {}", "kelime ".repeat(300));
+        std::fs::write(corpus.join("big.txt"), big).unwrap();
+        std::fs::write(corpus.join("small.txt"), "zebra küçük not").unwrap();
+        let line = r#"{"id":"q1","lang":"tr","query":"zebra","relevant":[{"document":"big.txt","contains":"zebra kelime"}],"answerable":true}"#;
+        let path = dir.join("set.jsonl");
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+        load_dataset(&path).unwrap()
+    }
+
+    #[test]
+    fn the_answer_context_skips_a_chunk_too_large_for_the_prompt_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let dataset = oversized_corpus(dir.path());
+        let run = |generator: Option<Arc<dyn Generator>>, work: &Path| {
+            run_retrieval_eval_deep(
+                Arc::new(FakeEmbedder::new()),
+                &dir.path().join("corpus"),
+                &dataset,
+                work,
+                RetrievalConfig::default(),
+                EVAL_DEPTH,
+                generator,
+            )
+            .unwrap()
+        };
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let unbudgeted = run(None, a.path());
+        // Room for the instructions and a short source, not for 300 words.
+        let small: Arc<dyn Generator> = Arc::new(FakeGenerator::new("x").with_context(400, 100));
+        let budgeted = run(Some(small), b.path());
+        let hybrid = |r: &RetrievalReport| {
+            r.strategies
+                .iter()
+                .find(|s| s.strategy == "hybrid")
+                .unwrap()
+                .clone()
+        };
+        let (u, g) = (hybrid(&unbudgeted), hybrid(&budgeted));
+        assert_eq!(u.recall_at_10, g.recall_at_10, "ranking must not change");
+        assert_eq!(u.in_context, 1.0);
+        assert_eq!(
+            g.in_context, 0.0,
+            "the oversized chunk never reaches the prompt"
+        );
+        assert!(g.skipped_chunks > 0);
+        assert_eq!(budgeted.context_budget.as_deref(), Some("fake-generator"));
+        assert_eq!(unbudgeted.context_budget, None);
+    }
+
+    #[test]
+    fn the_answer_context_is_chosen_from_as_many_candidates_as_production() {
+        assert_eq!(
+            answer_pool(&RetrievalConfig::default()),
+            RetrievalConfig::default().max_context_chunks
+                * crate::retrieval::answer::CANDIDATES_PER_SLOT
+        );
+    }
+
     #[test]
     fn rank_depth_outside_10_to_50_is_refused() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
@@ -527,6 +634,7 @@ mod tests {
                 work.path(),
                 RetrievalConfig::default(),
                 depth,
+                None,
             )
             .unwrap_err()
             .to_string();

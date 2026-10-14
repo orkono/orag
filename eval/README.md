@@ -69,8 +69,13 @@ Computed over answerable questions at depth 10:
 - **nDCG@10:** for `require_all` questions, coverage of every label (each
   label counts once); otherwise the best label against an ideal of rank 1.
   Always in [0, 1].
-- **in context:** share of questions found within the chunks the answer
-  prompt can hold (`max_context_chunks`, 8), by the same rule.
+- **in context:** share of questions whose evidence reaches the answer
+  prompt, by the same rule. The prompt is chosen exactly as `orag serve`
+  chooses it: from the first 16 fused candidates (`max_context_chunks` 8 ×
+  2), at most 8 chunks, skipping any that does not fit the answer model's
+  token budget. The answer model is loaded only to count tokens; the report
+  names it (`context_budget`) and counts the skipped chunks
+  (`skipped_chunks`). With `--dev-fake-models` a fake counter is used.
 - **p50 / p95 ms:** retrieval latency per query.
 
 A set with categories or splits also gets "By category" and "By split"

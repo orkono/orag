@@ -30,7 +30,7 @@ const TURKISH_MARKERS: &[&str] = &[
 const TURKISH_ONLY_LETTERS: &str = "ğışİĞŞ";
 /// How many fused candidates are considered per context slot, so a chunk too
 /// large for the budget is replaced by a later one.
-const CANDIDATES_PER_SLOT: usize = 2;
+pub const CANDIDATES_PER_SLOT: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SourceRef {
@@ -353,6 +353,24 @@ fn abstain(
     };
     let _ = emit(AnswerEvent::Done(Box::new(summary)));
     Ok(())
+}
+
+/// The chunks `answer` would put in the prompt for `question`, and how many it
+/// skipped; shared with `orag eval retrieval` so the eval scores the context
+/// the model really sees.
+pub fn answer_context(
+    generator: &dyn Generator,
+    question: &str,
+    candidates: Vec<Candidate>,
+    limit: usize,
+) -> Result<(Vec<Candidate>, usize)> {
+    select_context(
+        generator,
+        question,
+        refusal_for(question),
+        candidates,
+        limit,
+    )
 }
 
 /// Adds candidates in fused order while the prompt fits `context - max_output`;

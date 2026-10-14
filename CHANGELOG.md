@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.8] - 2026-10-14
+
+- **The retrieval eval scores the context the model really sees (step 55, D-018).** `orag eval retrieval` now chooses the answer context as `orag serve` does: from 16 fused candidates, at most 8 chunks, skipping any that does not fit the answer model's token budget (it loads the answer model only to count tokens). The report names that model (`context_budget`) and counts skipped chunks. On every current set nothing changed (v02 hybrid in context 0.931, per question identical, no chunk skipped), so earlier numbers stand (`.docs/benchmarks/v0.3-eval-parity.md`).
+
 ## [0.3.0-alpha.7] - 2026-10-14
 
 - **Working-day answer probes fixed (step 54, D-018).** Five probes of `v02-answers.jsonl` expected only `iş günü`, so the correct "10 iş gündür" scored as a miss; they now expect `iş gün`, which every inflection matches while a wrong number in digits still does not (number words such as `on iki` for `iki` were and stay a scorer limitation). On 0.3.0-alpha.6 expected facts read 0.950 instead of 0.925 (`v2-ans-038`); a scoring correction, not an engine gain (`.docs/benchmarks/v0.3-set-rewrite.md`).
