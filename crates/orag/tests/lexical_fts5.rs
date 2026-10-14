@@ -120,3 +120,56 @@ fn prefix_terms_find_suffixed_words_and_stay_valid_syntax() {
         matches_with("x", &query(hostile));
     }
 }
+
+#[test]
+fn stems_find_other_inflections_of_a_word() {
+    let stemmed = LexicalQuery::parse("prefix:3+stem:5").unwrap();
+    let current = LexicalQuery::parse("prefix:3").unwrap();
+    for (document, query) in [
+        (
+            "Dinlenmek, çalışanların hakkıdır.",
+            "dinlenmeyi hak olarak tanıyor mu",
+        ),
+        ("kararları gerekçeli olarak yazılır", "gerekçesini"),
+        ("ÇALIŞMA SÜRESİ", "çalışmalarını"), // "çaliş"* after the ı/i fold
+        ("abcdx\u{301} kelimesi", "abcdx\u{301}yz"),
+    ] {
+        let expression = stemmed.fts_query(query).unwrap();
+        assert!(
+            matches_with(document, &expression),
+            "{document:?} not found by {expression}"
+        );
+    }
+    assert!(
+        !matches_with("Dinlenmek", &current.fts_query("dinlenmeyi").unwrap()),
+        "without stems the longer word cannot find the shorter one"
+    );
+}
+
+#[test]
+fn stems_leave_numbers_whole() {
+    let stemmed = LexicalQuery::parse("prefix:3+stem:5").unwrap();
+    assert!(!matches_with(
+        "16000 metre",
+        &stemmed.fts_query("1600").unwrap()
+    ));
+    assert!(!matches_with(
+        "2016347 sayılı",
+        &stemmed.fts_query("2016/347").unwrap()
+    ));
+}
+
+#[test]
+fn stemmed_queries_are_valid_fts5_syntax() {
+    let stemmed = LexicalQuery::parse("prefix:3+stem:4").unwrap();
+    for query in [
+        r#"" OR "#,
+        "a\"bcdefgh",
+        "NEAR(xxxxxxx yyyyyyy, 3)",
+        "❤️ teşekkürlerimizi",
+    ] {
+        if let Some(expression) = stemmed.fts_query(query) {
+            matches_with("teşekkür", &expression); // panics on a syntax error
+        }
+    }
+}
