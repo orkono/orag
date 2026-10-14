@@ -355,10 +355,11 @@ collection is reindexed.
 
 `heading_path` is the headings above the passage, outermost first. Markdown
 and DOCX take them from their markup. TXT and PDF have none, so since
-0.3.0-alpha.4 heading lines are recognised: lines in capitals (ranked by
-`KISIM`/`PART` and `BÖLÜM`/`CHAPTER`/`SECTION`), `-- name --` lines, and
-titles numbered with a Roman numeral or a letter (`IV. Egemenlik`,
-`A. Özel hayatın gizliliği`) (D-024). TXT and PDF chunks indexed before that
+0.3.0-alpha.4 heading lines are recognised: lines in capitals (parts and
+chapters such as `BİRİNCİ KISIM` or `BÖLÜM 2` rank highest), `-- name --`
+lines, and titles numbered with a Roman numeral or a letter (`IV. Egemenlik`,
+`A. Özel hayatın gizliliği`). Headers repeated on most pages of a PDF are not
+headings (D-024). TXT and PDF chunks indexed before that
 keep `[]` until the collection is reindexed.
 
 `rank_score` is a ranking signal (reciprocal rank fusion), **not** a

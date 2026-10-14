@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::document::ParsedDocument;
 use crate::error::{OragError, Result};
+use crate::ingest::headings::demote_running_headers;
 use crate::ingest::layout::{LayoutIssue, is_unmapped, page_looks_broken};
 use crate::ingest::parse::paragraph_blocks;
 
@@ -120,7 +121,7 @@ fn extract(bytes: &[u8], limits: Limits) -> Result<ParsedDocument> {
     warnings.extend(suspicious_layout_warnings(&suspicious));
     Ok(ParsedDocument {
         title: None,
-        blocks,
+        blocks: demote_running_headers(blocks, &block_pages),
         warnings,
         pages: block_pages,
     })

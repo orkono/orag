@@ -6,7 +6,11 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::domain::document::{Block, ParsedDocument};
 use crate::error::{OragError, Result};
 
-/// Bump when chunk boundaries change; part of the embedding-space fingerprint.
+/// Bump when this chunker's own rules for chunk boundaries change; part of the
+/// embedding-space fingerprint. A parser change that yields new blocks (such
+/// as heading lines in TXT and PDF) does not bump it: vectors of chunks made
+/// the old way stay valid in the same space, and a reindex refreshes them
+/// (D-009, D-024).
 pub const CHUNKER_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

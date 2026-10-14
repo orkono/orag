@@ -3,86 +3,312 @@
 //! Only lines that read as titles count: short, not ending like a sentence, and
 //! either written in capitals, framed as `-- name --`, or numbered as an
 //! outline with a Roman numeral or a letter (`IV.`, `A.`). Levels nest the way
-//! Turkish statutes and catalogues do: part > chapter > capitals > Roman >
-//! letter. Decimal numbering (`1.`, `2.3`) is left as body text: in manuals it
-//! numbers steps far more often than titles, and it gained nothing in the
-//! step 52 measurement.
+//! Turkish statutes and catalogues do: part > chapter > capitals > dashed >
+//! Roman > letter. Decimal numbering (`1.`, `2.3`) is left as body text: in
+//! manuals it numbers steps far more often than titles, and it gained nothing
+//! in the step 52 measurement.
+//!
+//! `Outline` reads the lines of one text in order, because some decisions need
+//! the line before: an outline number only starts a heading after a finished
+//! sentence (else `M. Kemal` in wrapped prose would), `I.` after `H.` is a
+//! letter, a chapter's name on the next line belongs to the chapter, and a
+//! title in capitals wrapped over two lines is one title.
 
 /// Longer lines are prose wrapped by the source, not titles.
 const MAX_CHARS: usize = 80;
 const MAX_WORDS: usize = 12;
 /// Capitals with fewer letters are acronyms or codes (`KDV`, `PN 10`).
 const MIN_LETTERS: usize = 4;
+/// A chapter's name on the line after it is at most this long.
+const MAX_NAME_WORDS: usize = 8;
 
+/// Turkish ordinals come first (`BİRİNCİ KISIM`); a number follows (`BÖLÜM 2`).
 const PART_WORDS: [&str; 2] = ["KISIM", "PART"];
 const CHAPTER_WORDS: [&str; 3] = ["BÖLÜM", "CHAPTER", "SECTION"];
+const ORDINAL_LAST: [&str; 2] = ["KISIM", "BÖLÜM"];
+/// Labels of a warning box, set in capitals but not section titles.
+const ADMONITIONS: [&str; 9] = [
+    "UYARI",
+    "DİKKAT",
+    "ÖNEMLİ",
+    "TEHLİKE",
+    "WARNING",
+    "CAUTION",
+    "NOTE",
+    "IMPORTANT",
+    "DANGER",
+];
+use std::collections::{HashMap, HashSet};
 
-/// Heading level of `line`, or `None` for body text.
-pub(crate) fn heading_level(line: &str) -> Option<u8> {
-    let line = line.trim();
-    let words = line.split_whitespace().count();
-    if words == 0
-        || words > MAX_WORDS
-        || line.chars().count() > MAX_CHARS
-        || has_columns(line)
-        || line.ends_with(['.', ',', ';', ':', '!', '?'])
-    {
-        return None;
+use crate::domain::document::Block;
+
+const SENTENCE_END: [char; 6] = ['.', ',', ';', ':', '!', '?'];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Capitals with a part or chapter word: its name may follow.
+    Division,
+    Capitals,
+    Dashed,
+    Roman,
+    Letter,
+}
+
+impl Kind {
+    fn level(self, division: u8) -> u8 {
+        match self {
+            Kind::Division => division,
+            Kind::Capitals => 3,
+            Kind::Dashed => 4,
+            Kind::Roman => 5,
+            Kind::Letter => 6,
+        }
     }
-    dashed(line)
-        .or_else(|| capitals(line))
-        .or_else(|| enumerated(line))
 }
 
-/// Runs of spaces, a tab or a `|` cell separator: a table row, not a title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Line {
+    Blank,
+    Body,
+    Heading {
+        level: u8,
+        text: String,
+    },
+    /// More text of the heading just emitted (a wrapped title, a chapter name).
+    ExtendHeading(String),
+}
+
+/// Reads one text's lines in order and says what each one is.
+#[derive(Debug)]
+pub(crate) struct Outline {
+    /// The previous non-blank line ended a sentence or was a heading.
+    after_complete_line: bool,
+    last_letter: Option<char>,
+    /// The kind of the last heading while no body has followed it.
+    open: Option<Kind>,
+}
+
+impl Default for Outline {
+    fn default() -> Self {
+        Self {
+            after_complete_line: true,
+            last_letter: None,
+            open: None,
+        }
+    }
+}
+
+impl Outline {
+    pub(crate) fn line(&mut self, line: &str) -> Line {
+        let line = line.trim();
+        if line.is_empty() {
+            return Line::Blank;
+        }
+        if let Some((kind, division, text)) = self.classify(line) {
+            if let Some(extra) = self.extension(kind, &text) {
+                return Line::ExtendHeading(extra);
+            }
+            self.after_complete_line = true;
+            self.open = Some(kind);
+            match kind {
+                Kind::Letter => self.last_letter = line.chars().next(),
+                Kind::Roman => self.last_letter = None,
+                _ => {}
+            }
+            return Line::Heading {
+                level: kind.level(division),
+                text,
+            };
+        }
+        if self.open == Some(Kind::Division) && is_name(line) {
+            self.open = None;
+            return Line::ExtendHeading(format!(" - {line}"));
+        }
+        self.open = None;
+        if letters(line) > 0 {
+            self.after_complete_line = line.ends_with(SENTENCE_END) || line.ends_with(')');
+        }
+        Line::Body
+    }
+
+    /// The text to append to the open heading, when `text` continues it: a
+    /// chapter's name in capitals, or the second line of a wrapped title.
+    fn extension(&mut self, kind: Kind, text: &str) -> Option<String> {
+        if kind != Kind::Capitals {
+            return None;
+        }
+        match self.open? {
+            Kind::Division => {
+                self.open = None;
+                Some(format!(" - {text}"))
+            }
+            Kind::Capitals => Some(format!(" {text}")),
+            _ => None,
+        }
+    }
+
+    fn classify(&self, line: &str) -> Option<(Kind, u8, String)> {
+        let words = line.split_whitespace().count();
+        if words > MAX_WORDS
+            || line.chars().count() > MAX_CHARS
+            || has_columns(line)
+            || line.ends_with(SENTENCE_END)
+        {
+            return None;
+        }
+        if let Some(inner) = dashed(line) {
+            return Some((Kind::Dashed, 0, clean(inner)));
+        }
+        if let Some(division) = capitals(line) {
+            let kind = if division < 3 {
+                Kind::Division
+            } else {
+                Kind::Capitals
+            };
+            return Some((kind, division, clean(line)));
+        }
+        if !self.after_complete_line {
+            return None;
+        }
+        let kind = enumerated(line, self.last_letter)?;
+        Some((kind, 0, clean(line)))
+    }
+}
+
+/// A heading text repeated on this many pages, and on at least half of the
+/// pages with text, is a running header or footer, not a section title.
+const RUNNING_HEADER_PAGES: usize = 3;
+
+/// `blocks` with running headers turned back into body text, so a header
+/// printed on every page neither replaces the real section heading nor cuts
+/// a chunk at every page. `pages` is parallel to `blocks`.
+pub(crate) fn demote_running_headers(blocks: Vec<Block>, pages: &[Option<u32>]) -> Vec<Block> {
+    let mut pages_of: HashMap<&str, HashSet<Option<u32>>> = HashMap::new();
+    for (block, page) in blocks.iter().zip(pages) {
+        if let Block::Heading { text, .. } = block {
+            pages_of.entry(text.as_str()).or_default().insert(*page);
+        }
+    }
+    let text_pages = pages.iter().collect::<HashSet<_>>().len();
+    let running: HashSet<String> = pages_of
+        .into_iter()
+        .filter(|(_, on)| on.len() >= RUNNING_HEADER_PAGES && on.len() * 2 >= text_pages)
+        .map(|(text, _)| text.to_string())
+        .collect();
+    if running.is_empty() {
+        return blocks;
+    }
+    blocks
+        .into_iter()
+        .map(|block| match block {
+            Block::Heading { text, .. } if running.contains(&text) => Block::Paragraph(text),
+            other => other,
+        })
+        .collect()
+}
+
+/// A tab, a ` | ` cell separator, or two gaps of three spaces: a table row.
 fn has_columns(line: &str) -> bool {
-    line.contains('\t') || line.contains("   ") || line.contains(" | ")
+    line.contains('\t') || line.contains(" | ") || line.matches("   ").count() >= 2
 }
 
-/// `-- name --`, the section marker of plain-text lists.
-fn dashed(line: &str) -> Option<u8> {
-    let inner = line.strip_prefix("--")?.strip_suffix("--")?;
-    (letters(inner) >= MIN_LETTERS).then_some(3)
+/// The name inside `-- name --`, the section marker of plain-text lists.
+fn dashed(line: &str) -> Option<&str> {
+    let inner = line.strip_prefix("--")?.strip_suffix("--")?.trim();
+    (letters(inner) >= MIN_LETTERS).then_some(inner)
 }
 
-/// A line without a single lower-case letter, ranked by a part or chapter word.
+/// The level of a line without a single lower-case letter: 1 or 2 for a part
+/// or chapter, else 3.
 fn capitals(line: &str) -> Option<u8> {
     if letters(line) < MIN_LETTERS || line.chars().any(char::is_lowercase) {
         return None;
     }
-    let has = |keywords: &[&str]| {
-        line.split(|c: char| !c.is_alphanumeric())
-            .any(|word| keywords.contains(&word))
+    let words: Vec<&str> = line
+        .split_whitespace()
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|word| !word.is_empty())
+        .collect();
+    if let [word] = words.as_slice()
+        && ADMONITIONS.contains(word)
+    {
+        return None;
+    }
+    let division = |keywords: &[&str]| {
+        let numbered_first = matches!(words.as_slice(), [first, next, ..]
+            if keywords.contains(first) && is_number(next));
+        let ordinal_last = words.len() >= 2
+            && words
+                .last()
+                .is_some_and(|last| keywords.contains(last) && ORDINAL_LAST.contains(last));
+        numbered_first || ordinal_last
     };
-    Some(if has(&PART_WORDS) {
+    Some(if division(&PART_WORDS) {
         1
-    } else if has(&CHAPTER_WORDS) {
+    } else if division(&CHAPTER_WORDS) {
         2
     } else {
         3
     })
 }
 
-/// A Roman numeral or a letter followed by a capitalised title.
-fn enumerated(line: &str) -> Option<u8> {
+fn is_number(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_digit()) || is_roman(word)
+}
+
+fn is_roman(word: &str) -> bool {
+    !word.is_empty() && word.len() <= 6 && word.chars().all(|c| "IVXLC".contains(c))
+}
+
+/// A Roman numeral or a letter followed by a capitalised title. A lone `I`,
+/// `V` or `X` right after the letter before it (`H.`, `U.`/`Ü.`, `W.`)
+/// continues a lettered list.
+fn enumerated(line: &str, last_letter: Option<char>) -> Option<Kind> {
     let (marker, title) = line.split_once(char::is_whitespace)?;
     if !title.trim_start().starts_with(char::is_uppercase) || letters(title) < 2 {
         return None;
     }
-    let roman = marker.strip_suffix('.').filter(|body| {
-        !body.is_empty()
-            && body.len() <= 6
-            && body.chars().all(|c| "IVXLC".contains(c))
-            && (body.len() > 1 || "IVX".contains(body))
-    });
-    if roman.is_some() {
-        return Some(4);
-    }
-    let mut chars = marker.chars();
-    match (chars.next(), chars.next(), chars.next()) {
-        (Some(letter), Some('.'), None) if letter.is_uppercase() => Some(5),
+    let body = marker.strip_suffix('.')?;
+    let mut chars = body.chars();
+    let single = match (chars.next(), chars.next()) {
+        (Some(letter), None) if letter.is_uppercase() => Some(letter),
         _ => None,
+    };
+    let continues_letters = single.zip(last_letter).is_some_and(|(letter, last)| {
+        matches!((last, letter), ('H', 'I') | ('U' | 'Ü', 'V') | ('W', 'X'))
+    });
+    if is_roman(body) && !continues_letters && (body.len() > 1 || "IVX".contains(body)) {
+        Some(Kind::Roman)
+    } else if single.is_some() {
+        Some(Kind::Letter)
+    } else {
+        None
     }
+}
+
+/// A short capitalised line with no sentence mark: the name of a chapter.
+fn is_name(line: &str) -> bool {
+    line.split_whitespace().count() <= MAX_NAME_WORDS
+        && line.starts_with(char::is_uppercase)
+        && letters(line) >= 3
+        && !line.ends_with(SENTENCE_END)
+        && !has_columns(line)
+}
+
+/// Whitespace collapsed, and a footnote number glued to the last word
+/// (`ANAYASASI1`, `kesinhesap26`) dropped.
+fn clean(text: &str) -> String {
+    let mut words: Vec<&str> = text.split_whitespace().collect();
+    if let Some(last) = words.last_mut() {
+        let stem = last.trim_end_matches(|c: char| c.is_ascii_digit());
+        if stem.len() < last.len()
+            && letters(stem) >= MIN_LETTERS
+            && stem.ends_with(char::is_alphabetic)
+        {
+            *last = stem;
+        }
+    }
+    words.join(" ")
 }
 
 fn letters(text: &str) -> usize {
@@ -93,41 +319,166 @@ fn letters(text: &str) -> usize {
 mod tests {
     use super::*;
 
+    /// What `line` is at the start of a text.
+    fn first(line: &str) -> Line {
+        Outline::default().line(line)
+    }
+
+    fn heading(level: u8, text: &str) -> Line {
+        Line::Heading {
+            level,
+            text: text.into(),
+        }
+    }
+
+    fn read(lines: &[&str]) -> Vec<Line> {
+        let mut outline = Outline::default();
+        lines.iter().map(|line| outline.line(line)).collect()
+    }
+
     #[test]
-    fn upper_case_lines_are_headings_ranked_by_their_keyword() {
-        assert_eq!(heading_level("BİRİNCİ KISIM  "), Some(1));
-        assert_eq!(heading_level("PART ONE"), Some(1));
-        assert_eq!(heading_level("İKİNCİ BÖLÜM"), Some(2));
-        assert_eq!(heading_level("BÖLÜM 2 - BAĞLANTI PARÇALARI"), Some(2));
-        assert_eq!(heading_level("CHAPTER 3 - INSTALLATION"), Some(2));
-        assert_eq!(heading_level("HAKKIMIZDA"), Some(3));
-        assert_eq!(heading_level("TÜRK MİLLETİ ADINA"), Some(3));
+    fn upper_case_lines_are_headings_ranked_by_a_part_or_chapter_word() {
+        assert_eq!(first("BİRİNCİ KISIM  "), heading(1, "BİRİNCİ KISIM"));
+        assert_eq!(first("PART 1 - GENERAL"), heading(1, "PART 1 - GENERAL"));
+        assert_eq!(first("İKİNCİ BÖLÜM"), heading(2, "İKİNCİ BÖLÜM"));
         assert_eq!(
-            heading_level("DS-1640 YASSI DAMLA SULAMA ŞERİDİ 16 MM, 8 MİL"),
-            Some(3)
+            first("BÖLÜM 2 - BAĞLANTI PARÇALARI"),
+            heading(2, "BÖLÜM 2 - BAĞLANTI PARÇALARI")
+        );
+        assert_eq!(
+            first("CHAPTER III INSTALLATION"),
+            heading(2, "CHAPTER III INSTALLATION")
+        );
+        assert_eq!(first("HAKKIMIZDA"), heading(3, "HAKKIMIZDA"));
+        assert_eq!(
+            first("DS-1640 YASSI DAMLA SULAMA ŞERİDİ 16 MM, 8 MİL"),
+            heading(3, "DS-1640 YASSI DAMLA SULAMA ŞERİDİ 16 MM, 8 MİL")
         );
     }
 
     #[test]
-    fn dashed_section_lines_are_headings() {
-        assert_eq!(heading_level("-- PE 100 ANA HAT BORULARI --"), Some(3));
-        assert_eq!(heading_level("-- Bağlantı parçaları --"), Some(3));
+    fn a_part_word_without_a_number_or_ordinal_is_an_ordinary_title() {
+        // Table headers and drawing labels must not reset the whole path.
+        assert_eq!(first("PART NO"), heading(3, "PART NO"));
+        assert_eq!(first("SECTION A-A"), heading(3, "SECTION A-A"));
+        assert_eq!(first("SPARE PART"), heading(3, "SPARE PART"));
+    }
+
+    #[test]
+    fn warning_labels_are_not_titles() {
+        assert_eq!(first("UYARI"), Line::Body);
+        assert_eq!(first("DİKKAT"), Line::Body);
+        assert_eq!(first("WARNING"), Line::Body);
+    }
+
+    #[test]
+    fn dashed_section_lines_keep_only_their_name() {
+        assert_eq!(
+            first("-- PE 100 ANA HAT BORULARI --"),
+            heading(4, "PE 100 ANA HAT BORULARI")
+        );
+        assert_eq!(
+            first("-- Bağlantı parçaları --"),
+            heading(4, "Bağlantı parçaları")
+        );
+    }
+
+    #[test]
+    fn footnote_numbers_glued_to_a_title_are_dropped() {
+        assert_eq!(
+            first("TÜRKİYE CUMHURİYETİ ANAYASASI1"),
+            heading(3, "TÜRKİYE CUMHURİYETİ ANAYASASI")
+        );
+        assert_eq!(
+            first("A. Bütçe ve kesinhesap26"),
+            heading(6, "A. Bütçe ve kesinhesap")
+        );
+        assert_eq!(
+            first("DS-3120 ELEK FİLTRE PN10"),
+            heading(3, "DS-3120 ELEK FİLTRE PN10")
+        );
+    }
+
+    #[test]
+    fn spaced_out_titles_are_still_titles() {
+        assert_eq!(first("BİRİNCİ   KISIM"), heading(1, "BİRİNCİ KISIM"));
     }
 
     #[test]
     fn enumerated_titles_nest_roman_then_letter() {
-        assert_eq!(heading_level("IV. Değiştirilemeyecek hükümler "), Some(4));
-        assert_eq!(heading_level("I. Devletin şekli"), Some(4));
-        assert_eq!(heading_level("A. Özel hayatın gizliliği"), Some(5));
-        assert_eq!(heading_level("C. Haberleşme hürriyeti"), Some(5));
-        assert_eq!(heading_level("Ç. Seyahat hürriyeti"), Some(5));
+        assert_eq!(
+            first("IV. Değiştirilemeyecek hükümler "),
+            heading(5, "IV. Değiştirilemeyecek hükümler")
+        );
+        assert_eq!(first("I. Devletin şekli"), heading(5, "I. Devletin şekli"));
+        assert_eq!(
+            first("A. Özel hayatın gizliliği"),
+            heading(6, "A. Özel hayatın gizliliği")
+        );
+        assert_eq!(
+            first("Ç. Seyahat hürriyeti"),
+            heading(6, "Ç. Seyahat hürriyeti")
+        );
+    }
+
+    #[test]
+    fn i_after_h_continues_the_letters() {
+        let lines = read(&[
+            "H. Askerî yargı",
+            "Metin.",
+            "I. Bilim ve sanat hürriyeti",
+            "II. Kişinin hakları",
+        ]);
+        assert_eq!(lines[2], heading(6, "I. Bilim ve sanat hürriyeti"));
+        assert_eq!(lines[3], heading(5, "II. Kişinin hakları"));
+    }
+
+    #[test]
+    fn an_outline_number_inside_wrapped_prose_is_not_a_title() {
+        let lines = read(&[
+            "Bu Anayasa, Türkiye Cumhuriyetinin kurucusu, ölümsüz önder",
+            "M. Kemal Atatürk'ün belirlediği milliyetçilik anlayışı",
+            "doğrultusunda hazırlanmıştır.",
+            "A. Yılmaz vekili tarafından",
+        ]);
+        assert_eq!(lines[1], Line::Body);
+        // After a finished sentence the same shape is a title.
+        assert_eq!(lines[3], heading(6, "A. Yılmaz vekili tarafından"));
+    }
+
+    #[test]
+    fn a_chapter_takes_the_name_on_the_next_line() {
+        let lines = read(&[
+            "BİRİNCİ KISIM",
+            "Genel Esaslar",
+            "I. Devletin şekli",
+            "İKİNCİ BÖLÜM",
+            "",
+            "TEMEL HAKLAR",
+        ]);
+        assert_eq!(lines[0], heading(1, "BİRİNCİ KISIM"));
+        assert_eq!(lines[1], Line::ExtendHeading(" - Genel Esaslar".into()));
+        assert_eq!(lines[2], heading(5, "I. Devletin şekli"));
+        assert_eq!(lines[5], Line::ExtendHeading(" - TEMEL HAKLAR".into()));
+    }
+
+    #[test]
+    fn a_title_in_capitals_wrapped_over_two_lines_is_one_title() {
+        let lines = read(&[
+            "DS-1620 YASSI DAMLA SULAMA",
+            "",
+            "ŞERİDİ 16 MM, 6 MİL",
+            "Gövde.",
+        ]);
+        assert_eq!(lines[2], Line::ExtendHeading(" ŞERİDİ 16 MM, 6 MİL".into()));
+        // Body in between ends the title.
+        let lines = read(&["HAKKIMIZDA", "Gövde metni.", "SEÇİM REHBERİ"]);
+        assert_eq!(lines[2], heading(3, "SEÇİM REHBERİ"));
     }
 
     #[test]
     fn body_lines_are_not_headings() {
         for line in [
-            "",
-            "   ",
             "MADDE 1- Türkiye Devleti bir Cumhuriyettir.",
             "Türk Vatanı ve Milletinin ebedi varlığını ve Yüce Türk Devletinin",
             // Mixed case, even when it starts in capitals.
@@ -153,15 +504,37 @@ mod tests {
             // Lower-case after the enumerator: a wrapped sentence.
             "2. maddesindeki Cumhuriyetin nitelikleri",
         ] {
-            assert_eq!(heading_level(line), None, "{line:?}");
+            assert_eq!(first(line), Line::Body, "{line:?}");
         }
+        assert_eq!(first("   "), Line::Blank);
+    }
+
+    #[test]
+    fn a_heading_on_most_pages_is_a_running_header() {
+        let header = || Block::Heading {
+            level: 3,
+            text: "YARGITAY 1. CEZA DAİRESİ".into(),
+        };
+        let mut blocks = Vec::new();
+        let mut pages = Vec::new();
+        for page in 1..=4 {
+            blocks.push(header());
+            blocks.push(Block::Paragraph(format!("Sayfa {page} metni.")));
+            pages.extend([Some(page), Some(page)]);
+        }
+        blocks.push(Block::Heading {
+            level: 3,
+            text: "HÜKÜM".into(),
+        });
+        pages.push(Some(4));
+        let out = demote_running_headers(blocks, &pages);
+        assert_eq!(out[0], Block::Paragraph("YARGITAY 1. CEZA DAİRESİ".into()));
+        assert!(matches!(out[8], Block::Heading { .. }));
     }
 
     #[test]
     fn long_lines_are_not_headings() {
-        let caps = "ÇOK UZUN BİR SATIR ".repeat(6);
-        assert_eq!(heading_level(&caps), None);
-        let numbered = format!("IV. {}", "Kelime ".repeat(14));
-        assert_eq!(heading_level(&numbered), None);
+        assert_eq!(first(&"ÇOK UZUN BİR SATIR ".repeat(6)), Line::Body);
+        assert_eq!(first(&format!("IV. {}", "Kelime ".repeat(14))), Line::Body);
     }
 }

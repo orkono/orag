@@ -833,13 +833,23 @@ embedded, indexed and shown with the source, as for Markdown and DOCX.
 
 A line counts only if it is short (at most 80 characters and 12 words), does
 not end like a sentence (`. , ; : ! ?`), is not laid out in columns (a tab,
-three spaces or ` | `), and is one of:
+` | `, or two gaps of three spaces), and is one of:
 
-- capitals with at least 4 letters and no lower-case letter: level 1 with
-  `KISIM`/`PART`, level 2 with `BÖLÜM`/`CHAPTER`/`SECTION`, else level 3;
-- `-- name --`: level 3;
-- a Roman numeral (`IV.`) or a letter (`A.`, `Ç.`) and a capitalised title:
-  level 4 and 5.
+- capitals with at least 4 letters and no lower-case letter, not a one-word
+  warning label (`UYARI`, `WARNING`): level 1 for a part (`BİRİNCİ KISIM`,
+  `PART 2`), level 2 for a chapter (`İKİNCİ BÖLÜM`, `BÖLÜM 2`, `CHAPTER 3`),
+  else level 3;
+- `-- name --`: level 4, the name only;
+- a Roman numeral (`IV.`) or a letter (`A.`, `Ç.`) and a capitalised title,
+  only after a line that ends a sentence, a heading or a blank line (so an
+  initial in wrapped prose is not one): level 5 and 6. `I.` after `H.` (and
+  `V.` after `U.`/`Ü.`) continues the letters.
+
+Lines are read in order (`Outline`): a part or chapter takes its name from the
+next line (`BİRİNCİ KISIM - Genel Esaslar`), a title in capitals wrapped over
+two lines is one title, and a footnote number glued to a title is dropped. In a
+PDF, a heading text found on at least 3 pages and half of the pages is a
+running header and stays body text.
 
 Decimal numbering (`1.`, `2.3`) stays body text: in manuals it numbers steps
 far more often than sections, and it gained nothing over the variant without
@@ -853,6 +863,6 @@ vectors of the same space. Old TXT and PDF chunks keep an empty heading path
 until the user reindexes the collection (D-022); new uploads get headings
 at once.
 
-**Known limit.** A PDF heading wrapped over two lines becomes two headings
-(`DS-1620 YASSI DAMLA SULAMA` then `ŞERİDİ 16 MM, 6 MİL`); title-case
-headings (`Seçim Rehberi`) are not recognised.
+**Known limit.** Title-case headings (`Seçim Rehberi`) and decimal outlines
+are not recognised; two separate titles in capitals with nothing between them
+are joined as one.

@@ -7,7 +7,7 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use crate::domain::document::{Block, ParsedDocument};
 use crate::error::{OragError, Result};
 use crate::ingest::format::SourceFormat;
-use crate::ingest::headings::heading_level as line_heading_level;
+use crate::ingest::headings::{Line, Outline};
 
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
@@ -89,24 +89,27 @@ fn parse_plain(text: &str) -> ParsedDocument {
 }
 
 /// Blank-line separated paragraphs; lines are trimmed and joined with spaces.
-/// A heading line (`headings::heading_level`) ends the paragraph and becomes a
+/// A heading line (`headings::Outline`) ends the paragraph and becomes a
 /// heading block.
 /// Shared by plain text and PDF page text. Any line ending counts (`lines_any`),
 /// so old Mac files with lone CRs split like the rest.
 pub(crate) fn paragraph_blocks(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut lines: Vec<&str> = Vec::new();
+    let mut outline = Outline::default();
     for line in lines_any(text) {
-        if line.trim().is_empty() {
-            flush_paragraph(&mut lines, &mut blocks);
-        } else if let Some(level) = line_heading_level(line) {
-            flush_paragraph(&mut lines, &mut blocks);
-            blocks.push(Block::Heading {
-                level,
-                text: collapse_whitespace(line),
-            });
-        } else {
-            lines.push(line.trim());
+        match outline.line(line) {
+            Line::Blank => flush_paragraph(&mut lines, &mut blocks),
+            Line::Body => lines.push(line.trim()),
+            Line::Heading { level, text } => {
+                flush_paragraph(&mut lines, &mut blocks);
+                blocks.push(Block::Heading { level, text });
+            }
+            Line::ExtendHeading(extra) => {
+                if let Some(Block::Heading { text, .. }) = blocks.last_mut() {
+                    text.push_str(&extra);
+                }
+            }
         }
     }
     flush_paragraph(&mut lines, &mut blocks);
@@ -480,11 +483,10 @@ mod tests {
             doc.blocks,
             vec![
                 Block::Paragraph("Giriş metni".into()),
-                heading(1, "BİRİNCİ KISIM"),
-                Block::Paragraph("Genel Esaslar".into()),
-                heading(4, "I. Devletin şekli"),
+                heading(1, "BİRİNCİ KISIM - Genel Esaslar"),
+                heading(5, "I. Devletin şekli"),
                 Block::Paragraph("MADDE 1- Türkiye Devleti bir Cumhuriyettir.".into()),
-                heading(3, "-- BAĞLANTI PARÇALARI --"),
+                heading(4, "BAĞLANTI PARÇALARI"),
                 Block::Paragraph("DS-2050 Geçmeli birleştirici 3,90".into()),
             ]
         );
