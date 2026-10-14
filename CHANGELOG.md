@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.18] - 2026-10-14
 
-- **Reranker on sentence windows (step 65, D-005).** `orag eval retrieval --rerank-window N` scores only the sentences of each chunk around the query terms (long lines split around the match, unmatched chunks scored whole, the rate reported per question). Every run still adds 214 ms or more of hybrid p95 on Metal (budget 150 ms), and with bge-m3 the reranker adds one dev question; retrieval is unchanged, the reranker track is closed for v0.4 and the v0.4 holdout stays unread (`.docs/benchmarks/v0.4-rerank-windows.md`).
+- **Reranker on sentence windows (step 65, D-005).** `orag eval retrieval --rerank-window N` scores only the sentences of each chunk around the query terms (long lines split around the match, unmatched chunks scored whole, the rate reported per question). Every run still adds 214 ms or more of hybrid p95 on Metal (budget 150 ms), and with bge-m3 the reranker adds one net dev point; retrieval is unchanged, the reranker track is closed for v0.4 and the v0.4 holdout stays unread (`.docs/benchmarks/v0.4-rerank-windows.md`).
 
 ## [0.3.0-alpha.17] - 2026-10-14
 

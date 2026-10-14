@@ -51,17 +51,39 @@ pub fn passage_window(query: &str, text: &str, max_chars: usize) -> Option<Strin
     )
 }
 
-fn query_keys(query: &str) -> Vec<String> {
-    let mut keys: Vec<String> = Vec::new();
+fn query_keys(query: &str) -> Vec<Key> {
+    let mut keys: Vec<Key> = Vec::new();
     for term in lexical_terms(query) {
         if term.chars().count() >= MIN_KEY_CHARS {
-            let key: String = term.chars().take(KEY_CHARS).collect();
+            let key = if term.chars().any(char::is_numeric) {
+                Key::Whole(term)
+            } else {
+                Key::Prefix(term.chars().take(KEY_CHARS).collect())
+            };
             if !keys.contains(&key) {
                 keys.push(key);
             }
         }
     }
     keys
+}
+
+/// How a query term finds a passage word: a word opening with its first
+/// `KEY_CHARS` characters, or, for a term with a digit (a code or a number),
+/// only the same word, so `104` does not meet `1040`.
+#[derive(Debug, PartialEq, Eq)]
+enum Key {
+    Prefix(String),
+    Whole(String),
+}
+
+impl Key {
+    fn matches(&self, word: &str) -> bool {
+        match self {
+            Key::Prefix(key) => word.starts_with(key.as_str()),
+            Key::Whole(term) => word == term,
+        }
+    }
 }
 
 /// Sentences of `text` with their delimiters and following whitespace, so
@@ -108,7 +130,9 @@ fn sentences(text: &str) -> Vec<&str> {
 }
 
 /// `sentence` in parts of at most `limit` characters, cut after the last
-/// whitespace that fits, or at `limit` characters when there is none.
+/// whitespace that fits, else after the last other non-word character (a
+/// table's `|`), else at `limit` characters, so a word is split only when a
+/// part holds nothing but that word.
 fn split_long(sentence: &str, limit: usize) -> Vec<&str> {
     let mut out = Vec::new();
     let mut rest = sentence;
@@ -117,11 +141,14 @@ fn split_long(sentence: &str, limit: usize) -> Vec<&str> {
             .char_indices()
             .nth(limit)
             .map_or(rest.len(), |(i, _)| i);
-        let cut = rest[..hard]
-            .char_indices()
-            .rfind(|&(_, c)| c.is_whitespace())
-            .map(|(i, c)| i + c.len_utf8())
-            .filter(|&i| i > 0)
+        let after_last = |pred: fn(char) -> bool| {
+            rest[..hard]
+                .char_indices()
+                .rfind(|&(_, c)| pred(c))
+                .map(|(i, c)| i + c.len_utf8())
+        };
+        let cut = after_last(char::is_whitespace)
+            .or_else(|| after_last(|c| !(c.is_alphanumeric() || is_combining_mark(c))))
             .unwrap_or(hard);
         out.push(&rest[..cut]);
         rest = &rest[cut..];
@@ -144,13 +171,13 @@ fn piece_terms(piece: &str) -> Vec<String> {
 
 /// The piece matching the most distinct keys, the first on a tie; `None`
 /// when none matches.
-fn best_piece(pieces: &[&str], keys: &[String]) -> Option<usize> {
+fn best_piece(pieces: &[&str], keys: &[Key]) -> Option<usize> {
     let mut best: Option<(usize, usize)> = None;
     for (i, piece) in pieces.iter().enumerate() {
         let terms = piece_terms(piece);
         let score = keys
             .iter()
-            .filter(|key| terms.iter().any(|term| term.starts_with(key.as_str())))
+            .filter(|key| terms.iter().any(|term| key.matches(term)))
             .count();
         if score > 0 && best.is_none_or(|(_, top)| score > top) {
             best = Some((i, score));
@@ -216,6 +243,26 @@ mod tests {
         let text = format!("{words}son dinlenmek hakkı. Başka bir cümle burada duruyor.");
         let w = window("dinlenmeyi", &text, 200);
         assert!(w.contains("dinlenmek"), "{w}");
+    }
+
+    #[test]
+    fn a_numeric_key_matches_only_its_whole_term() {
+        let text = format!(
+            "DS-1040 kartuşu {}. DS-104 kartuşu 2 yıl garantilidir. {}",
+            "dolgu ".repeat(30),
+            "son ".repeat(30)
+        );
+        let w = window("DS-104 kartuşu", &text, 60);
+        assert!(w.contains("DS-104 kartuşu 2 yıl"), "{w}");
+    }
+
+    #[test]
+    fn an_unspaced_line_splits_between_words() {
+        // No whitespace at all: cells joined by `|`, the key straddling the
+        // character cut at 30.
+        let text = format!("{}|regülatörü|3500TL|{}", "x".repeat(25), "|yy".repeat(40));
+        let w = window("regülatörü fiyatı", &text, 60);
+        assert!(w.contains("regülatörü"), "{w}");
     }
 
     #[test]
