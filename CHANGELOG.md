@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.13] - 2026-10-14
+
+- **A fresh holdout set for v0.4 (step 60, D-018).** `eval/datasets/v04-holdout-retrieval.jsonl` (100 questions) and `v04-holdout-answers.jsonl` (30 probes) ask about facts the v0.2 set does not use, over the same corpus, so the v0.4 model decisions (bge-m3, a reranker) can be confirmed on questions nothing was tuned on; each chosen candidate is scored on it once. Written by `claude-opus-5-5`, audited by `gpt-6-sol` (23 of 130 rows replaced), not human-checked. Current default: hybrid in context 0.909, expected facts 0.950.
+
 ## [0.3.0-alpha.12] - 2026-10-14
 
 - **10-chunk answer context tried and rejected (step 57, D-005).** Five leaders per list in a 10-chunk context recovered two dev near misses (dev hybrid in context 81/89 → 83/89; holdout unchanged), but answers became 38% slower at the median and one unanswerable question got an unsupported answer, so the context stays at 8 chunks (`.docs/benchmarks/v0.3-fusion-near-miss.md`).
