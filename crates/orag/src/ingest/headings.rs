@@ -477,6 +477,16 @@ mod tests {
     }
 
     #[test]
+    fn a_label_block_in_capitals_joins_into_one_title() {
+        // Known limit (D-024, step 53 rejected): label runs in capitals, as in
+        // appliance manuals, are read as one wrapped title.
+        let lines = read(&["DATE OF PURCHASE", "DEALER NAME", "DEALER ADDRESS"]);
+        assert_eq!(lines[0], heading(3, "DATE OF PURCHASE"));
+        assert_eq!(lines[1], Line::ExtendHeading(" DEALER NAME".into()));
+        assert_eq!(lines[2], Line::ExtendHeading(" DEALER ADDRESS".into()));
+    }
+
+    #[test]
     fn body_lines_are_not_headings() {
         for line in [
             "MADDE 1- Türkiye Devleti bir Cumhuriyettir.",

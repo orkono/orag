@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.6] - 2026-10-14
+
+- **Manual-style heading variant tried and rejected (step 53).** On an appliance manual PDF, heading detection finds many false headings (diagram labels, paragraphs in capitals). A stricter variant (no hyphen-broken lines, no runs of three or more capitals lines, a capitals title needs real text after it) changed no v0.2 question and kept 229 of 230 step 52 headings, and cut the manual's headings from 105 to 16, but missed its pre-registered limit of 10 (also when re-scored once after two implementation defects were fixed), so parsing is unchanged (`.docs/benchmarks/v0.3-manual-headings.md`, D-024).
+
 ## [0.3.0-alpha.5] - 2026-10-14
 
 - **Lexical prefix stems (step 51, D-006).** Query words longer than 7 characters, with a letter and no digit, also search their first 7 characters as a prefix (`dinlenmeyi` finds `dinlenmek`); query side only, no reindex. Chosen among stems of 4-7 characters by a rule written before scoring: on the v02 set hybrid in context 0.920 → 0.931 (dev +1, holdout +1, no losses), the inflection set +1. Answers are net unchanged once scorer artefacts are removed (the raw expected-facts rise 0.875 → 0.925 is inflated by the `iş günü` probe defect); v2-ans-011, v2-ans-041 and v2-ans-047 are known answer regressions to recheck (`.docs/benchmarks/v0.3-lexical-stems.md`).
