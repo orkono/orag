@@ -74,8 +74,12 @@ Computed over answerable questions at depth 10:
   chooses it: from the first 16 fused candidates (`max_context_chunks` 8 ×
   2), at most 8 chunks, skipping any that does not fit the answer model's
   token budget. The answer model is loaded only to count tokens; the report
-  names it (`context_budget`) and counts the skipped chunks
-  (`skipped_chunks`). With `--dev-fake-models` a fake counter is used.
+  names it (`context_budget`) and counts the skipped chunks (`skipped`).
+  `--no-context-budget` skips loading it and scores the first 8 candidates
+  (as before 0.3.0-alpha.8); so does a run where the answer model is not
+  installed, with a note on stderr and `context budget: none` in the report.
+  With `--dev-fake-models` a fake counter is used. Retrieval now goes 16 deep
+  for every strategy, which latency includes.
 - **p50 / p95 ms:** retrieval latency per query.
 
 A set with categories or splits also gets "By category" and "By split"

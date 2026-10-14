@@ -69,6 +69,11 @@ pub enum EvalCommand {
         /// scores are unchanged, latency covers the deeper retrieval).
         #[arg(long, hide = true)]
         rank_depth: Option<usize>,
+        /// Score the answer context as the first 8 candidates, without loading
+        /// the answer model to apply its token budget (faster; as before
+        /// 0.3.0-alpha.8).
+        #[arg(long)]
+        no_context_budget: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -168,6 +173,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     require_in_context,
                     lexical_query,
                     rank_depth,
+                    no_context_budget,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -178,9 +184,12 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 min_recall_at_10,
                 require_in_context,
             },
-            lexical_query.as_deref(),
-            rank_depth,
-            dev_fake_models,
+            EvalRetrievalOptions {
+                lexical_query: lexical_query.as_deref(),
+                rank_depth,
+                no_context_budget,
+                dev_fake_models,
+            },
         ),
         Command::Eval {
             command:
@@ -294,10 +303,14 @@ fn run_eval_retrieval(
     dataset: &std::path::Path,
     out: Option<&std::path::Path>,
     gates: EvalGates,
-    lexical_query: Option<&str>,
-    rank_depth: Option<usize>,
-    dev_fake_models: bool,
+    options: EvalRetrievalOptions<'_>,
 ) -> anyhow::Result<()> {
+    let EvalRetrievalOptions {
+        lexical_query,
+        rank_depth,
+        no_context_budget,
+        dev_fake_models,
+    } = options;
     use anyhow::Context;
     let mut config = crate::retrieval::hybrid::RetrievalConfig::default();
     if let Some(mode) = lexical_query {
@@ -326,9 +339,7 @@ fn run_eval_retrieval(
     {
         anyhow::bail!("{} already exists; choose a new --out file", path.display());
     }
-    // The generator only counts tokens here: the answer context is budgeted as
-    // `orag serve` budgets it (D-018).
-    let (embedder, generator) = load_answer_models(dev_fake_models)?;
+    let (embedder, generator) = load_eval_models(dev_fake_models, no_context_budget)?;
     // Exclusively created and removed on drop; never touches pre-existing paths.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
     let report = crate::eval::retrieval::run_retrieval_eval_deep(
@@ -338,13 +349,21 @@ fn run_eval_retrieval(
         work.path(),
         config,
         rank_depth,
-        Some(generator),
+        generator,
     )?;
     print_stdout(report.to_markdown().trim_end())?;
     if let Some(path) = out {
         write_new_json(path, &report)?;
     }
     gates.check(&report)
+}
+
+/// Experiment and diagnosis switches of `orag eval retrieval`.
+struct EvalRetrievalOptions<'a> {
+    lexical_query: Option<&'a str>,
+    rank_depth: Option<usize>,
+    no_context_budget: bool,
+    dev_fake_models: bool,
 }
 
 /// Pass/fail conditions on the hybrid strategy, checked after the report is out.
@@ -456,6 +475,41 @@ fn load_answer_models(dev_fake_models: bool) -> anyhow::Result<AnswerModels> {
         crate::app::load_embedder(&config)?,
         crate::app::load_generator(&config)?,
     ))
+}
+
+type EvalModels = (
+    std::sync::Arc<dyn crate::infer::Embedder>,
+    Option<std::sync::Arc<dyn crate::infer::Generator>>,
+);
+
+/// The embedder, and the answer model when the context is budgeted (D-018). The
+/// answer model only counts tokens here; when it is not installed the context
+/// is scored unbudgeted and the report says so (`context budget: none`).
+fn load_eval_models(dev_fake_models: bool, no_context_budget: bool) -> anyhow::Result<EvalModels> {
+    if dev_fake_models {
+        let (embedder, generator) = load_answer_models(true)?;
+        return Ok((embedder, (!no_context_budget).then_some(generator)));
+    }
+    let config = load_config()?;
+    let embedder = crate::app::load_embedder(&config)?;
+    if no_context_budget {
+        return Ok((embedder, None));
+    }
+    match crate::app::load_generator(&config) {
+        Ok(generator) => Ok((embedder, Some(generator))),
+        Err(err)
+            if matches!(
+                err.downcast_ref::<crate::error::OragError>(),
+                Some(crate::error::OragError::ModelNotInstalled { .. })
+            ) =>
+        {
+            eprintln!(
+                "note: the answer model is not installed, so the answer context is scored without its token budget ({err})"
+            );
+            Ok((embedder, None))
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// Writes `report` as pretty JSON to a file that must not exist yet.
