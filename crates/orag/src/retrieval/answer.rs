@@ -11,7 +11,7 @@ use crate::domain::citations::{CitationMarker, extract_citations};
 use crate::domain::normalize::{lexical_terms, normalize_for_lexical};
 use crate::error::{OragError, Result};
 use crate::infer::{ChatMessage, GenerationRequest, Generator, Role, SamplerProfile};
-use crate::retrieval::hybrid::{Candidate, RetrievalTrace, Retriever, Strategy};
+use crate::retrieval::hybrid::{Candidate, RetrievalConfig, RetrievalTrace, Retriever, Strategy};
 use crate::retrieval::repetition::LineRepeatGuard;
 
 pub const REFUSAL_EN: &str = "I could not find this in the documents.";
@@ -31,6 +31,11 @@ const TURKISH_ONLY_LETTERS: &str = "ğışİĞŞ";
 /// How many fused candidates are considered per context slot, so a chunk too
 /// large for the budget is replaced by a later one.
 const CANDIDATES_PER_SLOT: usize = 2;
+
+/// How many fused candidates the answer path considers for its context.
+pub fn answer_pool(config: &RetrievalConfig) -> usize {
+    config.max_context_chunks * CANDIDATES_PER_SLOT
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SourceRef {
@@ -113,16 +118,11 @@ impl AnswerEngine {
             collection_id,
             question,
             Strategy::Hybrid,
-            limit * CANDIDATES_PER_SLOT,
+            answer_pool(&self.retriever.config),
         )?;
         let retrieved = outcome.candidates.len();
-        let (context, skipped_chunks) = select_context(
-            self.generator.as_ref(),
-            question,
-            refusal,
-            outcome.candidates,
-            limit,
-        )?;
+        let (context, skipped_chunks) =
+            answer_context(self.generator.as_ref(), question, outcome.candidates, limit)?;
         if retrieved > 0 && context.is_empty() {
             // D-005: "not found" is reserved for empty retrieval; this is a capacity problem.
             return Err(OragError::Model(format!(
@@ -353,6 +353,25 @@ fn abstain(
     };
     let _ = emit(AnswerEvent::Done(Box::new(summary)));
     Ok(())
+}
+
+/// The chunks `answer` puts in the prompt for `question` (validated and
+/// trimmed as `answer` does), and how many it skipped. `orag eval retrieval`
+/// calls the same function, so the eval scores the context the model sees.
+pub fn answer_context(
+    generator: &dyn Generator,
+    question: &str,
+    candidates: Vec<Candidate>,
+    limit: usize,
+) -> Result<(Vec<Candidate>, usize)> {
+    let question = validate_question(question)?;
+    select_context(
+        generator,
+        question,
+        refusal_for(question),
+        candidates,
+        limit,
+    )
 }
 
 /// Adds candidates in fused order while the prompt fits `context - max_output`;

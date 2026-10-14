@@ -581,6 +581,17 @@ all 60 probes and found no other row of this class. Nothing else changed; the
 new answers baseline is in `.docs/benchmarks/v0.3-set-rewrite.md`. Any rise is
 a scoring correction, not an engine gain.
 
+**Amendment (step 55, 0.3.0-alpha.8): the eval scores the real context.**
+"In context" used to mean the top 8 of the fused list; the answer path takes
+16 candidates and `select_context` skips any that does not fit the answer
+model's token budget. `orag eval retrieval` now loads the answer model only to
+count tokens and chooses the context with the same function
+(`answer_context`), so the metric is what the model sees. On every current set
+nothing changed (no chunk was skipped; per question identical), so earlier
+in-context numbers stand; the difference matters for long chunks, smaller
+context windows and experiments that reorder candidates
+(`.docs/benchmarks/v0.3-eval-parity.md`).
+
 ## D-019 — Configuration file, read once at startup (owner decision, 2026-10-01)
 
 **Decision.** `$ORAG_HOME/config.toml` (default `~/.orag/config.toml`) is the

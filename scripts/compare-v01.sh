@@ -44,17 +44,17 @@ with open(os.path.join(out, "dataset.jsonl"), "w", encoding="utf-8") as f:
 print(f"text-only subset: {len(kept)} questions")
 PY
 
-run() { # build name corpus dataset
+run() { # build name corpus dataset [extra eval args]
   local home="$tmp/home-$2-$1"
   mkdir -p "$home"
   ln -s "$ORAG_MODEL_DIR" "$home/models"
   ORAG_HOME="$home" "$1" eval retrieval --corpus "$3" --dataset "$4" \
-    --out "$tmp/$2.json" > "$tmp/$2.md"
+    --out "$tmp/$2.json" "${@:5}" > "$tmp/$2.md"
 }
 run "$v01" v01-seed eval/corpus/seed eval/datasets/seed.jsonl
-run "$cur" cur-seed eval/corpus/seed eval/datasets/seed.jsonl
+run "$cur" cur-seed eval/corpus/seed eval/datasets/seed.jsonl --no-context-budget
 run "$v01" v01-subset "$tmp/subset/corpus" "$tmp/subset/dataset.jsonl"
-run "$cur" cur-subset "$tmp/subset/corpus" "$tmp/subset/dataset.jsonl"
+run "$cur" cur-subset "$tmp/subset/corpus" "$tmp/subset/dataset.jsonl" --no-context-budget
 
 python3 - "$tmp" "$min_subset" <<'PY'
 import json, sys
@@ -69,7 +69,8 @@ for name in ("seed", "subset"):
     print("| metric | v0.1.0 | current |\n|---|---|---|")
     for m in ("recall_at_10", "mrr_at_10", "in_context"):
         print(f"| hybrid {m} | {o[m]:.3f} | {n[m]:.3f} |")
-    # Both builds must score the same questions with the same context depth.
+    # Both builds must score the same questions with the same context depth;
+    # the current build runs with --no-context-budget, as v0.1.0 has no budget.
     for key in ("answerable", "context_chunks"):
         if old[key] != new[key]:
             print(f"{name}: {key} differs (v0.1.0 {old[key]}, current {new[key]})")
