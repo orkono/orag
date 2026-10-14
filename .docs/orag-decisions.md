@@ -238,6 +238,10 @@ llama.cpp rank pooling) over the first 16-30 fused candidates, with both embedde
 v0.2 dev in context with no losses (bge-m3 + either reranker, depth 30), but every variant adds
 more than the 150 ms p95 budget (204-2010 ms, pairs decoded one at a time), so retrieval stays
 deterministic hybrid. The v0.4 holdout was not read (`.docs/benchmarks/v0.4-retrieval-decision.md`).
+Batching the pairs (step 64) did not lower it on 384-512-token chunks (added p95 825 ms for the
+best variant on Metal); on a 6-core x86-64 CPU the fastest variant adds 12.5 s
+(`.docs/benchmarks/v0.4-reranker-batched.md`). A reranker needs a shorter input per pair before it
+fits ORAG's offline targets.
 
 ## D-006 — Turkish-aware lexical normalization without a custom tokenizer
 
