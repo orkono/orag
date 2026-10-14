@@ -3,6 +3,7 @@
 
 pub mod embedder;
 pub mod generator;
+pub mod reranker;
 
 use std::path::Path;
 use std::sync::OnceLock;
