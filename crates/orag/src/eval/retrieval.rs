@@ -225,6 +225,7 @@ pub fn run_retrieval_eval_deep(
         store,
         embedder: embedder.clone(),
         config,
+        reranker: None,
     };
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]

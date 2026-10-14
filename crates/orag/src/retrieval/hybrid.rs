@@ -12,6 +12,7 @@ use crate::domain::lexical_query::LexicalQuery;
 use crate::domain::rrf::{FusedHit, promote_list_leaders, reciprocal_rank_fusion};
 use crate::error::{OragError, Result};
 use crate::infer::{Embedder, VectorIndex};
+use crate::retrieval::rerank::{Rerank, RerankTrace};
 use crate::store::Store;
 use crate::store::search::ChunkRecord;
 
@@ -84,6 +85,9 @@ pub struct RetrievalTrace {
     pub lexical_ms: u64,
     pub dense_ms: u64,
     pub embedding_space: Option<String>,
+    /// Present only when a reranker ran (v0.4 candidate, off by default).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank: Option<RerankTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -97,6 +101,8 @@ pub struct Retriever {
     pub index: Arc<dyn VectorIndex>,
     pub embedder: Arc<dyn Embedder>,
     pub config: RetrievalConfig,
+    /// Optional cross-encoder over the first fused candidates (hybrid only).
+    pub reranker: Option<Rerank>,
 }
 
 fn timed<T>(slot: &mut u64, f: impl FnOnce() -> T) -> T {
@@ -138,8 +144,22 @@ impl Retriever {
             self.config.leaders_per_list(),
         );
         trace.fused_hits = fused.len();
-        let top: Vec<FusedHit> = fused.into_iter().take(limit).collect();
-        let candidates = self.hydrate(collection_id, top)?;
+        let rerank = self
+            .reranker
+            .as_ref()
+            .filter(|_| strategy == Strategy::Hybrid);
+        // A reranker reads past the limit, so a candidate fused below it can
+        // still reach the answer pool.
+        let depth = rerank.map_or(limit, |r| limit.max(r.depth));
+        let top: Vec<FusedHit> = fused.into_iter().take(depth).collect();
+        let mut candidates = self.hydrate(collection_id, top)?;
+        if let Some(rerank) = rerank {
+            let (reordered, rerank_trace) =
+                rerank.apply(query, candidates, self.config.leaders_per_list());
+            candidates = reordered;
+            trace.rerank = Some(rerank_trace);
+        }
+        candidates.truncate(limit);
         Ok(RetrievalOutcome { candidates, trace })
     }
 

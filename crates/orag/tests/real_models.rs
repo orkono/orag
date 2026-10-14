@@ -150,6 +150,7 @@ fn real_dense_ranks_cross_language_evidence_near_the_top() {
         store,
         embedder,
         config: RetrievalConfig::default(),
+        reranker: None,
     };
     let context = retriever.config.max_context_chunks;
     let dataset = orag::eval::dataset::load_dataset(
@@ -230,6 +231,7 @@ fn answer(question: &str) -> AnswerSummary {
         store,
         embedder,
         config: RetrievalConfig::default(),
+        reranker: None,
     };
     let engine = AnswerEngine {
         retriever,

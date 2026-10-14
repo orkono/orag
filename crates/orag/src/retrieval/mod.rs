@@ -3,6 +3,7 @@
 pub mod answer;
 pub mod hybrid;
 pub mod repetition;
+pub mod rerank;
 
 #[cfg(test)]
 pub(crate) mod testing {
@@ -49,6 +50,7 @@ pub(crate) mod testing {
             store,
             embedder,
             config: RetrievalConfig::default(),
+            reranker: None,
         };
         (dir, retriever)
     }

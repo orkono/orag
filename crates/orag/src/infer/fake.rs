@@ -253,7 +253,12 @@ impl Reranker for FakeReranker {
         "fake-reranker"
     }
 
-    fn score(&self, query: &str, passages: &[String]) -> Result<Vec<f32>> {
+    fn score(
+        &self,
+        query: &str,
+        passages: &[String],
+        _deadline: Option<std::time::Instant>,
+    ) -> Result<Vec<f32>> {
         let terms: std::collections::BTreeSet<String> =
             crate::domain::normalize::lexical_terms(query)
                 .into_iter()
@@ -285,12 +290,12 @@ mod tests {
             "İade süresi 14 gündür.".to_string(),
         ];
         let scores = FakeReranker
-            .score("iade süresi ne kadar", &passages)
+            .score("iade süresi ne kadar", &passages, None)
             .unwrap();
         assert_eq!(scores.len(), 3);
         assert!(scores[1] > scores[0]);
         assert_eq!(scores[1], scores[2]);
-        assert!(FakeReranker.score("iade", &[]).unwrap().is_empty());
+        assert!(FakeReranker.score("iade", &[], None).unwrap().is_empty());
     }
 
     fn cosine(a: &[f32], b: &[f32]) -> f32 {

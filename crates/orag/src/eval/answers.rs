@@ -240,6 +240,7 @@ pub fn run_answer_eval(
                     store: store.clone(),
                     embedder: embedder.clone(),
                     config: RetrievalConfig::default(),
+                    reranker: None,
                 },
                 generator: generator.clone(),
                 sampler,
