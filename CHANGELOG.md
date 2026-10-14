@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.9] - 2026-10-14
+
+- **Number words in the answer scorer (step 56, D-018).** An expected fact in words no longer matches inside a longer number: `iki iş gün` is not found in "on iki iş gündür", `iki` not in "iki yüz", `10` not in "10 bin" (Turkish and English, by language, so English "on two days" still matches). Re-scoring the current answers changed no probe; expected facts stay 0.950.
+
 ## [0.3.0-alpha.8] - 2026-10-14
 
 - **The retrieval eval scores the context the model really sees (step 55, D-018).** `orag eval retrieval` now chooses the answer context as `orag serve` does: from 16 fused candidates, at most 8 chunks, skipping any that does not fit the answer model's token budget (it loads the answer model only to count tokens). The report names that model (`context_budget`) and counts skipped chunks. On every current set nothing changed (v02 hybrid in context 0.931, per question identical, no chunk skipped), so earlier numbers stand (`.docs/benchmarks/v0.3-eval-parity.md`).

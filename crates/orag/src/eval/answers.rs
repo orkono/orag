@@ -412,7 +412,9 @@ fn normalized(text: &str) -> String {
 /// is not found in `1600` nor `laik` in `alaika`. The end is open, since
 /// Turkish adds suffixes (`türkçe` in `türkçedir`, `onan` in `onanmasına`),
 /// except after a digit: `600` is not found in `6000`.
-/// A dot between digits (`1.600`, `01.02.2016`) belongs to the number.
+/// A dot between digits (`1.600`, `01.02.2016`) belongs to the number, and
+/// so does a neighbouring number word: `iki` is not found in `on iki` nor in
+/// `iki yüz`, `10` not in `10 bin`.
 fn contains_term(haystack: &str, needle: &str) -> bool {
     let is_word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
     let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
@@ -425,8 +427,59 @@ fn contains_term(haystack: &str, needle: &str) -> bool {
         let (a1, a2) = (after.next(), after.next());
         let number_goes_on_before = starts_in_digit && b1 == Some('.') && digit(b2);
         let number_goes_on_after = ends_in_digit && (digit(a1) || (a1 == Some('.') && digit(a2)));
-        !is_word(b1) && !number_goes_on_before && !number_goes_on_after
+        !is_word(b1)
+            && !number_goes_on_before
+            && !number_goes_on_after
+            && !number_word_joins(haystack, start, needle)
     })
+}
+
+/// Turkish and English number words: units and tens a number in words can
+/// start or end with, and the words that scale a number.
+const TURKISH_UNITS: [&str; 9] = [
+    "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz",
+];
+const TURKISH_TENS: [&str; 9] = [
+    "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan",
+];
+const ENGLISH_UNITS: [&str; 9] = [
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+];
+const ENGLISH_TENS: [&str; 9] = [
+    "ten", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+];
+const SCALES: [&str; 6] = ["yüz", "bin", "milyon", "hundred", "thousand", "million"];
+
+fn is_one_of(word: &str, lists: &[&[&str]]) -> bool {
+    lists
+        .iter()
+        .flat_map(|list| list.iter())
+        .any(|w| normalized(w) == word)
+}
+
+/// Whether the match at `start` is only part of a longer number: a number
+/// word or digits that a tens or scale word precedes in the same language
+/// (`on iki`, `yüz on`, `twenty two`; English `on` is not a number), or that
+/// a scale word follows (`iki yüz`, `10 bin`).
+fn number_word_joins(haystack: &str, start: usize, needle: &str) -> bool {
+    let first = needle.split(' ').next().unwrap_or("");
+    let last = needle.rsplit(' ').next().unwrap_or("");
+    let numeric = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit());
+    let previous = haystack[..start]
+        .trim_end()
+        .rsplit(' ')
+        .next()
+        .unwrap_or("");
+    let rest = &haystack[start + needle.len()..];
+    let next = rest.trim_start().split(' ').next().unwrap_or("");
+    let turkish: &[&[&str]] = &[&TURKISH_UNITS, &TURKISH_TENS, &SCALES[..3]];
+    let english: &[&[&str]] = &[&ENGLISH_UNITS, &ENGLISH_TENS, &SCALES[3..]];
+    let joined_before = (is_one_of(first, turkish)
+        && is_one_of(previous, &[&TURKISH_TENS, &SCALES[..3]]))
+        || (is_one_of(first, english) && is_one_of(previous, &[&ENGLISH_TENS, &SCALES[3..]]));
+    let ends_number = numeric(last) || is_one_of(last, turkish) || is_one_of(last, english);
+    let joined_after = ends_number && rest.starts_with(' ') && is_one_of(next, &[&SCALES]);
+    joined_before || joined_after
 }
 
 /// Unique non-empty lines over non-empty lines, compared like the repetition
@@ -518,6 +571,30 @@ mod tests {
             cited_sources(&given, &[9]).is_empty(),
             "an invalid number names no source"
         );
+    }
+
+    #[test]
+    fn number_words_do_not_match_inside_a_longer_number() {
+        let found =
+            |answer: &str, expect: &str| contains_term(&normalized(answer), &normalized(expect));
+        assert!(found("Süre iki iş gündür.", "iki iş gün"));
+        assert!(!found("Süre on iki iş gündür.", "iki iş gün"));
+        assert!(!found("Süre yirmi iki iş gündür.", "iki iş gün"));
+        assert!(!found("Süre on bir iş günüdür.", "bir iş gün"));
+        assert!(!found("Bedel iki yüz TL.", "iki"));
+        assert!(!found("Bütçe on sekiz bin lira.", "on sekiz"));
+        assert!(!found("Toplam yüz on sekiz bin.", "on sekiz bin"));
+        assert!(!found("It takes twenty two days.", "two days"));
+        assert!(!found("Kapasite 10 bin litre.", "10"));
+        assert!(found("Bütçe on sekiz bin lira.", "on sekiz bin"));
+        assert!(found("Bir iş günü sürer.", "bir iş gün"));
+        assert!(found("Bu, iki iş gün içinde.", "iki iş gün"));
+        assert!(found("Altı ay, iki yıl.", "iki yıl"));
+        assert!(found(
+            "It arrives on two business days.",
+            "two business day"
+        ));
+        assert!(!found("Toplam yüz on sekiz bin.", "on sekiz bin"));
     }
 
     #[test]
