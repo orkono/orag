@@ -44,6 +44,7 @@ pub struct RetrievalConfig {
 /// terms of 3+ characters also match suffixed words (`dil` finds `dili`).
 pub const LEXICAL_QUERY: LexicalQuery = LexicalQuery {
     prefix_min_chars: Some(3),
+    stem_chars: None,
 };
 
 impl Default for RetrievalConfig {

@@ -62,7 +62,7 @@ pub enum EvalCommand {
         #[arg(long, value_delimiter = ',')]
         require_in_context: Vec<String>,
         /// Lexical query mode to evaluate instead of the served one
-        /// (`exact` or `prefix:<n>`; experiments).
+        /// (`exact` or `prefix:<n>`, optionally `+stem:<m>`; experiments).
         #[arg(long, hide = true)]
         lexical_query: Option<String>,
         /// Report each label's rank down to this depth (10-50; diagnosis,
@@ -302,7 +302,7 @@ fn run_eval_retrieval(
     let mut config = crate::retrieval::hybrid::RetrievalConfig::default();
     if let Some(mode) = lexical_query {
         config.lexical_query = crate::domain::lexical_query::LexicalQuery::parse(mode)
-            .with_context(|| format!("unknown lexical query {mode:?} (exact or prefix:<n>)"))?;
+            .with_context(|| format!("unknown lexical query {mode:?} (exact or prefix:<n>, optionally +stem:<m> with m >= 3)"))?;
     }
     let rank_depth = rank_depth.unwrap_or(10);
     let max_depth = crate::eval::retrieval::MAX_RANK_DEPTH;
