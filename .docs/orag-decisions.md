@@ -573,8 +573,10 @@ set is frozen again under the rule above.
 (`v2-ans-011`, `031`, `035`, `036`, `038`) listed only `iş günü`, so the
 correct "10 iş gündür" scored as a miss (found by both sessions in steps 51
 and 52). They now expect `iş gün` (and `business day`), which every inflection
-matches; a wrong number still does not (`20 iş gündür` for `10 iş gün`;
-pinned by `v02_working_day_probes_accept_every_inflection`). gpt-6-sol read
+matches; a wrong number in digits still does not (`20 iş gündür` for
+`10 iş gün`; pinned by `v02_working_day_probes_accept_every_inflection`).
+Number words keep a limitation the old probes had too: `iki iş gün` also
+matches "on iki iş gündür", since the scorer only checks the start boundary. gpt-6-sol read
 all 60 probes and found no other row of this class. Nothing else changed; the
 new answers baseline is in `.docs/benchmarks/v0.3-set-rewrite.md`. Any rise is
 a scoring correction, not an engine gain.

@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.3.0-alpha.7] - 2026-10-14
 
-- **Working-day answer probes fixed (step 54, D-018).** Five probes of `v02-answers.jsonl` expected only `iş günü`, so the correct "10 iş gündür" scored as a miss; they now expect `iş gün`, which every inflection matches while a wrong number still does not. On 0.3.0-alpha.6 expected facts read 0.950 instead of 0.925 (`v2-ans-038`); a scoring correction, not an engine gain (`.docs/benchmarks/v0.3-set-rewrite.md`).
+- **Working-day answer probes fixed (step 54, D-018).** Five probes of `v02-answers.jsonl` expected only `iş günü`, so the correct "10 iş gündür" scored as a miss; they now expect `iş gün`, which every inflection matches while a wrong number in digits still does not (number words such as `on iki` for `iki` were and stay a scorer limitation). On 0.3.0-alpha.6 expected facts read 0.950 instead of 0.925 (`v2-ans-038`); a scoring correction, not an engine gain (`.docs/benchmarks/v0.3-set-rewrite.md`).
 
 ## [0.3.0-alpha.6] - 2026-10-14
 
