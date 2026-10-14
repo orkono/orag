@@ -602,7 +602,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((report.answerable, report.unanswerable), (30, 0));
-        assert_eq!(report.lexical_query, "prefix:3");
+        assert_eq!(report.lexical_query, "prefix:3+stem:7");
     }
 
     fn corpus(files: &[(&str, &str)]) -> tempfile::TempDir {

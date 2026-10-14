@@ -268,8 +268,19 @@ seed stays at 1.000 with MRR@10 0.939 → 0.903
 (`.docs/benchmarks/2026-10-06-lexical-query.md`). Dropping Turkish question
 words from the query changed nothing and was not adopted.
 
-**Deferred.** Stemming and an accent-folded secondary field are added only if
-the evaluation set (which includes accentless-typing queries) shows a gain.
+**Prefix stems (step 51, 2026-10-14).** Query words longer than 7 characters,
+with a letter and no digit, also add their first 7 characters as a prefix term
+(`prefix:3+stem:7`: `dinlenmeyi` adds `"dinlenm"*`, which finds `dinlenmek`), a
+crude Turkish stem, still query side only. Chosen among stems of 4-7 characters
+by a rule written before scoring: on the v02 set hybrid answer context dev
+W−L +2, holdout +1 (read once), no category loses, `anayasa-cekim-tr` +3,
+seed and `anayasa-tr` unchanged, p95 +1.1 ms; over the whole set 0.909 →
+0.926. Shorter stems matched too broadly (`stem:6` was −1 on dev)
+(`.docs/benchmarks/v0.3-lexical-stems.md`).
+
+**Deferred.** A real stemmer and an accent-folded secondary field are added
+only if the evaluation set (which includes accentless-typing queries) shows a
+gain over prefix stems.
 The circumflex fold passed that test: on `anayasa-tr.jsonl` hybrid answer
 context went from 0.900 to 0.950 (`milli marsimiz nedir` now finds `Millî
 marşı`), the seed set did not change. Its cost is precision, as with ı/i:
@@ -803,7 +814,7 @@ startup: setup mode hides only "not installed".
 | Jev | Rejected | No downloadable weights |
 | Nimble | Deferred | 9B, Python tooling |
 | OCR in v1 | Deferred | D-011 |
-| Custom FTS5 tokenizer / stemming | Deferred | D-006; needs eval evidence |
+| Custom FTS5 tokenizer / stemming | Prefix stems adopted (step 51); real stemmer deferred | D-006; needs eval evidence |
 | Electron | Rejected | Larger bundles; Tauri fits a Rust codebase |
 | In-process engine in GUI | Rejected | No crash isolation for native inference |
 
