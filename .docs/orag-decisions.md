@@ -884,4 +884,7 @@ at once.
 
 **Known limit.** Title-case headings (`Seçim Rehberi`) and decimal outlines
 are not recognised; two separate titles in capitals with nothing between them
-are joined as one.
+are joined as one. Appliance manuals with labelled diagrams and paragraphs in
+capitals get many false headings; a stricter variant (step 53) cut them from
+105 to 15 on one such manual but missed its pre-registered limit and was not
+adopted (`.docs/benchmarks/v0.3-manual-headings.md`).

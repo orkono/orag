@@ -76,9 +76,6 @@ pub(crate) enum Line {
     },
     /// More text of the heading just emitted (a wrapped title, a chapter name).
     ExtendHeading(String),
-    /// The heading just emitted was the start of a block of lines in capitals
-    /// (labels, a paragraph in capitals): it and this line are body text.
-    RetractHeading,
 }
 
 /// Reads one text's lines in order and says what each one is.
@@ -89,8 +86,6 @@ pub(crate) struct Outline {
     last_letter: Option<char>,
     /// The kind of the last heading while no body has followed it.
     open: Option<Kind>,
-    /// Lines in capitals joined into the open title so far.
-    capitals_run: usize,
 }
 
 impl Default for Outline {
@@ -99,7 +94,6 @@ impl Default for Outline {
             after_complete_line: true,
             last_letter: None,
             open: None,
-            capitals_run: 0,
         }
     }
 }
@@ -110,20 +104,12 @@ impl Outline {
         if line.is_empty() {
             return Line::Blank;
         }
-        if self.capitals_run > MAX_TITLE_LINES {
-            // Inside a block in capitals: everything up to a blank line is body.
-            if capitals(line).is_some() {
-                return Line::Body;
-            }
-            self.capitals_run = 0;
-        }
         if let Some((kind, division, text)) = self.classify(line) {
             if let Some(extra) = self.extension(kind, &text) {
-                return extra;
+                return Line::ExtendHeading(extra);
             }
             self.after_complete_line = true;
             self.open = Some(kind);
-            self.capitals_run = usize::from(kind == Kind::Capitals);
             match kind {
                 Kind::Letter => self.last_letter = line.chars().next(),
                 Kind::Roman => self.last_letter = None,
@@ -139,35 +125,24 @@ impl Outline {
             return Line::ExtendHeading(format!(" - {line}"));
         }
         self.open = None;
-        self.capitals_run = 0;
         if letters(line) > 0 {
             self.after_complete_line = line.ends_with(SENTENCE_END) || line.ends_with(')');
         }
         Line::Body
     }
 
-    /// What to do with the open heading when `text` continues it: append a
-    /// chapter's name in capitals or the second line of a wrapped title, or
-    /// take the title back when a third line in capitals shows a block.
-    fn extension(&mut self, kind: Kind, text: &str) -> Option<Line> {
+    /// The text to append to the open heading, when `text` continues it: a
+    /// chapter's name in capitals, or the second line of a wrapped title.
+    fn extension(&mut self, kind: Kind, text: &str) -> Option<String> {
         if kind != Kind::Capitals {
             return None;
         }
         match self.open? {
             Kind::Division => {
                 self.open = None;
-                Some(Line::ExtendHeading(format!(" - {text}")))
+                Some(format!(" - {text}"))
             }
-            Kind::Capitals if self.capitals_run < MAX_TITLE_LINES => {
-                self.capitals_run += 1;
-                Some(Line::ExtendHeading(format!(" {text}")))
-            }
-            Kind::Capitals => {
-                self.open = None;
-                self.capitals_run = MAX_TITLE_LINES + 1;
-                self.after_complete_line = false;
-                Some(Line::RetractHeading)
-            }
+            Kind::Capitals => Some(format!(" {text}")),
             _ => None,
         }
     }
@@ -178,7 +153,6 @@ impl Outline {
             || line.chars().count() > MAX_CHARS
             || has_columns(line)
             || line.ends_with(SENTENCE_END)
-            || broken_word(line)
         {
             return None;
         }
@@ -199,56 +173,6 @@ impl Outline {
         let kind = enumerated(line, self.last_letter)?;
         Some((kind, 0, clean(line)))
     }
-}
-
-/// A title in capitals spans at most this many lines.
-const MAX_TITLE_LINES: usize = 2;
-/// Text under a title in capitals has at least this many letters.
-const MIN_BODY_LETTERS: usize = 20;
-/// A paragraph that starts with this many words in capitals continues a
-/// paragraph in capitals rather than following a title.
-const CAPITAL_LEAD_WORDS: usize = 3;
-
-/// The line ends in a word broken by a hyphen (`MER-`), not in a code
-/// (`DS-1600`) or a dash standing alone.
-fn broken_word(line: &str) -> bool {
-    line.strip_suffix('-')
-        .is_some_and(|rest| rest.ends_with(char::is_alphabetic))
-}
-
-/// `blocks` with titles in capitals turned back into body text when what
-/// follows is not real text: a short label, or a paragraph that carries on in
-/// capitals (the title was the first line of it). Part and chapter headings,
-/// and a title followed by another heading, are kept.
-pub(crate) fn demote_unsupported_titles(blocks: Vec<Block>) -> Vec<Block> {
-    let unsupported: Vec<bool> = blocks
-        .iter()
-        .enumerate()
-        .map(|(index, block)| {
-            matches!(block, Block::Heading { level: 3, .. })
-                && match blocks.get(index + 1) {
-                    Some(Block::Paragraph(next)) => !supports_title(next),
-                    _ => false,
-                }
-        })
-        .collect();
-    blocks
-        .into_iter()
-        .zip(unsupported)
-        .map(|(block, demote)| match block {
-            Block::Heading { text, .. } if demote => Block::Paragraph(text),
-            other => other,
-        })
-        .collect()
-}
-
-fn supports_title(text: &str) -> bool {
-    let capital_lead = text
-        .split_whitespace()
-        .take(CAPITAL_LEAD_WORDS)
-        .filter(|word| letters(word) > 0 && !word.chars().any(char::is_lowercase))
-        .count();
-    letters(text) >= MIN_BODY_LETTERS && capital_lead < CAPITAL_LEAD_WORDS
 }
 
 /// A heading text repeated on this many pages, and on at least half of the
@@ -550,80 +474,6 @@ mod tests {
         // Body in between ends the title.
         let lines = read(&["HAKKIMIZDA", "Gövde metni.", "SEÇİM REHBERİ"]);
         assert_eq!(lines[2], heading(3, "SEÇİM REHBERİ"));
-    }
-
-    #[test]
-    fn a_line_ending_in_a_broken_word_is_not_a_title() {
-        assert_eq!(
-            first("ALL EXPRESS AND IMPLIED WARRANTIES, INCLUDING THE WARRANTY OF MER-"),
-            Line::Body
-        );
-        // A hyphen inside a code is not a broken word.
-        assert_eq!(
-            first("DS-1640 YASSI ŞERİT"),
-            heading(3, "DS-1640 YASSI ŞERİT")
-        );
-    }
-
-    #[test]
-    fn three_lines_in_capitals_are_a_label_block_not_a_title() {
-        let lines = read(&[
-            "DATE OF PURCHASE",
-            "DEALER NAME",
-            "DEALER ADDRESS",
-            "Body text.",
-        ]);
-        assert_eq!(lines[0], heading(3, "DATE OF PURCHASE"));
-        assert_eq!(lines[1], Line::ExtendHeading(" DEALER NAME".into()));
-        assert_eq!(lines[2], Line::RetractHeading);
-        // Two lines still make one wrapped title.
-        let lines = read(&[
-            "DS-1620 YASSI DAMLA SULAMA",
-            "ŞERİDİ 16 MM, 6 MİL",
-            "Gövde.",
-        ]);
-        assert_eq!(lines[1], Line::ExtendHeading(" ŞERİDİ 16 MM, 6 MİL".into()));
-        assert_eq!(lines[2], Line::Body);
-    }
-
-    #[test]
-    fn a_title_in_capitals_needs_real_text_after_it() {
-        let paragraph = |text: &str| Block::Paragraph(text.into());
-        let title = |text: &str| Block::Heading {
-            level: 3,
-            text: text.into(),
-        };
-        let blocks = vec![
-            // A diagram label followed by another label.
-            title("TIME SET"),
-            paragraph("OFF"),
-            // The first line of a paragraph in capitals.
-            title("TO PREVENT ELECTRIC SHOCK MATCH"),
-            paragraph("WIDE BLADE OF PLUG TO WIDE SLOT, FULLY INSERT."),
-            // A real section.
-            title("IMPORTANT SAFETY INSTRUCTIONS"),
-            paragraph("Read the operating instructions carefully before using the unit."),
-            // A part heading is never demoted, nor a title before a subsection.
-            Block::Heading {
-                level: 1,
-                text: "BİRİNCİ KISIM".into(),
-            },
-            title("HAKKIMIZDA"),
-            Block::Heading {
-                level: 5,
-                text: "I. Kuruluş".into(),
-            },
-            paragraph("Kısa."),
-            // A title at the very end has nothing to show it wrong.
-            title("SON BÖLÜM BAŞLIĞI"),
-        ];
-        let out = demote_unsupported_titles(blocks);
-        assert_eq!(out[0], paragraph("TIME SET"));
-        assert_eq!(out[2], paragraph("TO PREVENT ELECTRIC SHOCK MATCH"));
-        assert_eq!(out[4], title("IMPORTANT SAFETY INSTRUCTIONS"));
-        assert!(matches!(out[6], Block::Heading { level: 1, .. }));
-        assert_eq!(out[7], title("HAKKIMIZDA"));
-        assert_eq!(out[10], title("SON BÖLÜM BAŞLIĞI"));
     }
 
     #[test]
