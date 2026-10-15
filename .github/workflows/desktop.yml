@@ -50,6 +50,8 @@ jobs:
       - run: scripts/stage-sidecar.sh
       - run: cargo clippy --locked -p orag-desktop --all-targets -- -D warnings
       - run: cargo test --locked -p orag-desktop
+        env:
+          ORAG_REQUIRE_SIDECAR: "1"   # the containment test must not skip here
       - working-directory: apps/desktop
         run: cargo tauri build --bundles ${{ matrix.bundles }} -- --locked
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
