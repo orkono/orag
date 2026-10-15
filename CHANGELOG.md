@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.22] - 2026-10-15
+
+- **Preventing uncited answers: not pursued (step 68).** With the default models 1 of 109 answers is uncited, and it is in the v0.4 holdout, so a stronger citation prompt or a retry has no dev target to be judged on; a retry would also change the streaming API. No code change; the step 67 notice stays, and uncited answers and `v2-ans-047` wait for a larger answer dev set in v0.4 (`.docs/benchmarks/v0.3-uncited-prevention.md`).
+
 ## [0.3.0-alpha.21] - 2026-10-15
 
 - **Uncited answers are marked (step 67).** An answer that is not an abstention and cites no source (no `[n]`, or only numbers no source has) now has `"uncited": true` in the query response and the `done` stream event (`docs/api.md`); the web page shows it with the notice "Bu yanıt hiçbir kaynağa atıf yapmıyor; belgelerden doğrulayın." The answer text is unchanged and no model call is added. `orag eval answers` reports an "uncited answers" count per run and per category.
