@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.21] - 2026-10-15
+
+- **Uncited answers are marked (step 67).** An answer that is not an abstention and cites no source (no `[n]`, or only numbers no source has) now has `"uncited": true` in the query response and the `done` stream event (`docs/api.md`); the web page shows it with the notice "Bu yanıt hiçbir kaynağa atıf yapmıyor; belgelerden doğrulayın." The answer text is unchanged and no model call is added. `orag eval answers` reports an "uncited answers" count per run and per category.
+
 ## [0.3.0-alpha.20] - 2026-10-15
 
 - **Windows smoke numbers corrected (step 66).** On the Windows runner bge-m3 had the higher MRR@10 (0.905 → 0.929) and recall@5 (0.929 → 1.000); the benchmark record had the pair reversed. No decision changes.

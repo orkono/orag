@@ -51,6 +51,15 @@ export function finishNotice(reason) {
   return FINISH_NOTICES.get(reason) || "";
 }
 
+const ABSTAINED = "Belgelerde bu sorunun yanıtı bulunamadı.";
+const UNCITED = "Bu yanıt hiçbir kaynağa atıf yapmıyor; belgelerden doğrulayın.";
+
+/** The notice under a finished answer (a `done` event), or "" for none. */
+export function answerNotice(done) {
+  if (done.abstained) return ABSTAINED;
+  return [finishNotice(done.finish_reason), done.uncited ? UNCITED : ""].filter(Boolean).join(" ");
+}
+
 const DEFAULT_RETRY_MS = 5000;
 const MIN_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30000;

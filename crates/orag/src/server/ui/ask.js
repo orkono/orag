@@ -6,7 +6,7 @@ import { errorBox, request } from "./api.js";
 import { displayName, selectedCollection } from "./collections.js";
 import { toast } from "./dialog.js";
 import { icon } from "./icons.js";
-import { finishNotice, retryAfterMs } from "./format.js";
+import { answerNotice, retryAfterMs } from "./format.js";
 import { sseEvents } from "./sse.js";
 import { linkCitations, markCitedSources, renderSources } from "./sources.js";
 
@@ -14,7 +14,6 @@ import { linkCitations, markCitedSources, renderSources } from "./sources.js";
 // retry is a single, last attempt.
 const BUSY = "Başka bir yanıt üretiliyor; bir kez daha denenecek.";
 const LOST = "Bağlantı kesildi; yanıt tamamlanmadı.";
-const ABSTAINED = "Belgelerde bu sorunun yanıtı bulunamadı.";
 const STOPPED = "Yanıt durduruldu.";
 const MAX_COMPOSER_PX = 200;
 
@@ -89,8 +88,7 @@ function handleEvent(turn, { event, data }) {
       markCitedSources(turn, data.citations || []);
       settle(turn);
       turn.copy.hidden = false;
-      if (data.abstained) showNotice(turn, ABSTAINED);
-      else if (finishNotice(data.finish_reason)) showNotice(turn, finishNotice(data.finish_reason));
+      if (answerNotice(data)) showNotice(turn, answerNotice(data));
       return true;
     case "error": {
       const err = new Error(`${data.error.message} (${data.error.code})`);

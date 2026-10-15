@@ -110,6 +110,8 @@ pub struct Outcome<'a> {
     pub probe: &'a AnswerProbe,
     pub score: AnswerScore,
     pub abstained: bool,
+    /// Answered without any valid `[n]` (the summary's `uncited`).
+    pub uncited: bool,
     pub finish_reason: FinishReason,
 }
 
@@ -127,6 +129,8 @@ pub struct AnswerMetrics {
     /// without answerable probes).
     pub expected_fact_rate: Option<f64>,
     pub abstention: Abstention,
+    /// Answered probes without any valid `[n]` (step 67).
+    pub uncited: usize,
     pub finish_reasons: FinishReasons,
 }
 
@@ -163,6 +167,7 @@ pub fn aggregate(outcomes: &[Outcome]) -> AnswerMetrics {
             answerable.len(),
         ),
         abstention: confusion(&pairs),
+        uncited: outcomes.iter().filter(|o| o.uncited).count(),
         finish_reasons: finish,
     }
 }
@@ -313,9 +318,11 @@ mod tests {
             probe: &p,
             score,
             abstained: false,
+            uncited: !score.valid_citations,
             finish_reason: FinishReason::Stop,
         };
         let m = aggregate(&[outcome(good), outcome(bad)]);
+        assert_eq!(m.uncited, 1);
         assert_eq!(m.valid_citation_rate, Some(0.5));
         assert_eq!(m.expected_fact_rate, Some(1.0));
         assert_eq!(m.cited_evidence_coverage, Some(0.5));
@@ -328,9 +335,11 @@ mod tests {
             probe: &p,
             score: score_answer(&p, "Bilgi yok [7].", true, 0, 1, &[]),
             abstained: true,
+            uncited: false,
             finish_reason: FinishReason::Length,
         };
         let m = aggregate(&[refused]);
+        assert_eq!(m.uncited, 0);
         assert_eq!(
             m.valid_citation_rate, None,
             "no answered probe: nothing to measure"
@@ -362,6 +371,7 @@ mod tests {
                 probe: p,
                 score: score_answer(p, "x", false, 0, 0, &[]),
                 abstained: false,
+                uncited: true,
                 finish_reason: FinishReason::Stop,
             })
             .collect();
@@ -369,6 +379,7 @@ mod tests {
         assert_eq!(by.keys().collect::<Vec<_>>(), ["factual", "numeric"]);
         assert_eq!(by["factual"].expected_fact_rate, Some(1.0));
         assert_eq!(by["numeric"].expected_fact_rate, Some(0.0));
+        assert_eq!(by["numeric"].uncited, 1);
         // A group of unanswerable probes has no expected facts to rate.
         let none = AnswerProbe {
             answerable: false,
@@ -379,6 +390,7 @@ mod tests {
             probe: &none,
             score: score_answer(&none, "x", true, 0, 0, &[]),
             abstained: true,
+            uncited: false,
             finish_reason: FinishReason::Stop,
         }];
         assert_eq!(aggregate(&only_unanswerable).expected_fact_rate, None);
