@@ -113,6 +113,12 @@ impl Supervisor {
         &self.events
     }
 
+    /// Hands the event stream to another thread (the window's); `events()`
+    /// is empty afterwards.
+    pub fn take_events(&mut self) -> Receiver<SidecarEvent> {
+        std::mem::replace(&mut self.events, mpsc::channel().1)
+    }
+
     /// The running child's process id, if one is running.
     pub fn child_pid(&self) -> Option<u32> {
         Some(self.pid.load(Ordering::SeqCst)).filter(|p| *p != 0)

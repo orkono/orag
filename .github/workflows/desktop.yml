@@ -11,6 +11,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/stage-sidecar.sh"
+      - "scripts/smoke-desktop.sh"
       - ".github/workflows/desktop.yml"
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/stage-sidecar.sh"
+      - "scripts/smoke-desktop.sh"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
@@ -52,7 +54,7 @@ jobs:
       - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
       - run: cargo install tauri-cli --version 2.12.3 --locked
       - run: cargo build --release --locked -p orag
       - run: scripts/stage-sidecar.sh
@@ -62,6 +64,16 @@ jobs:
           ORAG_REQUIRE_SIDECAR: "1"   # the containment test must not skip here
       - working-directory: apps/desktop
         run: cargo tauri build --bundles ${{ matrix.bundles }} -- --locked
+      # The built app with its sidecar next to it (target/release/orag).
+      - name: Smoke test
+        run: |
+          app=target/release/orag-desktop
+          if [ "$RUNNER_OS" = Windows ]; then app="$app.exe"; fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a scripts/smoke-desktop.sh "$app"
+          else
+            scripts/smoke-desktop.sh "$app"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-${{ matrix.os }}
