@@ -83,6 +83,7 @@ async fn query_returns_grounded_answer_json() {
     assert_eq!(body["sources"][0]["number"], 1);
     assert_eq!(body["trace"]["retrieval"]["strategy"], "hybrid");
     assert_eq!(body["abstained"], false);
+    assert_eq!(body["uncited"], false);
     assert_eq!(body["finish_reason"], "stop");
     // UTF-8 byte offsets: "14 gün " is 8 bytes ("ü" takes two).
     assert_eq!(
@@ -121,7 +122,8 @@ async fn query_streams_sources_tokens_done_in_order() {
     let done = text.find("event: done").expect("done event");
     assert!(sources < token && token < done, "{text}");
     assert!(
-        text[done..].contains("\"finish_reason\":\"stop\""),
+        text[done..].contains("\"uncited\":false")
+            && text[done..].contains("\"finish_reason\":\"stop\""),
         "{text}"
     );
     assert!(

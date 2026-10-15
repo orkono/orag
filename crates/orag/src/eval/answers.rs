@@ -191,16 +191,17 @@ impl AnswerReport {
                     continue;
                 }
                 out.push_str(&format!(
-                    "\n`{}` by {title}:\n\n| {title} | probes | expected facts | cited evidence | valid citations | abstention P / R |\n|---|---|---|---|---|---|\n",
+                    "\n`{}` by {title}:\n\n| {title} | probes | expected facts | cited evidence | valid citations | uncited answers | abstention P / R |\n|---|---|---|---|---|---|---|\n",
                     p.sampler
                 ));
                 for (name, m) in groups {
                     out.push_str(&format!(
-                        "| {name} | {} | {} | {} | {} | {} / {} |\n",
+                        "| {name} | {} | {} | {} | {} | {} | {} / {} |\n",
                         m.probes,
                         rate(m.expected_fact_rate),
                         rate(m.cited_evidence_coverage),
                         rate(m.valid_citation_rate),
+                        m.uncited,
                         rate(m.abstention.precision),
                         rate(m.abstention.recall)
                     ));
