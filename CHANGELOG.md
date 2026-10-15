@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.25] - 2026-10-15
+
+- **Desktop sidecar supervisor (step 71, D-016).** `orag serve --exit-on-stdin-close` (hidden) stops gracefully when stdin reaches end of file, also during startup, so a GUI parent without a console can stop it on every OS. In `apps/desktop` a supervisor starts `orag serve` supervised, reports its two address lines, restarts it after exit 75 and after crashes (at most 3 times in 60 s, then fails with the last 20 stderr lines), fails a start that prints no lines within 180 s, and stops it by closing stdin, killing it after 10 s. No orphan when the app dies: the app enters a kill-on-close Job on Windows, the child asks for SIGTERM on parent death on Linux, and the closed stdin covers macOS; a test kills the app hard and checks the real service is gone within 5 s.
+
 ## [0.3.0-alpha.24] - 2026-10-15
 
 - **Desktop app skeleton (step 70, D-016).** New workspace member `apps/desktop` (Tauri 2.12, outside `default-members`, so the service's `cargo build`/`cargo test` are unchanged): a window with a loading page, no Tauri commands granted, the `orag` executable bundled next to the app (`scripts/stage-sidecar.sh`, `externalBin`), icons from the ORAK icon. New `desktop` workflow tests and bundles it on macOS (`.dmg`), Windows (NSIS with the offline WebView2 installer) and Linux (`.AppImage`, `.deb`). It does not start the service yet. D-023: a desktop sidecar runs supervised and is restarted after setup and crashes. D-012: the in-app model downloader moves to v0.4.

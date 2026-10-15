@@ -30,6 +30,10 @@ pub enum Command {
         /// Serve with deterministic fake models (development and UI work only).
         #[arg(long, hide = true)]
         dev_fake_models: bool,
+        /// Stop gracefully when stdin reaches end of file (the desktop app's
+        /// stop signal for its sidecar, D-016).
+        #[arg(long, hide = true)]
+        exit_on_stdin_close: bool,
     },
     /// Write a consistent copy of the database (safe while the server runs).
     Backup { dest: std::path::PathBuf },
@@ -170,10 +174,16 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Models { command } => run_models(command),
         Command::Start => exit_with(crate::launcher::run(&load_config()?)?),
-        Command::Serve { dev_fake_models } => {
+        Command::Serve {
+            dev_fake_models,
+            exit_on_stdin_close,
+        } => {
             let code = crate::app::run_server(
                 load_config()?,
-                crate::app::ServeOptions { dev_fake_models },
+                crate::app::ServeOptions {
+                    dev_fake_models,
+                    exit_on_stdin_close,
+                },
             )?;
             exit_with(i32::from(code))
         }

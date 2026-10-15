@@ -31,6 +31,8 @@ pub const SUPERVISED_ENV: &str = "ORAG_SUPERVISED";
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ServeOptions {
     pub dev_fake_models: bool,
+    /// Stop gracefully when stdin reaches end of file (D-016 sidecar).
+    pub exit_on_stdin_close: bool,
 }
 
 /// Runs `orag serve`; returns the process exit code (`EXIT_RESTART` when an
@@ -38,6 +40,12 @@ pub struct ServeOptions {
 pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     init_logging(&config.log_level);
     tracing::info!(config = %config.config_path().display(), settings = %config.effective(), "configuration loaded (changes need a restart)");
+    // Watched from the start, so a parent that dies during the (slow) model
+    // load still stops this process once loading ends.
+    let stdin_closed = options
+        .exit_on_stdin_close
+        .then(watch_stdin_close)
+        .transpose()?;
     // Exclusive ownership of the data directory for the whole process lifetime:
     // job recovery and the worker must never run twice against one database.
     let supervised = std::env::var(SUPERVISED_ENV).is_ok_and(|v| v == "1");
@@ -92,6 +100,10 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     } else {
         load_models(&config)?
     };
+    if stdin_closed.as_ref().is_some_and(|closed| *closed.borrow()) {
+        tracing::info!("stdin closed during startup; not serving");
+        return Ok(0);
+    }
     let models = ModelsInfo {
         models_dir: config.models_dir(),
         embedding: config.embedding_model.clone(),
@@ -129,7 +141,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
         // line appears is a graceful shutdown, not the default kill.
         // A running parser child stops through the worker's own shutdown
         // signal (AppState), which `serve` starts when this future completes.
-        let shutdown = shutdown_signal()?;
+        let shutdown = or_stdin_closed(shutdown_signal()?, stdin_closed);
         let worker = (!setup)
             .then(|| spawn_worker(ingest, state.ingest_wake.clone(), state.subscribe_shutdown()));
         let exit = state.clone();
@@ -233,6 +245,34 @@ fn init_logging(level: &str) {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+/// Reads stdin to its end on a thread of its own; the receiver turns `true`
+/// at end of file or on a read error (a parent that went away).
+fn watch_stdin_close() -> anyhow::Result<tokio::sync::watch::Receiver<bool>> {
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    std::thread::Builder::new()
+        .name("stdin-close".into())
+        .spawn(move || {
+            let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+            let _ = tx.send(true);
+        })
+        .context("starting the stdin watcher")?;
+    Ok(rx)
+}
+
+/// `signal`, or the end of stdin when it is watched.
+async fn or_stdin_closed(
+    signal: impl Future<Output = ()> + Send + 'static,
+    stdin_closed: Option<tokio::sync::watch::Receiver<bool>>,
+) {
+    let Some(mut closed) = stdin_closed else {
+        return signal.await;
+    };
+    tokio::select! {
+        () = signal => {}
+        _ = closed.wait_for(|c| *c) => tracing::info!("stdin closed; shutting down"),
+    }
 }
 
 /// Installs the SIGINT/SIGTERM handlers now and returns the future that
