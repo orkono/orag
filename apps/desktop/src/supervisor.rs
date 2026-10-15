@@ -252,7 +252,11 @@ fn wait_ready(
     let deadline = Instant::now() + spec.startup_timeout;
     let mut api: Option<String> = None;
     loop {
-        match lines.recv_timeout(POLL) {
+        let received = lines.recv_timeout(POLL);
+        if matches!(received, Err(RecvTimeoutError::Disconnected)) {
+            std::thread::sleep(POLL);
+        }
+        match received {
             Ok(line) => {
                 if let Some(url) = line.strip_prefix(LISTENING_PREFIX) {
                     api = Some(url.trim().to_string());
@@ -263,13 +267,16 @@ fn wait_ready(
                     });
                 }
             }
-            Err(RecvTimeoutError::Timeout) => {}
-            // Stdout closed: the service is exiting; its code decides.
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(match child.wait() {
-                    Ok(status) => RunEnd::Exited(status.code()),
-                    Err(err) => RunEnd::Fatal(format!("waiting for the service: {err}")),
-                });
+            // No line pending (stdout may be closed while the process runs
+            // on): only now can an exit be judged without losing a line.
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                match child.try_wait() {
+                    Ok(Some(status)) => return Err(RunEnd::Exited(status.code())),
+                    Ok(None) => {}
+                    Err(err) => {
+                        return Err(RunEnd::Fatal(format!("waiting for the service: {err}")));
+                    }
+                }
             }
         }
         if !matches!(stop.try_recv(), Err(mpsc::TryRecvError::Empty)) {

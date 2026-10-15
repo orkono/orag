@@ -12,6 +12,14 @@ on:
       - "Cargo.lock"
       - "scripts/stage-sidecar.sh"
       - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "crates/orag/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/stage-sidecar.sh"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
 permissions:

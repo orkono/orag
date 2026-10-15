@@ -7,7 +7,8 @@
 //! Behaviours: `ready` (both lines, then serve until stdin closes),
 //! `ready-exit:N` (both lines, then exit N), `exit:N` (a stderr line, exit N),
 //! `api-only` (only the listening line), `hang` (no output, never exits),
-//! `stubborn` (both lines, ignores stdin closing).
+//! `stubborn` (both lines, ignores stdin closing), `mute` (closes stdout
+//! without a line and keeps running until stdin closes).
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -96,6 +97,11 @@ fn behave(mode: &str, run: usize) -> i32 {
                 std::thread::sleep(Duration::from_secs(60));
             }
         }
+        "mute" => {
+            close_stdout();
+            until_stdin_closes();
+            0
+        }
         _ => loop {
             std::thread::sleep(Duration::from_secs(60));
         },
@@ -126,5 +132,23 @@ fn parent(orag: &str) -> i32 {
     }
     loop {
         std::thread::sleep(Duration::from_secs(60));
+    }
+}
+
+#[cfg(unix)]
+fn close_stdout() {
+    // SAFETY: closes this process's own stdout descriptor; nothing else uses it.
+    unsafe {
+        libc::close(1);
+    }
+}
+
+#[cfg(windows)]
+fn close_stdout() {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
+    // SAFETY: closes this process's own stdout handle; nothing else uses it.
+    unsafe {
+        CloseHandle(GetStdHandle(STD_OUTPUT_HANDLE));
     }
 }

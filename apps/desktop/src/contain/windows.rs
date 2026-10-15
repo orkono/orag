@@ -11,7 +11,9 @@ use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 /// The Job's handle, kept open (never closed) for the life of the app: when
 /// the app process ends, Windows closes it and kills every process in the Job.
-struct AppJob(HANDLE);
+struct AppJob {
+    _handle: HANDLE,
+}
 // SAFETY: a Job handle is a kernel object reference, usable from any thread.
 unsafe impl Send for AppJob {}
 unsafe impl Sync for AppJob {}
@@ -20,7 +22,12 @@ static APP_JOB: OnceLock<Result<AppJob, String>> = OnceLock::new();
 
 /// Puts the app in a kill-on-close Job once. Children created afterwards are
 /// in the Job from their creation (nested Jobs, Windows 8+), so there is no
-/// moment in which a child exists outside it.
+/// moment in which a child exists outside it. WebView2 processes the app
+/// starts later join it too and end with the app, which is wanted.
+///
+/// An app that already runs in a Job forbidding nesting cannot join one; the
+/// error is returned and the caller still starts the sidecar, which then
+/// relies on the stdin-close stop alone.
 pub(super) fn enter_app_job() -> io::Result<()> {
     match APP_JOB.get_or_init(create_and_enter) {
         Ok(_) => Ok(()),
@@ -55,6 +62,6 @@ fn create_and_enter() -> Result<AppJob, String> {
             CloseHandle(job);
             return Err(format!("AssignProcessToJobObject: {err}"));
         }
-        Ok(AppJob(job))
+        Ok(AppJob { _handle: job })
     }
 }

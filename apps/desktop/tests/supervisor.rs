@@ -187,3 +187,36 @@ fn a_sidecar_ignoring_stdin_is_killed_after_the_grace_time() {
     );
     assert!(gone_within(pid, Duration::from_secs(5)));
 }
+
+#[test]
+fn a_sidecar_that_closes_stdout_but_runs_on_still_times_out_and_stops() {
+    let f = fake();
+    let supervisor = Supervisor::start(f.spec("mute"));
+    match next(&supervisor) {
+        SidecarEvent::Failed { message, .. } => {
+            assert!(message.contains("did not start"), "{message}")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(gone_within(f.pid(0), Duration::from_secs(5)));
+}
+
+#[test]
+fn shutdown_during_a_mute_start_returns_promptly() {
+    let f = fake();
+    let supervisor = Supervisor::start(f.spec("mute"));
+    // The fake has closed its stdout once it has written its pid file.
+    while !f.state.path().join("pid-0").exists() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    let pid = f.pid(0);
+    let started = Instant::now();
+    supervisor.shutdown();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(gone_within(pid, Duration::from_secs(5)));
+}
