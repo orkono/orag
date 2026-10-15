@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.27] - 2026-10-15
+
+- **Desktop bundles in releases (step 73).** The release build wraps the same checked `orag` binary in the desktop app on all three platforms, runs the desktop smoke test and uploads the macOS `.dmg`, the Windows NSIS installer (with the offline WebView2 installer), the Linux `.AppImage` and `.deb` next to the CLI archives, so a tag's draft release carries them.
+
 ## [0.3.0-alpha.26] - 2026-10-15
 
 - **Desktop window (step 72, D-016).** The app starts its sidecar in a private home (`<app data>/orag`, `config.toml` with both ports on `127.0.0.1:0` written once), opens the service page when it is ready and shows restarts and failures on its own status page (the last stderr lines as text, never as HTML). Navigation stays on the app page and the current service page; other links open in the system browser; the service page gets no Tauri commands. A second launch focuses the existing window. `scripts/smoke-desktop.sh` runs the built app on all three platforms: the service page sends a POST from inside the webview, the app closes its window and must exit by itself, and its sidecar must be gone.

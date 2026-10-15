@@ -22,7 +22,7 @@ jobs:
         # compatible (Task 22). The macOS deployment target comes from .cargo/config.toml.
         os: [macos-15, ubuntu-22.04, windows-2022]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     defaults:
       run:
         shell: bash
@@ -88,6 +88,40 @@ jobs:
         with:
           name: orag-installer
           path: installer/ORAG-Setup-*.exe
+          if-no-files-found: error
+
+      # The desktop app (D-016) around the same checked binary: bundled,
+      # smoke-tested (page loads, its own POST passes, the sidecar ends with
+      # the app) and uploaded.
+      - if: startsWith(matrix.os, 'ubuntu')
+        name: Desktop prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
+      - name: Desktop bundle
+        run: |
+          cargo install tauri-cli --version 2.12.3 --locked
+          scripts/stage-sidecar.sh
+          scripts/check-binary-deps.sh apps/desktop/binaries/orag-*$EXE --release-floor
+          case "$RUNNER_OS" in
+            macOS) bundles=dmg ;;
+            Windows) bundles=nsis ;;
+            *) bundles=appimage,deb ;;
+          esac
+          (cd apps/desktop && cargo tauri build --bundles "$bundles" -- --locked)
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a scripts/smoke-desktop.sh "target/release/orag-desktop"
+          else
+            scripts/smoke-desktop.sh "target/release/orag-desktop$EXE"
+          fi
+          mkdir -p desktop-dist
+          find target/release/bundle \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} desktop-dist/ \;
+          ls -l desktop-dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orag-desktop-${{ matrix.os }}
+          path: desktop-dist/*
           if-no-files-found: error
 
   # On a pushed version tag, a draft release with every artifact; the owner
