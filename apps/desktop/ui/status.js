@@ -1,6 +1,6 @@
-// Shows the sidecar status the app hands over (src/app.rs): through
-// window.oragStatus(status), or in the URL fragment on a fresh load. Every
-// value is set with textContent, so service output is never parsed as HTML.
+// Shows the sidecar status the app hands over (src/app.rs) through
+// window.oragStatus(status), called again after every load of this page.
+// Every value is set with textContent, so service output is never parsed as HTML.
 "use strict";
 
 const TEXT = {
@@ -26,13 +26,3 @@ function render(status) {
 }
 
 window.oragStatus = render;
-
-(function fromFragment() {
-  const fragment = window.location.hash.slice(1);
-  if (!fragment) return;
-  try {
-    render(JSON.parse(decodeURIComponent(fragment)));
-  } catch (_) {
-    render({ state: "loading" });
-  }
-})();

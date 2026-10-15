@@ -19,6 +19,51 @@ pub enum Status {
     },
 }
 
+/// The origin Tauri serves the app's own files from (`ui/`): fixed per OS,
+/// so it is known before the first page loads.
+pub fn local_origin() -> Url {
+    let origin = if cfg!(windows) {
+        "http://tauri.localhost/"
+    } else {
+        "tauri://localhost/"
+    };
+    Url::parse(origin).expect("a valid constant URL")
+}
+
+/// The smoke test's report channel: the service page navigates here with the
+/// result of its own API call, and the app records it (`ORAG_DESKTOP_SMOKE_FILE`).
+pub const SMOKE_SCHEME: &str = "orag-smoke";
+
+/// The script the smoke test runs inside the service page: a same-origin POST
+/// as the page itself sends it, reported through a `orag-smoke:` navigation.
+pub const SMOKE_SCRIPT: &str = r#"(async () => {
+  let report;
+  try {
+    const r = await fetch("/v1/models/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "relative/pack" }),
+    });
+    report = "status=" + r.status + "&body=" + encodeURIComponent((await r.text()).slice(0, 300));
+  } catch (e) {
+    report = "error=" + encodeURIComponent(String(e));
+  }
+  window.location.href = "orag-smoke://result?" + report;
+})();"#;
+
+/// The smoke report as text (`<status> <body>` or `error <message>`).
+pub fn smoke_report(url: &Url) -> Option<String> {
+    if url.scheme() != SMOKE_SCHEME {
+        return None;
+    }
+    let pairs: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+    Some(match (pairs.get("status"), pairs.get("error")) {
+        (Some(status), _) => format!("{status} {}", pairs.get("body").map_or("", String::as_str)),
+        (None, Some(error)) => format!("error {error}"),
+        (None, None) => "error no result".to_string(),
+    })
+}
+
 /// What the window should do for a supervisor event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -171,6 +216,37 @@ mod tests {
             &local,
             None
         ));
+    }
+
+    #[test]
+    fn local_origin_is_known_up_front() {
+        let local = local_origin();
+        assert!(navigation_allowed(
+            &local.join("index.html").unwrap(),
+            &local,
+            None
+        ));
+        assert!(!navigation_allowed(
+            &url("http://127.0.0.1:42000/"),
+            &local,
+            None
+        ));
+    }
+
+    #[test]
+    fn smoke_reports_are_read_from_the_navigation() {
+        assert_eq!(
+            smoke_report(&url(
+                "orag-smoke://result?status=400&body=%7B%22error%22%7D"
+            ))
+            .unwrap(),
+            "400 {\"error\"}"
+        );
+        assert_eq!(
+            smoke_report(&url("orag-smoke://result?error=TypeError")).unwrap(),
+            "error TypeError"
+        );
+        assert!(smoke_report(&url("http://127.0.0.1:42000/")).is_none());
     }
 
     #[test]

@@ -1,26 +1,38 @@
 //! The Tauri application: one window, one supervised sidecar (D-016).
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewWindowBuilder};
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow};
 
 use crate::supervisor::{SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
-    Action, Status, action_for, external_allowed, navigation_allowed, status_script,
+    Action, SMOKE_SCRIPT, Status, action_for, external_allowed, local_origin, navigation_allowed,
+    smoke_report, status_script,
 };
 
 /// Set in a smoke test: the app writes `<ui url> <child pid>` here on Ready.
 pub const READY_FILE_ENV: &str = "ORAG_DESKTOP_READY_FILE";
+/// Set in a smoke test: once the service page has loaded, it sends one
+/// same-origin POST from inside the webview; the app writes the result here
+/// and closes its window, exercising the normal close path.
+pub const SMOKE_FILE_ENV: &str = "ORAG_DESKTOP_SMOKE_FILE";
 
-/// The app's own page (its origin differs by OS: `tauri://localhost`,
-/// `http://tauri.localhost`) and the service page currently allowed (it
-/// moves to a new port on every restart).
-#[derive(Default)]
+/// What the window may show: the app's own page (origin fixed per OS) and
+/// the service page currently allowed (it moves on every restart), plus the
+/// last status, handed to the app page whenever it finishes loading.
 struct Pages {
-    local: Mutex<Option<Url>>,
+    local: Url,
     service: Mutex<Option<Url>>,
+    status: Mutex<Status>,
+    smoke_file: Option<PathBuf>,
+    smoke_sent: AtomicBool,
+    /// The app page has finished loading and is still shown. Tracked here
+    /// rather than read from the webview, whose URL is not available while
+    /// a page is still loading.
+    on_local: AtomicBool,
 }
 
 fn locked<T: Clone>(m: &Mutex<T>) -> T {
@@ -35,6 +47,14 @@ fn set<T>(m: &Mutex<T>, value: T) {
 struct Sidecar(Mutex<Option<Supervisor>>);
 
 pub fn run() {
+    let pages = Arc::new(Pages {
+        local: local_origin(),
+        service: Mutex::new(None),
+        status: Mutex::new(Status::Loading),
+        smoke_file: std::env::var_os(SMOKE_FILE_ENV).map(PathBuf::from),
+        smoke_sent: AtomicBool::new(false),
+        on_local: AtomicBool::new(false),
+    });
     let app = tauri::Builder::default()
         // First, so a second launch exits before it starts anything.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -45,7 +65,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
-        .manage(Arc::new(Pages::default()))
+        .manage(pages)
         .manage(Sidecar::default())
         .setup(|app| {
             let window = build_window(app.handle())?;
@@ -66,15 +86,17 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let nav_pages = pages.clone();
     let nav_app = app.clone();
     let new_app = app.clone();
-    let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("ORAG")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 400.0)
         .on_navigation(move |url| {
-            // Before the first page load the app's own URL is not known yet.
-            let allowed = locked(&nav_pages.local).as_ref().is_none_or(|local| {
-                navigation_allowed(url, local, locked(&nav_pages.service).as_ref())
-            });
+            if let Some(report) = smoke_report(url) {
+                record_smoke(&nav_app, &nav_pages, &report);
+                return false;
+            }
+            let allowed =
+                navigation_allowed(url, &nav_pages.local, locked(&nav_pages.service).as_ref());
             if !allowed {
                 open_external(&nav_app, url);
             }
@@ -84,9 +106,38 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             open_external(&new_app, &url);
             NewWindowResponse::Deny
         })
-        .build()?;
-    set(&pages.local, window.url().ok());
-    Ok(window)
+        .on_page_load(move |window, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                page_loaded(&window, &pages, payload.url());
+            }
+        })
+        .build()
+}
+
+/// The app page gets the current status once its script is there; the
+/// service page runs the smoke check when one was asked for.
+fn page_loaded(window: &WebviewWindow, pages: &Pages, url: &Url) {
+    let local = navigation_allowed(url, &pages.local, None);
+    pages.on_local.store(local, Ordering::SeqCst);
+    if local {
+        let _ = window.eval(status_script(&locked(&pages.status)));
+        return;
+    }
+    let on_service = locked(&pages.service)
+        .as_ref()
+        .is_some_and(|service| navigation_allowed(url, &pages.local, Some(service)));
+    if on_service && pages.smoke_file.is_some() && !pages.smoke_sent.swap(true, Ordering::SeqCst) {
+        let _ = window.eval(SMOKE_SCRIPT);
+    }
+}
+
+fn record_smoke(app: &AppHandle, pages: &Pages, report: &str) {
+    if let Some(path) = &pages.smoke_file {
+        let _ = std::fs::write(path, format!("{report}\n"));
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.close();
+    }
 }
 
 fn open_external(app: &AppHandle, url: &Url) {
@@ -103,7 +154,7 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
             show(
                 app,
                 &window,
-                &Status::Failed {
+                Status::Failed {
                     message,
                     details: Vec::new(),
                 },
@@ -139,50 +190,29 @@ fn sidecar_spec(app: &AppHandle) -> Result<SidecarSpec, String> {
 }
 
 fn handle_event(app: &AppHandle, window: &WebviewWindow, event: &SidecarEvent) {
-    let pages = app.state::<Arc<Pages>>();
     match action_for(event) {
         Action::Open(url) => {
+            let pages = app.state::<Arc<Pages>>();
+            pages.on_local.store(false, Ordering::SeqCst);
             set(&pages.service, Some(url.clone()));
             write_ready_file(app, &url);
             let _ = window.navigate(url);
         }
-        Action::Show(status) => {
-            set(&pages.service, None);
-            show(app, window, &status);
-        }
+        Action::Show(status) => show(app, window, status),
     }
 }
 
-/// Shows a status on the app's own page: handed over directly when that page
-/// is loaded, otherwise in the URL fragment of a fresh load (`ui/index.html`
-/// reads it).
-fn show(app: &AppHandle, window: &WebviewWindow, status: &Status) {
-    let Some(local) = locked(&app.state::<Arc<Pages>>().local) else {
-        return;
-    };
-    let on_local = window
-        .url()
-        .is_ok_and(|current| navigation_allowed(&current, &local, None));
-    if on_local {
-        let _ = window.eval(status_script(status));
-        return;
+/// Records the status and shows it on the app page: handed over at once when
+/// that page is up, otherwise by its page-load hook after a fresh load.
+fn show(app: &AppHandle, window: &WebviewWindow, status: Status) {
+    let pages = app.state::<Arc<Pages>>();
+    set(&pages.service, None);
+    set(&pages.status, status.clone());
+    if pages.on_local.load(Ordering::SeqCst) {
+        let _ = window.eval(status_script(&status));
+    } else if let Ok(index) = pages.local.join("index.html") {
+        let _ = window.navigate(index);
     }
-    let mut url = local;
-    url.set_fragment(Some(&urlencode(
-        &serde_json::to_string(status).unwrap_or_default(),
-    )));
-    let _ = window.navigate(url);
-}
-
-fn urlencode(text: &str) -> String {
-    text.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
 }
 
 fn write_ready_file(app: &AppHandle, url: &Url) {
