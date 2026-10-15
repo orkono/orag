@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.28] - 2026-10-15
+
+- **Desktop app documented (step 74).** New `docs/desktop.md`: install files and sizes, the unsigned-app prompts per system, the first start in setup mode, the app's own data folder per system, and how the window and the service behave. README status and a *Desktop app* section; D-016 records what was built.
+
 ## [0.3.0-alpha.27] - 2026-10-15
 
 - **Desktop bundles in releases (step 73).** The release build wraps the same checked `orag` binary in the desktop app on all three platforms, runs the desktop smoke test and uploads the macOS `.dmg`, the Windows NSIS installer (with the offline WebView2 installer), the Linux `.AppImage` and `.deb` next to the CLI archives, so a tag's draft release carries them.

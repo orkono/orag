@@ -547,6 +547,19 @@ over the public HTTP API. Crash isolation of native inference code is the
 deciding factor over in-process embedding. Windows installers must include
 the WebView2 offline installer.
 
+**As built (steps 70-73, 2026-10-15).** `apps/desktop` (Tauri 2.12) is a
+workspace member outside `default-members`. The window is built in code with
+navigation and new-window hooks: only the app page (`tauri://localhost`,
+`http://tauri.localhost` on Windows) and the current service page load, other
+links go to the system browser, and no Tauri command is granted. The sidecar
+runs `orag serve --exit-on-stdin-close` in `<app data>/orag`; the supervisor
+restarts it after 75 and after crashes (3 in 60 s) and stops it by closing
+stdin. No orphan: a kill-on-close Job that the app enters before its first
+spawn (Windows), `PR_SET_PDEATHSIG` with a parent check (Linux), the closed
+stdin (all). `scripts/smoke-desktop.sh` proves page load, a same-origin POST
+from the webview, window close and sidecar exit on all three platforms. Not
+built: signing and notarization, auto-update, tray icon, native file picker.
+
 ## D-017 — Versioning
 
 **Decision.**
