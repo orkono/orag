@@ -2,7 +2,7 @@
 // (Node's built-in runner: no dependencies, no build step).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finishNotice, pageLabel, retryAfterMs, warningText } from "../format.js";
+import { answerNotice, finishNotice, pageLabel, retryAfterMs, warningText } from "../format.js";
 
 test("page labels", () => {
   assert.equal(pageLabel(null), "");
@@ -46,4 +46,20 @@ test("Retry-After is read in seconds, with a default and a cap", () => {
   assert.equal(retryAfterMs(headers("soon")), 5000);
   assert.equal(retryAfterMs(headers("0")), 1000);
   assert.equal(retryAfterMs(headers("3600")), 30000);
+});
+
+test("the notice under a finished answer", () => {
+  const done = (fields) => ({ abstained: false, uncited: false, finish_reason: "stop", ...fields });
+  assert.equal(answerNotice(done({})), "");
+  assert.equal(answerNotice(done({ abstained: true })), "Belgelerde bu sorunun yanıtı bulunamadı.");
+  assert.equal(
+    answerNotice(done({ uncited: true })),
+    "Bu yanıt hiçbir kaynağa atıf yapmıyor; belgelerden doğrulayın.",
+  );
+  assert.equal(
+    answerNotice(done({ uncited: true, finish_reason: "length" })),
+    "Yanıt uzunluk sınırında kesildi. Bu yanıt hiçbir kaynağa atıf yapmıyor; belgelerden doğrulayın.",
+  );
+  // A server from before 0.3.0-alpha.21 sends no `uncited`.
+  assert.equal(answerNotice({ abstained: false, finish_reason: "stop" }), "");
 });

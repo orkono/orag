@@ -67,6 +67,7 @@ fn emits_sources_then_tokens_then_done_with_citations() {
     let s = summary(&events);
     assert_eq!(s.citations, vec![1]);
     assert!(!s.abstained);
+    assert!(!s.uncited);
     assert_eq!(s.trace.retrieval.strategy, "hybrid");
     assert_eq!(s.trace.context_chunks, 1);
     assert_eq!(s.trace.generator, "fake-generator");
@@ -498,4 +499,29 @@ fn a_prompt_the_generator_refuses_is_a_model_error_not_the_users() {
         .answer(1, "iade", &mut |_| ControlFlow::Continue(()))
         .unwrap_err();
     assert!(matches!(err, OragError::Model(_)), "{err:?}");
+}
+
+#[test]
+fn an_answer_without_a_valid_citation_is_marked_uncited() {
+    let docs = [("k.md", DOC)];
+    let uncited = |reply: &str| {
+        let (_dir, engine, _) = engine(FakeGenerator::new(reply), &docs);
+        summary(&collect(&engine, "İade süresi kaç gün?")).uncited
+    };
+    assert!(uncited("İade süresi 14 gündür."));
+    // Only out-of-range numbers: nothing the reader can check.
+    assert!(uncited("İade süresi 14 gündür [9]."));
+    assert!(!uncited("İade süresi 14 gündür [1]."));
+    // One valid citation beside an invalid one is cited (invalid ones are reported apart).
+    assert!(!uncited("İade süresi 14 gündür [1][9]."));
+    // A refusal cites nothing by design.
+    assert!(!uncited("Bu bilgi belgelerde bulunamadı."));
+}
+
+#[test]
+fn abstaining_without_the_model_is_not_uncited() {
+    // An empty collection: ORAG abstains without asking the model.
+    let (_dir, engine, _) = engine(FakeGenerator::new("never"), &[]);
+    let s = summary(&collect(&engine, "What is the return period?")).clone();
+    assert!(s.abstained && !s.uncited);
 }

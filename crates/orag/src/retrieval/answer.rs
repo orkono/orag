@@ -75,6 +75,9 @@ pub struct AnswerSummary {
     /// Where each `[n]` marker is in `answer` (UTF-8 byte offsets).
     pub citation_markers: Vec<CitationMarker>,
     pub abstained: bool,
+    /// Answered (not abstained) without any valid `[n]`: nothing in it can
+    /// be checked against a source (step 67).
+    pub uncited: bool,
     pub finish_reason: FinishReason,
     pub trace: QueryTrace,
 }
@@ -197,8 +200,10 @@ impl AnswerEngine {
         } else {
             FinishReason::Stop
         };
+        let abstained = abstained(&answer);
         let summary = AnswerSummary {
-            abstained: abstained(&answer),
+            uncited: !abstained && citations.valid.is_empty(),
+            abstained,
             answer: trimmed.to_string(),
             citations: citations.valid,
             invalid_citations: citations.invalid,
@@ -369,6 +374,7 @@ fn abstain(
         invalid_citations: Vec::new(),
         citation_markers: Vec::new(),
         abstained: true,
+        uncited: false,
         finish_reason: FinishReason::Stop,
         trace,
     };

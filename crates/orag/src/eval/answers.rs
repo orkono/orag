@@ -103,6 +103,8 @@ pub struct ProbeResult {
     pub id: String,
     pub finish_reason: FinishReason,
     pub abstained: bool,
+    /// Answered without any valid `[n]` (step 67).
+    pub uncited: bool,
     pub found: usize,
     pub expected: usize,
     pub valid_citations: bool,
@@ -160,18 +162,19 @@ impl AnswerReport {
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
             "Generator: `{}` · answerable: {} · unanswerable: {}\n\n\
-             | sampler | expected facts | cited evidence | valid citations | abstention P / R | coverage | length stops | repetition stops | distinct lines | p50 ms | p95 ms |\n\
-             |---|---|---|---|---|---|---|---|---|---|---|\n",
+             | sampler | expected facts | cited evidence | valid citations | uncited answers | abstention P / R | coverage | length stops | repetition stops | distinct lines | p50 ms | p95 ms |\n\
+             |---|---|---|---|---|---|---|---|---|---|---|---|\n",
             self.generator, self.answerable, self.unanswerable
         );
         for p in &self.profiles {
             let m = &p.metrics;
             out.push_str(&format!(
-                "| {} | {} | {} | {} | {} / {} | {:.3} | {} | {} | {:.3} | {:.0} | {:.0} |\n",
+                "| {} | {} | {} | {} | {} | {} / {} | {:.3} | {} | {} | {:.3} | {:.0} | {:.0} |\n",
                 p.sampler,
                 rate(m.expected_fact_rate),
                 rate(m.cited_evidence_coverage),
                 rate(m.valid_citation_rate),
+                m.uncited,
                 rate(m.abstention.precision),
                 rate(m.abstention.recall),
                 p.coverage,
@@ -188,16 +191,17 @@ impl AnswerReport {
                     continue;
                 }
                 out.push_str(&format!(
-                    "\n`{}` by {title}:\n\n| {title} | probes | expected facts | cited evidence | valid citations | abstention P / R |\n|---|---|---|---|---|---|\n",
+                    "\n`{}` by {title}:\n\n| {title} | probes | expected facts | cited evidence | valid citations | uncited answers | abstention P / R |\n|---|---|---|---|---|---|---|\n",
                     p.sampler
                 ));
                 for (name, m) in groups {
                     out.push_str(&format!(
-                        "| {name} | {} | {} | {} | {} | {} / {} |\n",
+                        "| {name} | {} | {} | {} | {} | {} | {} / {} |\n",
                         m.probes,
                         rate(m.expected_fact_rate),
                         rate(m.cited_evidence_coverage),
                         rate(m.valid_citation_rate),
+                        m.uncited,
                         rate(m.abstention.precision),
                         rate(m.abstention.recall)
                     ));
@@ -288,6 +292,7 @@ fn evaluate_profile(
                 cited_evidence: r.cited_evidence,
             },
             abstained: r.abstained,
+            uncited: r.uncited,
             finish_reason: r.finish_reason,
         })
         .collect();
@@ -380,6 +385,7 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe, with_judge: bool) -> Re
         id: probe.id.clone(),
         finish_reason: summary.finish_reason,
         abstained: summary.abstained,
+        uncited: summary.uncited,
         found: score.found,
         expected: probe.expect.len(),
         valid_citations: score.valid_citations,

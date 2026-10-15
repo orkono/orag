@@ -60,6 +60,7 @@ pub struct QueryResponse {
     pub invalid_citations: Vec<usize>,
     pub citation_markers: Vec<CitationMarker>,
     pub abstained: bool,
+    pub uncited: bool,
     pub finish_reason: FinishReason,
     pub trace: QueryTrace,
 }
@@ -152,6 +153,7 @@ async fn collect_answer(
             invalid_citations: summary.invalid_citations,
             citation_markers: summary.citation_markers,
             abstained: summary.abstained,
+            uncited: summary.uncited,
             finish_reason: summary.finish_reason,
             trace: summary.trace,
         }))
