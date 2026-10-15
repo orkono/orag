@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.23] - 2026-10-15
+
+- **Desktop application plan (step 69, D-016).** `.docs/plans/2026-10-15-orag-v0.3-desktop-plan.md`: a Tauri v2 app in `apps/desktop` that runs `orag serve` as a supervised sidecar on loopback, shows the built-in page in its own window, restarts the service after setup and crashes, and leaves no orphan (stdin-close shutdown on every OS, a Windows Job assigned at process creation, Linux parent-death signal). v0.3.0 waits for it. Reviewed by gpt-6-sol; no code yet.
+
 ## [0.3.0-alpha.22] - 2026-10-15
 
 - **Preventing uncited answers: not pursued (step 68).** With the default models 1 of 109 answers is uncited, and it is in the v0.4 holdout, so a stronger citation prompt or a retry has no dev target to be judged on; a retry would also change the streaming API. No code change; the step 67 notice stays, and uncited answers and `v2-ans-047` wait for a larger answer dev set in v0.4 (`.docs/benchmarks/v0.3-uncited-prevention.md`).
