@@ -13,8 +13,9 @@ from offline packs (D-001, D-012).
 
 ## Status
 
-`v0.2.0`: the engine and the built-in web page are complete for now; the
-desktop application arrives in v0.3.
+`v0.3`: the engine, the built-in web page and a desktop application for
+macOS, Windows and Linux (`docs/desktop.md`) that runs the service and shows
+the page in its own window.
 
 - Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default
   (5 MB in v0.1.0). Scanned PDFs are not OCRed: pages without a text layer
@@ -53,7 +54,16 @@ Apple M5 Max and on an x86-64 Linux machine with 16 GB RAM (a GitHub-hosted
 runner); a 16 GB M-series laptop is measured after v0.1.0
 (`.docs/benchmarks/vector-scale.md`, D-003).
 
+## Desktop app
+
+Install `ORAG_<version>_aarch64.dmg` (macOS), `ORAG_<version>_x64-setup.exe`
+(Windows) or the `.AppImage` / `.deb` (Linux) from the release and open
+**ORAG**: it starts the service and shows the page in its own window, with its
+own data folder. See `docs/desktop.md` for the first start, the data folder
+and the unsigned-app prompts.
+
 ## Windows
+
 
 Run `ORAG-Setup-<version>.exe` from the release (per user, no administrator
 rights; it installs to `%LOCALAPPDATA%\Programs\ORAG`) and open **ORAG** from
