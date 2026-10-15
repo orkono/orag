@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.26] - 2026-10-15
+
+- **Desktop window (step 72, D-016).** The app starts its sidecar in a private home (`<app data>/orag`, `config.toml` with both ports on `127.0.0.1:0` written once), opens the service page when it is ready and shows restarts and failures on its own status page (the last stderr lines as text, never as HTML). Navigation stays on the app page and the current service page; other links open in the system browser; the service page gets no Tauri commands. A second launch focuses the existing window. `scripts/smoke-desktop.sh` runs the built app on all three platforms: the service page sends a POST from inside the webview, the app closes its window and must exit by itself, and its sidecar must be gone.
+
 ## [0.3.0-alpha.25] - 2026-10-15
 
 - **Desktop sidecar supervisor (step 71, D-016).** `orag serve --exit-on-stdin-close` (hidden) stops gracefully when stdin reaches end of file, also during startup, so a GUI parent without a console can stop it on every OS. In `apps/desktop` a supervisor starts `orag serve` supervised, reports its two address lines, restarts it after exit 75 and after crashes (at most 3 times in 60 s, then fails with the last 20 stderr lines), fails a start that prints no lines within 180 s, and stops it by closing stdin, killing it after 10 s. No orphan when the app dies: the app enters a kill-on-close Job on Windows, the child asks for SIGTERM on parent death on Linux, and the closed stdin covers macOS; a test kills the app hard and checks the real service is gone within 5 s.
