@@ -5,17 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ORAG</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f6f5f2; --fg: #1d1d1b; --muted: #6b6a66; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1a; --fg: #ecebe7; --muted: #a3a29d; } }
+  :root { color-scheme: light dark; --bg: #f6f5f2; --fg: #1d1d1b; --muted: #6b6a66; --err: #a3271c; --box: #ecebe6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1a; --fg: #ecebe7; --muted: #a3a29d; --err: #ff8a7a; --box: #262624; }
+  }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;
          background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
-  p { color: var(--muted); }
+  main { max-width: 640px; padding: 24px 16px; }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  #status { color: var(--muted); margin: 0; }
+  main.failed #status { color: var(--err); }
+  #message { margin: 12px 0 0; }
+  pre { background: var(--box); padding: 12px; border-radius: 6px; overflow: auto;
+        max-height: 40vh; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  [hidden] { display: none; }
 </style>
 </head>
 <body>
-  <main>
+  <main id="main">
     <h1>ORAG</h1>
     <p id="status">Hizmet başlatılıyor…</p>
+    <p id="message" hidden></p>
+    <pre id="details" hidden></pre>
+    <p id="hint" hidden>Uygulamayı kapatıp yeniden açmayı deneyin. Sorun sürerse yukarıdaki satırları sorun bildirimine ekleyin.</p>
   </main>
+  <script src="status.js"></script>
 </body>
 </html>
