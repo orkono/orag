@@ -371,6 +371,13 @@ in context 0.931 → 0.971, no category loss. Not adopted (one question short); 
 first candidate of the v0.4 model review, to be decided with a fresh holdout and the latency and
 memory measurements (`.docs/benchmarks/v0.3-bge-m3.md`).
 
+**bge-m3 on the v0.4 holdout (step 66, 2026-10-15): not adopted.** Under a rule written before the
+holdout was read it passed every retrieval and cost condition (v0.4 holdout in context +3 with no
+loss, v0.2 +7, faster on Metal and 3× faster on an x86-64 CPU, +149 MB) and failed the answer
+condition on one probe: with bge-m3's context the generator gave an uncited answer with a detail
+the source does not state (v2-ans-011). The v0.4 holdout is now read for both embedders
+(`.docs/benchmarks/v0.4-bge-m3.md`); uncited answers are the next lever.
+
 ## D-008 — Ingestion is asynchronous and durable
 
 **Decision.** `POST …/documents` stores an immutable source snapshot and
