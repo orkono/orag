@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0-alpha.20] - 2026-10-15
+
+- **Windows smoke numbers corrected (step 66).** On the Windows runner bge-m3 had the higher MRR@10 (0.905 → 0.929) and recall@5 (0.929 → 1.000); the benchmark record had the pair reversed. No decision changes.
+
 ## [0.3.0-alpha.19] - 2026-10-15
 
 - **bge-m3 decided on the v0.4 holdout (step 66, D-007): not adopted.** It passed every retrieval and cost condition of a rule written before the holdout was read (in context +3 with no loss on the v0.4 holdout, +7 on v0.2; hybrid p95 11 vs 14 ms on Metal and 115 vs 389 ms on an x86-64 CPU; +149 MB), but with its context the generator once answered without a citation and added a detail the source does not give, which the answer condition forbids. The default embedder stays `qwen3-embedding-0.6b-q8_0`. New `model-cpu` workflow measures embedders on GitHub x86-64 Linux and Windows runners (`.docs/benchmarks/v0.4-bge-m3.md`).
