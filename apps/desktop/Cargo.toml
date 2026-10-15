@@ -1,0 +1,23 @@
+[package]
+name = "orag-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ORAG desktop application: runs the orag service as a sidecar and shows its page"
+publish = false
+
+[lib]
+name = "orag_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "orag-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }

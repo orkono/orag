@@ -477,6 +477,10 @@ revisions on a connected machine, verifying against the SHA-256 that the
 Hugging Face API publishes for each LFS file. An in-app downloader is v0.3
 (desktop) scope, and it will only run on explicit user action.
 
+**Amendment (step 70, 2026-10-15).** The in-app downloader moves to v0.4. The
+v0.3 desktop app installs models only from offline packs through the existing
+setup page and makes no network request of its own.
+
 ## D-013 — Local API access: no authentication, loopback only (owner decision, 2026-10-01)
 
 **Decision.** The API has **no authentication**: no token and no
@@ -916,6 +920,12 @@ startup: setup mode hides only "not installed".
 - pdfium-render: https://docs.rs/pdfium-render ; pdf_oxide: https://github.com/yfedoseev/pdf_oxide
 - Tauri sidecar: https://v2.tauri.app/develop/sidecar/
 - ort linking: https://ort.pyke.io/setup/cargo-features
+
+**Amendment (step 70, 2026-10-15).** A D-016 desktop sidecar runs supervised
+(`ORAG_SUPERVISED=1`): after a model import it exits with `EXIT_RESTART` (75)
+and the desktop supervisor restarts it, as `orag start` does. Unlike `orag
+start`, the desktop supervisor also restarts after a crash, at most 3 times in
+60 s, then shows an error page with the last stderr lines.
 
 ## D-024 — Heading lines in plain text and PDF (step 52, 2026-10-14)
 
