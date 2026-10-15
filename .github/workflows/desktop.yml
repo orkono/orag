@@ -67,7 +67,8 @@ jobs:
       # The built app with its sidecar next to it (target/release/orag).
       - name: Smoke test
         run: |
-          app="target/release/orag-desktop$([ "$RUNNER_OS" = Windows ] && echo .exe)"
+          app=target/release/orag-desktop
+          if [ "$RUNNER_OS" = Windows ]; then app="$app.exe"; fi
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a scripts/smoke-desktop.sh "$app"
           else
