@@ -13,7 +13,7 @@ from offline packs (D-001, D-012).
 
 ## Status
 
-`v0.3`: the engine, the built-in web page and a desktop application for
+`v0.3.0`: the engine, the built-in web page and a desktop application for
 macOS, Windows and Linux (`docs/desktop.md`) that runs the service and shows
 the page in its own window.
 

@@ -5,6 +5,14 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.3.0] - 2026-10-15
+
+- **ORAG v0.3.0.** A desktop application for macOS, Windows and Linux (Tauri, D-016) runs the service in its own data folder, shows the page in its own window, restarts the service after setup and after crashes, and leaves no service behind when it closes or is killed (`docs/desktop.md`). The engine gains cross-language fusion (step 48), Turkish stem terms in lexical search (step 51), heading detection in plain text and PDF (step 52) and an `uncited` flag on answers that cite no source (step 67).
+- Evaluation: the 200-question v02 set was rewritten by one model family and audited by another (step 49); scorer defects were fixed (steps 54, 56, 58); `orag eval retrieval` measures the prompt context exactly as the answer path builds it (step 55); a fresh 130-row v0.4 holdout was added (step 60). The set is still synthetic and not audited by people (D-018).
+- Tried and not adopted, each under a rule written before scoring: context diversity (step 50), stricter manual headings (step 53), a 10-chunk context (step 57), bge-m3 as the default embedder (steps 59, 66: better retrieval and faster on CPU, but one unsupported uncited answer), rerankers (steps 61-65: +8 dev questions, but 214 ms or more of latency on Metal and seconds on a CPU), preventing uncited answers at generation time (step 68: no dev target). The default models stay Qwen3-Embedding-0.6B and Qwen3.5-4B.
+- Release artifacts: besides the CLI archives and the Windows CLI installer, the draft release carries the desktop app as `ORAG_<version>_aarch64.dmg`, `ORAG_<version>_x64-setup.exe` (with the offline WebView2 installer), `ORAG_<version>_amd64.AppImage` and `.deb`, each smoke-tested in the release build. Not signed or notarized yet.
+- Release gates on the candidate `0.3.0-alpha.28`: real-model check unchanged from the recorded baselines (v02 hybrid in context 0.931, hybrid p95 13.9 ms on Metal; answers expected facts 0.925, abstention P/R 0.944/0.850, no uncited answer; seed recall@10 1.000); D-003 dense search at 100k p95 100.8 ms on Apple M5 Max and 208.7 ms on the Linux reference (both PASS).
+
 ## [0.3.0-alpha.28] - 2026-10-15
 
 - **Desktop app documented (step 74).** New `docs/desktop.md`: install files and sizes, the unsigned-app prompts per system, the first start in setup mode, the app's own data folder per system, and how the window and the service behave. README status and a *Desktop app* section; D-016 records what was built.

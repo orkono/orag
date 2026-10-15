@@ -133,6 +133,32 @@ Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
 same as v0.1.0's 225.3 ms); the 8-core follow-up below still decides whether
 D-003's "Revisit" path is needed.
 
+## v0.3.0 release candidate
+
+Both references on the release candidate `0.3.0-alpha.28` (release build);
+the bump to `0.3.0` after it changes only documentation.
+
+macOS reference (Apple M5 Max, 128 GB RAM; 2026-10-15):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.3.0-alpha.28 | 100000 | 1024 | 50 | 50 | 9.5 | 93.3 | 100.8 | 109.8 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, AMD EPYC 9V74, 4 vCPU,
+15 GB; 2026-10-15, workflow `vector-scale` run 38721353800, started by pushing
+`bench/v0.3.0-rc`, deleted after the run):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.3.0-alpha.28 | 100000 | 1024 | 50 | 50 | 28.9 | 207.4 | 208.7 | 210.1 | 250 | PASS |
+
+300k (informational): p95 610.4 ms, FAIL, as expected.
+
+Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
+0.3.0-alpha.28`). The runner had a newer CPU than for v0.2.0 (EPYC 9V74 vs
+7763), which explains most of the Linux gain (208.7 vs 226.4 ms); the 8-core
+follow-up below is still open.
+
 ## Follow-up after v0.1.0
 
 - Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux
