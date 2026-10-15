@@ -1,9 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/orag"]
+members = ["crates/orag", "apps/desktop"]
+# The desktop app needs the Tauri toolchain; plain `cargo build/test` stay on the service.
+default-members = ["crates/orag"]
 
 [workspace.package]
-version = "0.3.0-alpha.23"
+version = "0.3.0-alpha.24"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT OR Apache-2.0"

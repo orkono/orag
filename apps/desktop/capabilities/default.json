@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The local loading page gets no Tauri commands; the service page is remote and gets none either.",
+  "windows": ["main"],
+  "permissions": []
+}
