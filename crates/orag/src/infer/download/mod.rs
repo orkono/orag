@@ -11,7 +11,10 @@ mod install;
 pub mod status;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tls_tests;
 mod verify;
+mod watch;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

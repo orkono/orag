@@ -141,7 +141,7 @@ fn copy_body(
                 return Err(DownloadError::cancelled());
             }
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
+            Err(err) if is_timeout(&err) => {
                 return Err(network_error(
                     job,
                     "no data arrived for too long (timed out)",
@@ -172,6 +172,16 @@ fn copy_body(
         ));
     }
     Ok(())
+}
+
+/// A read that hit the idle limit: a socket timeout, or ureq's own timeout
+/// wrapped in the I/O error its body reader returns (the TLS path).
+fn is_timeout(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::TimedOut
+        || err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<ureq::Error>())
+            .is_some_and(|inner| matches!(inner, ureq::Error::Timeout(_)))
 }
 
 fn too_long(job: &Fetch) -> DownloadError {
