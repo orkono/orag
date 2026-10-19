@@ -154,9 +154,6 @@ pub async fn start(
     body: Bytes,
 ) -> ApiResult<(StatusCode, Json<DownloadStatus>)> {
     check_empty_body(&body)?;
-    let models = state.models.clone();
-    let missing = blocking(move || Ok(missing_models(&models))).await?;
-    let entries = plan(&state, &missing)?;
     let Ok(permit) = state.imports.clone().try_acquire_owned() else {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -164,6 +161,11 @@ pub async fn start(
             "a model download or import is already running; wait for it to finish",
         ));
     };
+    // The plan is read under the permit: an import that finishes just before
+    // this request must not leave it downloading a model now installed.
+    let models = state.models.clone();
+    let missing = blocking(move || Ok(missing_models(&models))).await?;
+    let entries = plan(&state, &missing)?;
     let downloads = &state.downloads;
     let job = Job {
         models_dir: state.models.models_dir.clone(),
