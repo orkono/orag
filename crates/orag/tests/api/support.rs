@@ -43,6 +43,16 @@ pub fn app_with(generator: FakeGenerator, max_upload_bytes: usize) -> TestApp {
     }
 }
 
+impl TestApp {
+    /// The same app (store, temp folder) with a changed state.
+    pub fn map_state(self, change: impl FnOnce(AppState) -> AppState) -> TestApp {
+        TestApp {
+            state: change(self.state),
+            ..self
+        }
+    }
+}
+
 pub fn app() -> TestApp {
     app_with(FakeGenerator::new("Cevap [1]."), 1024 * 1024)
 }

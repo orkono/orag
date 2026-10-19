@@ -36,6 +36,11 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "=0.1.25"
 unicode-segmentation = "1.13.3"
+# Model download from the setup page (step 76): blocking HTTP/1.1, rustls with
+# ring and the Mozilla roots (no OpenSSL, no aws-lc-rs: nothing to build with
+# cmake/nasm under the static Windows CRT). Pinned: the idle-read limit wraps
+# its `unversioned` transport API, which may change in any release.
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
@@ -52,5 +57,6 @@ libc = "0.2.189"
 
 [target.'cfg(windows)'.dependencies]
 # Already in the tree (via tokio/mio); job objects contain the parser child,
-# and Console sends Ctrl-Break in the installer smoke test (examples/ctrl_break.rs).
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# Console sends Ctrl-Break in the installer smoke test (examples/ctrl_break.rs),
+# and Storage_FileSystem reports free disk space before a model download.
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
