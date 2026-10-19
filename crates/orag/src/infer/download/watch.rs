@@ -16,8 +16,15 @@
 //! - `SocketWatch`, on the TCP stream that rustls reads, waits in slices of at
 //!   most `CANCEL_POLL`, checks the cancel flag between them, and ends the wait
 //!   at that deadline. Without a `ReadWatch` wait in progress (the TLS
-//!   handshake), it uses the timeout ureq passes, which ureq computes from the
-//!   connect deadline.
+//!   handshake, a proxy's CONNECT answer), it ends at the connection's own
+//!   absolute deadline: ureq's connect limit counted from when ureq started
+//!   connecting, fixed once, so bytes that never complete a handshake cannot
+//!   keep a connection alive.
+//!
+//! Waits nest: through a CONNECT proxy ureq runs this chain again for the
+//! proxy connection, so a second `ReadWatch` sits beneath the target's TLS.
+//! A nested wait never extends the deadline it runs inside (it takes the
+//! earlier of the two) and restores it when it ends.
 //!
 //! One agent serves one download run on one thread, and ureq reads one
 //! connection at a time, so the agent's connections can share the deadline.
@@ -26,7 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use ureq::unversioned::transport::time::Duration as WaitFor;
+use ureq::unversioned::transport::time::{Duration as WaitFor, Instant as UreqInstant};
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, NextTimeout, Transport};
 
 use crate::infer::download::http::CANCEL_POLL;
@@ -66,6 +73,34 @@ impl Watch {
             deadline: Instant::now() + after,
             reason,
         }
+    }
+
+    /// The connection's deadline: ureq's connect timeout (capped at the idle
+    /// limit) from the moment ureq started connecting, not from now.
+    fn connect_wait(&self, details: &ConnectionDetails) -> Wait {
+        let started = match details.now {
+            UreqInstant::Exact(at) => at,
+            _ => Instant::now(),
+        };
+        let after = (*details.timeout.after).min(self.limit);
+        Wait {
+            deadline: started.checked_add(after).unwrap_or_else(Instant::now),
+            reason: details.timeout.reason,
+        }
+    }
+
+    /// Runs `read` under `own`, or under the wait already in progress when
+    /// that ends first; the wait in progress is restored afterwards.
+    fn nested<R>(&self, own: Wait, read: impl FnOnce() -> R) -> R {
+        let enclosing = *self.slot();
+        let wait = match enclosing {
+            Some(outer) if outer.deadline <= own.deadline => outer,
+            _ => own,
+        };
+        *self.slot() = Some(wait);
+        let result = read();
+        *self.slot() = enclosing;
+        result
     }
 
     fn capped(&self, timeout: NextTimeout) -> NextTimeout {
@@ -108,10 +143,11 @@ impl<In: Transport> Connector<In> for ReadWatch {
 
     fn connect(
         &self,
-        _: &ConnectionDetails,
+        details: &ConnectionDetails,
         chained: Option<In>,
     ) -> Result<Option<Self::Out>, ureq::Error> {
-        Ok(chained.map(|inner| Watched::new(inner, &self.0)))
+        let connect = self.0.connect_wait(details);
+        Ok(chained.map(|inner| Watched::new(inner, &self.0, connect)))
     }
 }
 
@@ -120,10 +156,11 @@ impl<In: Transport> Connector<In> for SocketWatch {
 
     fn connect(
         &self,
-        _: &ConnectionDetails,
+        details: &ConnectionDetails,
         chained: Option<In>,
     ) -> Result<Option<Self::Out>, ureq::Error> {
-        Ok(chained.map(|inner| Watched::new(inner, &self.0)))
+        let connect = self.0.connect_wait(details);
+        Ok(chained.map(|inner| Watched::new(inner, &self.0, connect)))
     }
 }
 
@@ -138,14 +175,18 @@ pub struct Below;
 pub struct Watched<T, Layer> {
     inner: T,
     watch: Arc<Watch>,
+    /// When this connection had to be established by (used beneath TLS,
+    /// while no `ReadWatch` wait is in progress).
+    connect: Wait,
     layer: std::marker::PhantomData<Layer>,
 }
 
 impl<T, Layer> Watched<T, Layer> {
-    fn new(inner: T, watch: &Arc<Watch>) -> Watched<T, Layer> {
+    fn new(inner: T, watch: &Arc<Watch>, connect: Wait) -> Watched<T, Layer> {
         Watched {
             inner,
             watch: watch.clone(),
+            connect,
             layer: std::marker::PhantomData,
         }
     }
@@ -162,13 +203,13 @@ impl<T: Transport> Transport for Watched<T, Above> {
     }
 
     /// One wait for plaintext, under one deadline for all the socket reads
-    /// it takes.
+    /// it takes, and never past a deadline already in progress.
     fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
         self.watch.check_cancel()?;
-        *self.watch.slot() = Some(self.watch.wait_from(timeout));
-        let result = self.inner.await_input(self.watch.capped(timeout));
-        *self.watch.slot() = None;
-        result
+        let own = self.watch.wait_from(timeout);
+        let capped = self.watch.capped(timeout);
+        let inner = &mut self.inner;
+        self.watch.nested(own, || inner.await_input(capped))
     }
 
     fn is_open(&mut self) -> bool {
@@ -191,11 +232,13 @@ impl<T: Transport> Transport for Watched<T, Below> {
     }
 
     /// Waits in slices of at most `CANCEL_POLL` until the deadline of the
-    /// read in progress. A slice that times out consumes no bytes, so the
-    /// socket is left as it was and waiting again is safe.
-    fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
+    /// read in progress, or the connection's deadline while none is (the
+    /// handshake). A slice that times out consumes no bytes, so the socket is
+    /// left as it was and waiting again is safe. ureq's relative `timeout` is
+    /// not used: restarted per socket read, it never ends a trickle.
+    fn await_input(&mut self, _timeout: NextTimeout) -> Result<bool, ureq::Error> {
         let current = *self.watch.slot();
-        let wait = current.unwrap_or_else(|| self.watch.wait_from(timeout));
+        let wait = current.unwrap_or(self.connect);
         loop {
             self.watch.check_cancel()?;
             // A zero wait would read as "no timeout" to the socket.

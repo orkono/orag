@@ -90,9 +90,13 @@ fn request(job: &Fetch, have: u64) -> Result<ureq::http::Response<ureq::Body>, D
     if have > 0 {
         request = request.header("Range", format!("bytes={have}-"));
     }
-    request
-        .call()
-        .map_err(|err| network_error(job, &describe(&err)))
+    request.call().map_err(|err| {
+        // A cancel ends the call with an I/O error from the watched socket.
+        if job.cancel.load(Ordering::SeqCst) {
+            return DownloadError::cancelled();
+        }
+        network_error(job, &describe(&err))
+    })
 }
 
 fn describe(err: &ureq::Error) -> String {
