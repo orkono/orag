@@ -19,12 +19,21 @@ more (see *First start*).
 ## First start
 
 The app starts the service in **setup mode** until the two default models are
-installed, and its page asks for a model pack folder (*Modelleri kur*). Build
-packs on a connected machine with `scripts/fetch-model-pack.sh` (bash) or
-`fetch-model-pack.ps1` (PowerShell) and type the folder's full path into the
-page. After the import the app restarts the service by itself and the page
-reloads with the models loaded. The app makes no network request of its own;
-an in-app downloader is planned for v0.4 (D-012).
+installed. Its page offers **Modelleri indir**: press it, wait while the two
+models (about 3.3 GB) download and are checked, and the app restarts the
+service by itself; the page reloads with the models loaded. The download
+runs only when you press the button. It fetches only the pinned Hugging Face
+revisions that `scripts/fetch-model-pack.sh` uses, checks every file by
+SHA-256, honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues
+where it stopped if the connection breaks or you cancel it (D-012).
+
+Without internet, use the offline way: build packs on a connected machine
+with `scripts/fetch-model-pack.sh` (bash) or `fetch-model-pack.ps1`
+(PowerShell), copy them over, and type the folder's full path into
+*Modelleri kur*. To turn the download off for a fully offline install, add
+`models.download = false` to the app's `config.toml` (see below). The app
+itself makes no network request; besides the download you ask for, the
+service makes none either (no telemetry, no update check).
 
 ## Where the data is
 
