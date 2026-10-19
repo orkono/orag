@@ -8,8 +8,9 @@ ORAG is an offline, local-first RAG (retrieval-augmented generation) service in
 a single executable. You give it your documents; it indexes them on your
 machine and answers questions from them with cited sources, using local models
 through llama.cpp. It needs no Python, Docker, database server or cloud
-account, and it never reaches the network on its own: models are installed
-from offline packs (D-001, D-012).
+account, and it never reaches the network on its own: on the first start the
+page downloads the models only when you press *Modelleri indir*, or you
+install them from offline packs (D-001, D-012).
 
 ## Status
 
@@ -40,9 +41,9 @@ the page in its own window.
   binary is built on Ubuntu 22.04), or Windows 10 22H2 / 11 x86-64 on a CPU
   with AVX2 (Intel 2013+, AMD Zen); no Visual C++ runtime is needed.
 - 16 GB RAM recommended.
-- About 3.3 GB of disk for the two installed default models, plus your
+- About 3.1 GB of disk for the two installed default models, plus your
   documents. `orag models import` copies a pack, so the pack directory you
-  imported from needs another 3.3 GB until you delete it.
+  imported from needs another 3.1 GB until you delete it.
 
 Measured speed with the default models on an Apple M5 Max (Metal), for a
 ~600-token prompt: the first answer token arrives in about 0.2 s, then tokens
@@ -69,10 +70,12 @@ Run `ORAG-Setup-<version>.exe` from the release (per user, no administrator
 rights; it installs to `%LOCALAPPDATA%\Programs\ORAG`) and open **ORAG** from
 the Start menu; or unzip `orag-<version>-x86_64-pc-windows-msvc.zip` anywhere
 you can write to and run `orag.exe start`. The page opens at
-<http://127.0.0.1:2442> in setup mode until the models are installed. The
-Start menu also has *ORAG modellerini indir (internet)*, which downloads the
-two default packs (about 3.3 GB, after asking) into
-`%USERPROFILE%\ORAG-paketleri` with `fetch-model-pack.ps1`. Data lives in
+<http://127.0.0.1:2442> in setup mode until the models are installed: press
+*Modelleri indir*, wait while the two default models (about 3.1 GB) download,
+and ORAG restarts by itself. The Start menu also has
+*ORAG modellerini indir (internet)*, which downloads the same two packs
+(after asking) into `%USERPROFILE%\ORAG-paketleri` with
+`fetch-model-pack.ps1`. Data lives in
 `%USERPROFILE%\.orag` (or `%ORAG_HOME%`); uninstalling keeps it. Without
 internet on the PC, build packs elsewhere with `scripts/fetch-model-pack.sh`
 (bash) or `fetch-model-pack.ps1` (PowerShell, also in the installer); copy them to
@@ -100,6 +103,7 @@ uncomment a line. It is read **once at startup**; after editing it, restart
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding model pack (`orag models list`) |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace`, on stderr |
+| `models.download` | `true` | Whether setup mode may download the missing models when you press *Modelleri indir*; set `models.download = false` for a fully offline install |
 
 ## Build
 
@@ -110,9 +114,18 @@ cargo build --release
 The binary is `target/release/orag`. On Apple Silicon llama.cpp uses Metal
 automatically.
 
-## Install models (offline)
+## Install models
 
-On a machine with internet access, build the packs (each file is pinned to a
+On a computer with internet access, start ORAG and press *Modelleri indir*
+on the page (see *Run*). It downloads only the configured models, from
+pinned Hugging Face revisions, checks every file by SHA-256, honours
+`HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues where it stopped
+if the connection breaks. It runs only when you press the button, and only
+in setup mode. A company proxy that re-signs HTTPS with its own certificate is
+refused (ORAG trusts only the public root certificates it ships with); use the
+offline packs there.
+
+Offline, build the packs on a machine with internet access (each file is pinned to a
 revision and checked by SHA-256):
 
 ```bash
@@ -139,10 +152,13 @@ orag serve   # the service alone (for scripts, services and the desktop app)
 `orag start` runs `orag serve`, opens <http://127.0.0.1:2442> once it is up,
 and restarts it after models are imported from the page; if ORAG already runs,
 it only opens the page. Without installed models ORAG starts in **setup
-mode**: the page shows *Modelleri kur*, where you type the folder you copied
-the packs to (for example `~/orag-packs`); after the import ORAG restarts by
-itself under `orag start` (under `orag serve`, restart it yourself). Until
-then uploading and asking are refused with `models_missing`.
+mode**. The page offers *Modelleri indir*: press it and wait while the two
+default models (about 3.1 GB) download and are verified. Without internet,
+type the folder you copied the packs to (for example `~/orag-packs`) into
+*Modelleri kur* instead. Either way ORAG restarts by itself under
+`orag start` (under `orag serve`, restart it yourself). Until then uploading
+and asking are refused with `models_missing`. Set `models.download = false`
+in `config.toml` to hide the download for a fully offline install.
 
 It prints `orag listening on http://127.0.0.1:7613` (the API) and then
 `orag ui on http://127.0.0.1:2442`, and stops on Ctrl-C or SIGTERM. Indexing

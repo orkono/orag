@@ -279,7 +279,7 @@ pub(crate) const STALE_STAGING_AGE: std::time::Duration =
 /// Removes staging directories left by interrupted imports. Younger ones may
 /// belong to an import still running, so they are kept. Best effort: a
 /// directory that cannot be inspected or removed only costs disk space.
-fn remove_stale_staging(models_dir: &Path) {
+pub(crate) fn remove_stale_staging(models_dir: &Path) {
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };
@@ -300,7 +300,7 @@ fn remove_stale_staging(models_dir: &Path) {
 }
 
 /// `create_dir` (not `_all`) fails if the name exists, so concurrent imports never share a directory.
-fn create_staging_dir(models_dir: &Path, id: &str) -> Result<PathBuf> {
+pub(crate) fn create_staging_dir(models_dir: &Path, id: &str) -> Result<PathBuf> {
     for attempt in 0..100u32 {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

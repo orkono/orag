@@ -5,6 +5,12 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.4.0-alpha.1] - 2026-10-19
+
+- **Download the models from the setup page (step 76, D-012 amendment, owner decision).** In setup mode the page leads with one *Modelleri indir* button (with the total size): ORAG downloads the configured models from pinned Hugging Face revisions (the same pins as `scripts/fetch-model-pack.sh`, checked by a test), verifies every file by SHA-256, installs them exactly as `orag models import` would, and restarts by itself under `orag start` and in the desktop app. The page shows per-model and total progress, *Durdur* and *Tekrar dene*/*Devam et*; a download resumes where it stopped (HTTP `Range`), survives a page reload, checks free disk space first, honours `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`, and fails after 60 s with no data. The offline import stays under *Model paketlerim var (çevrimdışı kurulum)*.
+- API: `POST`, `GET` and `DELETE /v1/models/download` (setup mode only; `409` while another download or import runs), and a `download` member on `GET /v1/models` (`available`, `code`, `reason`, `bytes`). New config key `models.download` (default `true`); `false` turns the download off (`403 download_disabled`). Downloadable: qwen3-embedding-0.6b-q8_0, qwen3.5-4b-q4_k_m and qwen3-4b-instruct-2507-q4_k_m.
+- New dependency `ureq` 3.4.2 with rustls and ring (no OpenSSL). TLS trusts the bundled Mozilla roots, so a proxy that re-signs HTTPS with a private CA is refused; offline packs remain the way in there. Checked end to end on macOS against Hugging Face from an empty home: both default models (3,380,111,382 bytes) downloaded, a cancel at 313 MB resumed from the same byte, and the server started ready with them.
+
 ## [0.3.0] - 2026-10-15
 
 - **ORAG v0.3.0.** A desktop application for macOS, Windows and Linux (Tauri, D-016) runs the service in its own data folder, shows the page in its own window, restarts the service after setup and after crashes, and leaves no service behind when it closes or is killed (`docs/desktop.md`). The engine gains cross-language fusion (step 48), Turkish stem terms in lexical search (step 51), heading detection in plain text and PDF (step 52) and an `uncited` flag on answers that cite no source (step 67).

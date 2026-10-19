@@ -1,6 +1,7 @@
 //! Inference boundaries. Everything model-specific lives behind these traits;
 //! the RAG core never sees llama.cpp types (D-002).
 
+pub mod download;
 pub mod fake;
 #[cfg(feature = "llama")]
 pub mod llama;

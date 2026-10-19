@@ -83,16 +83,37 @@
 
     <section id="setup-panel" class="setup-panel" aria-labelledby="setup-title" hidden>
       <h2 id="setup-title">Modelleri kur</h2>
-      <p>ORAG'ın çalışması için iki model paketi gerekiyor. Şu modeller henüz kurulu değil: <strong id="setup-missing"></strong>.</p>
-      <p class="hint">Model paketlerini internete bağlı bir bilgisayarda <code>fetch-model-pack</code> ile hazırlayın, klasörü bu bilgisayara kopyalayın ve yolunu aşağıya yazın. Paketler <span id="setup-models-dir"></span> klasörüne kurulur.</p>
-      <form id="setup-form" class="setup-form">
-        <label for="setup-path">Model paketleri klasörü</label>
-        <div class="setup-row">
-          <input id="setup-path" type="text" required autocomplete="off" spellcheck="false">
-          <button id="setup-import" type="submit" class="button primary">İçe aktar</button>
+      <p>ORAG'ın çalışması için şu modeller gerekiyor: <strong id="setup-missing"></strong>.</p>
+      <div id="setup-download" class="setup-download" hidden>
+        <button id="setup-download-start" type="button" class="button primary large">Modelleri indir</button>
+        <p class="hint">Modeller bir kez Hugging Face'ten indirilir; sonrasında ORAG internetsiz çalışır.</p>
+      </div>
+      <p id="setup-download-reason" class="hint" hidden></p>
+      <div id="setup-progress" class="setup-progress" role="group" aria-label="İndirme ilerlemesi" hidden>
+        <ul id="setup-progress-models" class="setup-progress-models"></ul>
+        <div class="setup-progress-total">
+          <label for="setup-progress-bar">Toplam</label>
+          <progress id="setup-progress-bar" max="1" value="0"></progress>
+          <span id="setup-progress-amount" class="setup-amount"></span>
         </div>
-      </form>
+        <div class="setup-actions">
+          <button id="setup-download-cancel" type="button" class="button">Durdur</button>
+          <button id="setup-download-again" type="button" class="button primary" hidden>Tekrar dene</button>
+        </div>
+      </div>
       <div id="setup-status" aria-live="polite"></div>
+      <details id="setup-offline" class="setup-offline">
+        <summary>Model paketlerim var (çevrimdışı kurulum)</summary>
+        <p class="hint">Model paketlerini internete bağlı bir bilgisayarda <code>fetch-model-pack</code> ile hazırlayın, klasörü bu bilgisayara kopyalayın ve yolunu aşağıya yazın. Paketler <span id="setup-models-dir"></span> klasörüne kurulur.</p>
+        <form id="setup-form" class="setup-form">
+          <label for="setup-path">Model paketleri klasörü</label>
+          <div class="setup-row">
+            <input id="setup-path" type="text" required autocomplete="off" spellcheck="false">
+            <button id="setup-import" type="submit" class="button primary">İçe aktar</button>
+          </div>
+        </form>
+        <div id="setup-import-status" aria-live="polite"></div>
+      </details>
     </section>
 
     <div id="conversation" class="conversation">

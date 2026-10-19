@@ -2,6 +2,7 @@
 
 pub mod collections;
 pub mod documents;
+pub mod download;
 pub mod errors;
 pub mod jobs;
 pub mod models;
@@ -81,8 +82,10 @@ pub struct AppState {
     pub setup: bool,
     /// Running under `orag start`, which restarts `serve` on `EXIT_RESTART`.
     pub supervised: bool,
-    /// One model import at a time.
+    /// One model import or download at a time.
     pub imports: Arc<Semaphore>,
+    /// The setup page's model download (step 76).
+    pub downloads: Arc<download::Downloads>,
     restart: Arc<AtomicBool>,
     /// The single shutdown signal: `true` once shutdown starts. Private, so
     /// `begin_shutdown()` is the only way to set it.
@@ -127,6 +130,7 @@ impl AppState {
             setup: false,
             supervised: false,
             imports: Arc::new(Semaphore::new(1)),
+            downloads: Arc::new(download::Downloads::production(true)),
             restart: Arc::new(AtomicBool::new(false)),
             shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         }
@@ -138,6 +142,14 @@ impl AppState {
             models: Arc::new(models),
             setup,
             supervised,
+            ..self
+        }
+    }
+
+    /// Sets the model download (its config switch, catalog and hosts).
+    pub fn with_downloads(self, downloads: download::Downloads) -> AppState {
+        AppState {
+            downloads: Arc::new(downloads),
             ..self
         }
     }
@@ -242,6 +254,12 @@ fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/v1/jobs/{job_id}", get(jobs::get_one))
         .route("/v1/models", get(models::status))
         .route("/v1/models/import", post(models::import))
+        .route(
+            "/v1/models/download",
+            get(download::status)
+                .post(download::start)
+                .delete(download::cancel),
+        )
         .route("/v1/collections/{collection_id}/query", post(query::query))
 }
 

@@ -14,6 +14,7 @@ use crate::infer::missing::{MissingEmbedder, MissingGenerator};
 use crate::infer::models::{ModelRole, find_model};
 use crate::infer::{Embedder, Generator};
 use crate::ingest::worker::{IngestContext, spawn_worker};
+use crate::server::download::Downloads;
 use crate::server::{AppState, ModelsInfo, serve_with_ui};
 use crate::store::Store;
 
@@ -119,7 +120,8 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
         let listener = TcpListener::from_std(listener)?;
         let local_addr = listener.local_addr()?;
         let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes())
-            .with_models(models, setup, supervised);
+            .with_models(models, setup, supervised)
+            .with_downloads(Downloads::production(config.models.download));
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0
         let ui_listener = ui_listener.map(TcpListener::from_std).transpose()?;
