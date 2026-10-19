@@ -354,3 +354,4 @@ kbd { display: inline-block; min-width: 24px; padding: 1px 6px; font: 12px/1.6 u
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+#setup-download-reason .detail { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; word-break: break-word; }

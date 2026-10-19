@@ -14,6 +14,7 @@ export const DOWNLOAD_TEXT = {
   done: "Modeller indirildi ve doğrulandı.",
   retry: "Tekrar dene",
   resume: "Devam et",
+  installed: "Modeller zaten kurulu; indirilecek bir şey yok.",
   unavailable: "Bu sunucu modelleri kendisi indiremiyor; model paketlerini aşağıdan çevrimdışı kurun.",
   startFailed: "İndirme başlatılamadı.",
   cancelFailed: "İndirme durdurulamadı.",
@@ -70,6 +71,13 @@ export function percentText(received, total) {
 
 export function downloadButtonLabel(bytes) {
   return isCount(bytes) ? `${DOWNLOAD_TEXT.button} (${byteText(bytes)})` : DOWNLOAD_TEXT.button;
+}
+
+/** Why there is no download, in Turkish; the server's English reason is detail. */
+export function unavailableText(download) {
+  const code = download?.code;
+  if (code === "conflict") return DOWNLOAD_TEXT.installed;
+  return (Object.hasOwn(DOWNLOAD_TEXT.byCode, code) && DOWNLOAD_TEXT.byCode[code]) || DOWNLOAD_TEXT.unavailable;
 }
 
 export function downloadErrorText(code) {

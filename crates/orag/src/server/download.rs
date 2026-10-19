@@ -112,10 +112,16 @@ pub fn availability(state: &AppState, missing: &Missing) -> Value {
     match plan(state, missing) {
         Ok(entries) => json!({
             "available": true,
+            "code": null,
             "reason": null,
             "bytes": entries.iter().map(CatalogEntry::total_size).sum::<u64>(),
         }),
-        Err(err) => json!({ "available": false, "reason": err.message, "bytes": null }),
+        Err(err) => json!({
+            "available": false,
+            "code": err.code,
+            "reason": err.message,
+            "bytes": null,
+        }),
     }
 }
 

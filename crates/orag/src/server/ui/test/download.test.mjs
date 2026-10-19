@@ -8,6 +8,7 @@ import {
   cancelDownload,
   downloadButtonLabel,
   downloadErrorText,
+  unavailableText,
   downloadView,
   followDownload,
   percentText,
@@ -176,4 +177,12 @@ test("cancel sends DELETE and returns the status", async () => {
   const status = await cancelDownload();
   assert.equal(status.state, "cancelled");
   assert.deepEqual(calls, ["DELETE /v1/models/download"]);
+});
+
+test("an unavailable download is explained in Turkish by its code", () => {
+  assert.match(unavailableText({ code: "download_disabled" }), /kapatılmış/);
+  assert.match(unavailableText({ code: "download_unavailable" }), /indirilemiyor/);
+  assert.match(unavailableText({ code: "conflict" }), /kurulu|indiremiyor/);
+  assert.match(unavailableText({ code: "toString" }), /indiremiyor/);
+  assert.match(unavailableText(undefined), /indiremiyor/);
 });

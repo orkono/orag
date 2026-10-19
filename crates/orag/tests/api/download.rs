@@ -137,7 +137,7 @@ async fn before_a_start_the_status_is_idle_and_the_download_is_offered() {
     let bytes: u64 = both().iter().map(CatalogEntry::total_size).sum();
     assert_eq!(
         models["download"],
-        json!({"available": true, "reason": null, "bytes": bytes}),
+        json!({"available": true, "code": null, "reason": null, "bytes": bytes}),
         "{models}"
     );
 }
@@ -263,6 +263,7 @@ async fn a_server_with_its_models_never_downloads() {
     let (_, models) = send(&app, get("/v1/models")).await;
     assert_eq!(models["download"]["available"], json!(false), "{models}");
     assert!(models["download"]["reason"].is_string(), "{models}");
+    assert_eq!(models["download"]["code"], json!("conflict"), "{models}");
 }
 
 #[tokio::test]
@@ -278,6 +279,7 @@ async fn a_config_without_downloads_refuses_with_403() {
     assert_eq!(models["download"]["available"], json!(false), "{models}");
     let reason = models["download"]["reason"].as_str().unwrap();
     assert!(reason.contains("models.download"), "{reason}");
+    assert_eq!(models["download"]["code"], json!("download_disabled"));
     assert_eq!(models["download"]["bytes"], Value::Null);
 }
 
@@ -289,6 +291,7 @@ async fn a_model_outside_the_catalog_makes_the_download_unavailable() {
     assert_eq!(models["download"]["available"], json!(false), "{models}");
     let reason = models["download"]["reason"].as_str().unwrap();
     assert!(reason.contains(SETUP_GENERATION), "{reason}");
+    assert_eq!(models["download"]["code"], json!("download_unavailable"));
     let (status, body) = send(&app, post_download()).await;
     assert_eq!(
         (status, body["error"]["code"].clone()),

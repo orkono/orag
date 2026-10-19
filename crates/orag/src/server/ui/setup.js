@@ -12,6 +12,7 @@ import {
   downloadView,
   followDownload,
   startDownload,
+  unavailableText,
 } from "./download.js";
 
 const HEALTH_POLL_MS = 1000;
@@ -176,11 +177,12 @@ function setInFlight(busy) {
 }
 
 /** No download here: say why and open the offline form. */
-function offlineOnly(reason) {
+function offlineOnly(text, detail) {
   $("setup-download").hidden = true;
   $("setup-progress").hidden = true;
   const hint = $("setup-download-reason");
-  hint.textContent = reason || T.unavailable;
+  hint.replaceChildren(text);
+  if (detail) hint.append(el("span", detail, "detail"));
   hint.hidden = false;
   $("setup-offline").open = true;
 }
@@ -257,7 +259,7 @@ async function joinRunning() {
 }
 
 function initDownload(download) {
-  if (!download?.available) return offlineOnly(download?.reason);
+  if (!download?.available) return offlineOnly(unavailableText(download), download?.reason);
   $("setup-download-start").textContent = downloadButtonLabel(download.bytes);
   $("setup-download-start").addEventListener("click", () => follow(startOrJoin));
   $("setup-download-again").addEventListener("click", () => follow(startOrJoin));
