@@ -138,3 +138,51 @@ test("restart wait: a new process still in setup keeps waiting; ready ends it", 
   assert.equal(await waitUntilReady(noWait), true);
   assert.equal(calls.length, 3);
 });
+
+/*
+ * A restart before the install completed (a crash, or the user restarted
+ * ORAG): the poll and the first /v1/models fail, then the replacement server
+ * answers in setup mode. The page must follow what it says about the
+ * download, not wait for `ready` until it times out.
+ */
+const cancelledStatus = { state: "cancelled", models: [], error: { code: "cancelled", message: "x" }, restart: null };
+
+/** The poll, /v1/models and the first restart check refused; then setup. */
+function recovered(...after) {
+  return scriptedServer([REFUSED, REFUSED, REFUSED, { [MODELS]: setup }, ...after]);
+}
+
+test("restart into setup with the download idle: the start controls", async () => {
+  const calls = recovered({ [DL]: idle });
+  const phases = [];
+  const outcome = await settleDownload(running(40), (view) => phases.push(view.phase), noWait);
+  assert.equal(outcome.action, "show_start");
+  assert.deepEqual(calls, [`GET ${DL}`, `GET ${MODELS}`, `GET ${MODELS}`, `GET ${MODELS}`, `GET ${DL}`]);
+  assert.ok(!phases.includes("idle"));
+});
+
+test("restart into setup with the download running again: following resumes", async () => {
+  const done = { state: "done", models: [], error: null, restart: "manual" };
+  recovered({ [DL]: running(10) }, { [DL]: done });
+  const seen = [];
+  const outcome = await settleDownload(running(40), (view) => seen.push(view.phase), noWait);
+  assert.equal(outcome.action, "finished");
+  assert.equal(outcome.status.state, "done");
+  assert.deepEqual(seen, ["running", "running", "done"]);
+});
+
+test("restart into setup with the download cancelled: the cancelled state", async () => {
+  recovered({ [DL]: cancelledStatus });
+  const seen = [];
+  const outcome = await settleDownload(running(40), (view) => seen.push(view.phase), noWait);
+  assert.equal(outcome.action, "finished");
+  assert.equal(outcome.status.state, "cancelled");
+  assert.equal(seen.at(-1), "cancelled");
+});
+
+test("restart into setup where the status cannot be read: the error, not a timeout", async () => {
+  recovered(BROKEN);
+  const outcome = await settleDownload(running(40), () => {}, noWait);
+  assert.equal(outcome.action, "show_error");
+  assert.equal(outcome.error.code, "internal");
+});

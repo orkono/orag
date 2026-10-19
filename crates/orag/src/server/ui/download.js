@@ -189,26 +189,48 @@ async function reconcile(lost) {
 }
 
 /**
- * Polls `/v1/models` until it answers `ready` (true) or `limitMs` passes
- * (false). Connection errors mean the restart is still under way.
+ * Polls `/v1/models` until an answer passes `accept` (returned) or
+ * `limitMs` passes (null). Connection errors mean the restart is still
+ * under way.
  */
-export async function waitUntilReady({ wait = sleep, now = Date.now, pollMs = RESTART_POLL_MS, limitMs = RESTART_LIMIT_MS } = {}) {
+async function waitForServer(accept, { wait = sleep, now = Date.now, pollMs = RESTART_POLL_MS, limitMs = RESTART_LIMIT_MS } = {}) {
   const deadline = now() + limitMs;
   await wait(pollMs);
   while (now() < deadline) {
     const models = await attempt(() => getJson(MODELS_ENDPOINT));
-    if (models.value?.mode === "ready") return true;
+    if (models.value && accept(models.value)) return models.value;
     await wait(pollMs);
   }
-  return false;
+  return null;
+}
+
+/** Waits for `/v1/models` to answer `ready` (true) or the limit (false). */
+export async function waitUntilReady(options) {
+  return (await waitForServer((models) => models.mode === "ready", options)) !== null;
+}
+
+const isBack = (models) => models.mode === "ready" || models.mode === "setup";
+
+/**
+ * Waits out a restart. A server back in setup mode (it restarted before
+ * the install completed) is asked for the download status again, so the
+ * page follows it instead of waiting for `ready`. Null on timeout.
+ */
+async function factsAfterRestart(timing) {
+  const models = await waitForServer(isBack, timing);
+  if (!models) return null;
+  if (models.mode === "ready") return { models };
+  const status = await attempt(downloadStatus);
+  return { models, status: status.value, statusError: status.error };
 }
 
 /**
  * Follows a download to its end, also when the end is a restart that took
  * the status with it. Returns `{action}`: `finished` (with `status`, the
- * caller handles done/failed/cancelled), `reload`, `restart_timeout`,
- * `show_start`, or `show_error` (with `error`). `onRestarting` is called
- * once a restart is detected, before waiting for it.
+ * caller handles done/failed/cancelled), `reload`, `restart_timeout` (the
+ * server did not come back), `show_start`, or `show_error` (with `error`).
+ * `onRestarting` is called each time a restart is detected, before waiting
+ * for it; a server back in setup mode is followed again.
  */
 export async function settleDownload(first, onView, { wait = sleep, now = Date.now, intervalMs = POLL_MS, onRestarting = () => {} } = {}) {
   let current = first;
@@ -216,15 +238,16 @@ export async function settleDownload(first, onView, { wait = sleep, now = Date.n
     const followed = await attempt(() => followDownload(current, onView, { wait, intervalMs }));
     const last = followed.value;
     if (!followed.error && last?.state !== "idle") return { action: "finished", status: last };
-    const facts = await reconcile(followed.error ? { statusError: followed.error } : { status: last });
+    let facts = await reconcile(followed.error ? { statusError: followed.error } : { status: last });
+    if (afterLostStatus(facts) === "wait_restart") {
+      onRestarting();
+      facts = await factsAfterRestart({ wait, now });
+      if (!facts) return { action: "restart_timeout" };
+    }
     const decision = afterLostStatus(facts);
     if (decision === "resume") {
       current = facts.status;
       continue;
-    }
-    if (decision === "wait_restart") {
-      onRestarting();
-      return { action: (await waitUntilReady({ wait, now })) ? "reload" : "restart_timeout" };
     }
     return decision === "show_error" ? { action: decision, error: facts.statusError } : { action: decision };
   }
