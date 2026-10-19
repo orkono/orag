@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::infer::download::catalog::RemoteFile;
+use crate::infer::download::guard;
 use crate::infer::download::status::{DownloadError, ErrorCode};
 
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -67,13 +68,9 @@ pub fn fetch(job: &Fetch) -> Result<(), DownloadError> {
 }
 
 /// The length of the `.part` left by an earlier run; one longer than the file
-/// cannot be a prefix of it and is removed.
+/// cannot be a prefix of it and is removed. A link there is refused.
 fn part_len(job: &Fetch) -> Result<u64, DownloadError> {
-    let len = match std::fs::metadata(job.part) {
-        Ok(meta) => meta.len(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(err) => return Err(disk_error(job.part, &err)),
-    };
+    let len = guard::existing(job.part)?.map_or(0, |meta| meta.len());
     if len > job.file.size {
         return restart(job);
     }
@@ -120,13 +117,12 @@ fn open_part(job: &Fetch, append: bool) -> Result<File, DownloadError> {
     } else {
         options.write(true).truncate(true);
     }
-    options
-        .open(job.part)
-        .map_err(|err| disk_error(job.part, &err))
+    guard::open_file(job.part, &mut options)
 }
 
 /// Appends the body to `output` chunk by chunk, checking for cancellation
-/// between chunks. A cut connection keeps the `.part` for the next start.
+/// between chunks; a read waiting on the network wakes for a cancel too (see
+/// `http::CANCEL_POLL`). A cut connection keeps the `.part` for the next start.
 fn copy_body(
     job: &Fetch,
     mut body: impl Read,
@@ -141,6 +137,9 @@ fn copy_body(
         let read = match body.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => read,
+            Err(_) if job.cancel.load(Ordering::SeqCst) => {
+                return Err(DownloadError::cancelled());
+            }
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
                 return Err(network_error(

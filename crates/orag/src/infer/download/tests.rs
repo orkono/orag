@@ -325,3 +325,153 @@ fn the_base_url_replaces_scheme_and_host_only() {
     );
     assert!(real.http.env_proxy && real.http.https_only);
 }
+
+fn license_part(models_dir: &Path) -> PathBuf {
+    models_dir
+        .join(DOWNLOAD_DIR)
+        .join("emb")
+        .join("LICENSE.part")
+}
+
+#[test]
+fn cancelling_a_stalled_download_stops_within_two_seconds() {
+    // The sender lives until the end of the test: the peer never sends the rest.
+    let (_never, gate) = channel::<()>();
+    let weights = Route {
+        body: payload(),
+        status: 200,
+        gate: Some((100_000, Arc::new(Mutex::new(gate)))),
+    };
+    let server = Server::start(routes(weights), Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    let job = job(dir.path(), test_entry(&payload(), b"license text"));
+    let (downloader, running) = (Downloader::with_base_url(&server.base), job.clone());
+    let thread = std::thread::spawn(move || run(&downloader, &running));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while job.status.snapshot().models[0].received < 100_000 {
+        assert!(Instant::now() < deadline, "the first bytes never arrived");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    job.cancel.store(true, Ordering::SeqCst);
+    let cancelled_at = Instant::now();
+    while !thread.is_finished() {
+        assert!(
+            cancelled_at.elapsed() < Duration::from_secs(2),
+            "the download kept waiting on a stalled peer after cancel"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let err = thread.join().unwrap().unwrap_err();
+    assert_eq!(err.code, ErrorCode::Cancelled, "{err}");
+    assert_eq!(job.status.snapshot().models[0].state, ModelState::Waiting);
+    assert!(std::fs::metadata(part(dir.path())).unwrap().len() >= 100_000);
+}
+
+#[test]
+fn cancel_with_every_file_already_downloaded_does_not_install() {
+    let server = Server::start(routes(plain(payload())), Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(part(dir.path()).parent().unwrap()).unwrap();
+    std::fs::write(part(dir.path()), payload()).unwrap();
+    std::fs::write(license_part(dir.path()), b"license text").unwrap();
+    let job = job(dir.path(), test_entry(&payload(), b"license text"));
+    job.cancel.store(true, Ordering::SeqCst);
+    let err = run(&Downloader::with_base_url(&server.base), &job).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Cancelled, "{err}");
+    assert!(
+        !dir.path().join("emb").exists(),
+        "a cancelled run installed"
+    );
+    assert_eq!(std::fs::read(part(dir.path())).unwrap(), payload());
+    assert_eq!(job.status.snapshot().models[0].state, ModelState::Waiting);
+    assert!(server.ranges_asked().is_empty(), "nothing needed fetching");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_part_file_linked_outside_the_models_folder_is_refused() {
+    let server = Server::start(routes(plain(payload())), Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let personal = outside.path().join("personal.txt");
+    let original = b"my own notes, not a model".repeat(4);
+    std::fs::write(&personal, &original).unwrap();
+    std::fs::create_dir_all(part(dir.path()).parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&personal, part(dir.path())).unwrap();
+    let job = job(dir.path(), test_entry(&payload(), b"license text"));
+    let err = run(&Downloader::with_base_url(&server.base), &job).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Disk, "{err}");
+    assert!(err.message.contains("model.gguf.part"), "{err}");
+    assert_eq!(std::fs::read(&personal).unwrap(), original);
+    assert!(!dir.path().join("emb").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_download_folder_linked_outside_the_models_folder_is_refused() {
+    let server = Server::start(routes(plain(payload())), Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(outside.path().join("emb")).unwrap();
+    std::fs::write(outside.path().join("emb").join("keep.txt"), b"keep").unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join(DOWNLOAD_DIR)).unwrap();
+    let job = job(dir.path(), test_entry(&payload(), b"license text"));
+    let err = run(&Downloader::with_base_url(&server.base), &job).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Disk, "{err}");
+    assert!(err.message.contains(DOWNLOAD_DIR), "{err}");
+    assert_eq!(
+        std::fs::read(outside.path().join("emb").join("keep.txt")).unwrap(),
+        b"keep"
+    );
+    assert_eq!(
+        std::fs::read_dir(outside.path().join("emb"))
+            .unwrap()
+            .count(),
+        1
+    );
+    assert!(!dir.path().join("emb").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_model_download_folder_linked_outside_is_refused() {
+    let server = Server::start(routes(plain(payload())), Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("keep.txt"), b"keep").unwrap();
+    std::fs::create_dir(dir.path().join(DOWNLOAD_DIR)).unwrap();
+    let linked = dir.path().join(DOWNLOAD_DIR).join("emb");
+    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+    let job = job(dir.path(), test_entry(&payload(), b"license text"));
+    let err = run(&Downloader::with_base_url(&server.base), &job).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Disk, "{err}");
+    assert_eq!(
+        std::fs::read(outside.path().join("keep.txt")).unwrap(),
+        b"keep"
+    );
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+    assert!(!dir.path().join("emb").exists());
+}
+
+#[test]
+fn two_models_in_one_run_both_install() {
+    let mut served = routes(plain(payload()));
+    served.insert("/test/emb2/resolve/r1/model.gguf".into(), plain(payload()));
+    served.insert(
+        "/licenses/emb2/LICENSE".into(),
+        plain(b"license text".to_vec()),
+    );
+    let server = Server::start(served, Ranges::Honour);
+    let dir = tempfile::tempdir().unwrap();
+    let mut second = test_entry(&payload(), b"license text");
+    second.id = "emb2".into();
+    second.repo = "test/emb2".into();
+    second.license_url = "https://www.example.org/licenses/emb2/LICENSE".into();
+    let mut job = job(dir.path(), test_entry(&payload(), b"license text"));
+    job.models.push(second);
+    job.status.set(job.initial_status());
+    run(&Downloader::with_base_url(&server.base), &job).unwrap();
+    verify_model(dir.path(), "emb").unwrap();
+    verify_model(dir.path(), "emb2").unwrap();
+    assert!(!dir.path().join(DOWNLOAD_DIR).exists());
+}
