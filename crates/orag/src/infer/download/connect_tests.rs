@@ -121,6 +121,91 @@ fn handshake_route<'a>(
     }
 }
 
+/// A CONNECT proxy that reads the request, then sends `200 Connection
+/// established` and an endless header line a byte every 20 ms: the CONNECT
+/// answer never completes, yet bytes keep arriving. Stops with the guard.
+struct TricklingProxy {
+    address: String,
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for TricklingProxy {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+fn trickling_proxy() -> TricklingProxy {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = stop.clone();
+    std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let mut request = [0u8; 4096];
+            let _ = sock.read(&mut request);
+            let answer = b"HTTP/1.1 200 Connection established\r\nX-Pad: ";
+            let endless = answer.iter().copied().chain(std::iter::repeat(b'a'));
+            for byte in endless {
+                if stopping.load(Ordering::SeqCst) || sock.write_all(&[byte]).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    });
+    TricklingProxy { address, stop }
+}
+
+fn proxied_route<'a>(
+    proxy: &'a TricklingProxy,
+    root: &'a ureq::tls::Certificate<'static>,
+    connect_timeout: Duration,
+) -> Route<'a> {
+    Route {
+        // Never reached: the proxy never finishes its answer.
+        url: "https://127.0.0.1:9/model.gguf",
+        root,
+        proxy: Some(&proxy.address),
+        idle_timeout: Duration::from_secs(60),
+        connect_timeout,
+    }
+}
+
+#[test]
+fn a_trickled_connect_answer_ends_at_the_connect_limit() {
+    let proxy = trickling_proxy();
+    let root = some_root();
+    let dir = tempfile::tempdir().unwrap();
+    let route = proxied_route(&proxy, &root, Duration::from_secs(1));
+    let err = join_within(
+        spawn_fetch(&route, dir.path()).thread,
+        Duration::from_secs(4),
+        "a trickled CONNECT answer kept the connection alive past the connect limit",
+    )
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Network, "{err}");
+    assert!(err.message.contains("timed out"), "{err}");
+}
+
+#[test]
+fn cancel_during_a_trickled_connect_answer_ends_cancelled() {
+    let proxy = trickling_proxy();
+    let root = some_root();
+    let dir = tempfile::tempdir().unwrap();
+    let route = proxied_route(&proxy, &root, Duration::from_secs(30));
+    let running = spawn_fetch(&route, dir.path());
+    std::thread::sleep(Duration::from_millis(300));
+    running.cancel.store(true, Ordering::SeqCst);
+    let err = join_within(
+        running.thread,
+        Duration::from_secs(2),
+        "cancel was not seen during the CONNECT answer",
+    )
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Cancelled, "{err}");
+}
+
 fn some_root() -> ureq::tls::Certificate<'static> {
     ureq::tls::Certificate::from_der(&server_identity().0).to_owned()
 }

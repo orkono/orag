@@ -175,8 +175,9 @@ pub struct Below;
 pub struct Watched<T, Layer> {
     inner: T,
     watch: Arc<Watch>,
-    /// When this connection had to be established by (used beneath TLS,
-    /// while no `ReadWatch` wait is in progress).
+    /// When this connection had to be established by: beneath TLS while no
+    /// `ReadWatch` wait is in progress, and above it for reads under ureq's
+    /// connect timeout.
     connect: Wait,
     layer: std::marker::PhantomData<Layer>,
 }
@@ -203,10 +204,22 @@ impl<T: Transport> Transport for Watched<T, Above> {
     }
 
     /// One wait for plaintext, under one deadline for all the socket reads
-    /// it takes, and never past a deadline already in progress.
+    /// it takes, and never past a deadline already in progress. A read under
+    /// ureq's connect timeout (a proxy's CONNECT answer) ends no later than
+    /// the connection's absolute deadline: ureq's timeout restarts with every
+    /// read, so on its own it never ends an answer sent a byte at a time.
     fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
         self.watch.check_cancel()?;
-        let own = self.watch.wait_from(timeout);
+        let own = match self.watch.wait_from(timeout) {
+            wait if timeout.reason == ureq::Timeout::Connect => {
+                if self.connect.deadline < wait.deadline {
+                    self.connect
+                } else {
+                    wait
+                }
+            }
+            wait => wait,
+        };
         let capped = self.watch.capped(timeout);
         let inner = &mut self.inner;
         self.watch.nested(own, || inner.await_input(capped))
