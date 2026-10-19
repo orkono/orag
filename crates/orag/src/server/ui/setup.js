@@ -53,6 +53,7 @@ function lockWork() {
 
 function showRestarting() {
   showStatus(el("p", "ORAG yeniden başlıyor…", "hint"));
+  lastPhase = null; // a download followed again after the restart is announced anew
 }
 
 function showRestartTimeout() {
