@@ -33,6 +33,9 @@ pub struct HttpSettings {
     /// Refuse plain `http://` URLs, redirects included.
     pub https_only: bool,
     pub idle_timeout: Duration,
+    /// Longest time from starting a connection to finishing its TLS
+    /// handshake (proxy CONNECT included).
+    pub connect_timeout: Duration,
 }
 
 impl HttpSettings {
@@ -42,6 +45,7 @@ impl HttpSettings {
             env_proxy: true,
             https_only: true,
             idle_timeout: IDLE_TIMEOUT,
+            connect_timeout: CONNECT_TIMEOUT,
         }
     }
 }
@@ -50,29 +54,34 @@ impl HttpSettings {
 /// Once `cancel` is set, every read waiting for bytes fails within
 /// `CANCEL_POLL` with an I/O error, which the caller reports as the cancel.
 pub fn agent(settings: &HttpSettings, cancel: Arc<AtomicBool>) -> ureq::Agent {
-    agent_with(settings, cancel, None)
+    agent_with(settings, cancel, None, None)
 }
 
-/// `agent` trusting only `root` instead of the Mozilla roots: tests reach a
-/// local TLS server with a certificate they made. The service never calls it.
+/// `agent` trusting only `root` instead of the Mozilla roots, and going
+/// through the CONNECT proxy at `proxy` when given (never the environment's):
+/// tests reach a local TLS server with a certificate they made. The service
+/// never calls it.
 #[cfg(test)]
-pub fn agent_trusting(
+pub fn agent_for_test(
     settings: &HttpSettings,
     cancel: Arc<AtomicBool>,
     root: ureq::tls::Certificate<'static>,
+    proxy: Option<&str>,
 ) -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .root_certs(ureq::tls::RootCerts::new_with_certs(&[root]))
         .build();
-    agent_with(settings, cancel, Some(tls))
+    let proxy = proxy.map(|uri| ureq::Proxy::new(uri).expect("a valid test proxy"));
+    agent_with(settings, cancel, Some(tls), proxy)
 }
 
 fn agent_with(
     settings: &HttpSettings,
     cancel: Arc<AtomicBool>,
     tls: Option<ureq::tls::TlsConfig>,
+    proxy: Option<ureq::Proxy>,
 ) -> ureq::Agent {
-    let proxy = settings.env_proxy.then(ureq::Proxy::try_from_env).flatten();
+    let proxy = proxy.or_else(|| settings.env_proxy.then(ureq::Proxy::try_from_env).flatten());
     let mut config = ureq::Agent::config_builder();
     if let Some(tls) = tls {
         config = config.tls_config(tls);
@@ -82,7 +91,7 @@ fn agent_with(
         .https_only(settings.https_only)
         .proxy(proxy)
         .max_redirects(MAX_REDIRECTS)
-        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_connect(Some(settings.connect_timeout))
         .timeout_recv_response(Some(settings.idle_timeout))
         .user_agent(format!("orag/{}", env!("CARGO_PKG_VERSION")))
         .build();

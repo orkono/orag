@@ -4,6 +4,8 @@
 //! like `orag models import` installs a pack.
 
 pub mod catalog;
+#[cfg(test)]
+mod connect_tests;
 mod fetch;
 mod guard;
 pub mod http;
@@ -60,6 +62,7 @@ impl Downloader {
                 env_proxy: false,
                 https_only: false,
                 idle_timeout: std::time::Duration::from_secs(10),
+                connect_timeout: http::CONNECT_TIMEOUT,
             },
             base_url: Some(base_url.into()),
         }
