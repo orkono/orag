@@ -48,6 +48,12 @@ pub const DEFAULT_CONFIG_TOML: &str = r#"# ORAG configuration.
 
 # Log verbosity on stderr: error, warn, info, debug or trace.
 # log_level = "info"
+
+# The setup page's download button: fetches the configured models from
+# Hugging Face (pinned revisions, SHA-256 checked) only when it is pressed.
+# Set it to false to allow offline packs only.
+# [models]
+# download = true
 "#;
 
 #[derive(Debug, Default, Deserialize)]
@@ -59,6 +65,21 @@ struct FileConfig {
     embedding_model: Option<String>,
     generation_model: Option<String>,
     log_level: Option<String>,
+    models: Option<FileModels>,
+}
+
+/// The `[models]` table.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileModels {
+    download: Option<bool>,
+}
+
+/// Model settings beyond the two ids.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModelsConfig {
+    /// The setup page may download the configured models (step 76).
+    pub download: bool,
 }
 
 const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
@@ -75,6 +96,7 @@ pub struct Config {
     pub embedding_model: String,
     pub generation_model: String,
     pub log_level: String,
+    pub models: ModelsConfig,
 }
 
 impl Config {
@@ -150,6 +172,9 @@ impl Config {
                 "generation_model",
             )?,
             log_level: log_level(file.log_level)?,
+            models: ModelsConfig {
+                download: file.models.and_then(|m| m.download).unwrap_or(true),
+            },
         })
     }
 
@@ -356,6 +381,22 @@ mod tests {
     }
 
     #[test]
+    fn model_download_is_on_unless_the_config_turns_it_off() {
+        let default = Config::load(home_with(None).path()).unwrap();
+        assert!(default.models.download, "the default template keeps it on");
+        let off = home_with(Some("log_level = \"warn\"\n\n[models]\ndownload = false\n"));
+        let cfg = Config::load(off.path()).unwrap();
+        assert!(!cfg.models.download);
+        assert_eq!(
+            cfg.effective()["models"]["download"],
+            serde_json::json!(false)
+        );
+        let unknown = home_with(Some("[models]\nmirror = \"x\"\n"));
+        let err = Config::load(unknown.path()).unwrap_err().to_string();
+        assert!(err.contains("mirror"), "{err}");
+    }
+
+    #[test]
     fn a_pinned_five_mb_limit_is_kept_after_the_default_moved_to_ten() {
         let home = home_with(Some("max_document_mb = 5\n"));
         let cfg = Config::load(home.path()).unwrap();
@@ -400,7 +441,7 @@ mod tests {
         let uncommented: String = DEFAULT_CONFIG_TOML
             .lines()
             .filter_map(|line| line.strip_prefix("# "))
-            .filter(|line| line.contains(" = "))
+            .filter(|line| line.contains(" = ") || line.starts_with('['))
             .map(|line| format!("{line}\n"))
             .collect();
         let pinned = home_with(Some(&uncommented));
@@ -533,6 +574,7 @@ mod tests {
             "embedding_model",
             "generation_model",
             "log_level",
+            "models",
         ] {
             assert!(json.get(key).is_some(), "{key} missing from {json}");
         }
@@ -682,11 +724,24 @@ mod tests {
     fn every_setting_is_documented_in_the_default_file() {
         let home = home_with(None);
         let json = Config::load(home.path()).unwrap().effective();
-        for key in json.as_object().unwrap().keys() {
-            assert!(
-                DEFAULT_CONFIG_TOML.contains(&format!("\n# {key} = ")),
-                "{key} is not in DEFAULT_CONFIG_TOML"
-            );
+        for (key, value) in json.as_object().unwrap() {
+            let Some(table) = value.as_object() else {
+                assert!(
+                    DEFAULT_CONFIG_TOML.contains(&format!("\n# {key} = ")),
+                    "{key} is not in DEFAULT_CONFIG_TOML"
+                );
+                continue;
+            };
+            let section = DEFAULT_CONFIG_TOML
+                .split_once(&format!("\n# [{key}]\n"))
+                .unwrap_or_else(|| panic!("[{key}] is not in DEFAULT_CONFIG_TOML"))
+                .1;
+            for sub in table.keys() {
+                assert!(
+                    section.contains(&format!("# {sub} = ")),
+                    "{key}.{sub} is not in DEFAULT_CONFIG_TOML"
+                );
+            }
         }
         assert!(DEFAULT_CONFIG_TOML.contains(&format!("# log_level = \"{DEFAULT_LOG_LEVEL}\"")));
     }
