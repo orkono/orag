@@ -81,6 +81,7 @@ commented out, so built-in defaults apply until a line is uncommented.
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding pack id |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation pack id |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace` (stderr) |
+| `models.download` | `true` | Setup mode may download the missing catalog models when asked (`POST /v1/models/download`); `false` turns it off for fully offline installs |
 
 `GET /v1/version` shows the values in effect (`bind` and `ui_bind` with the
 real port).
@@ -107,8 +108,10 @@ Every error, including unknown routes, has the same shape:
 |---|---|---|
 | 400 | `invalid_input` | Bad JSON, unknown field, empty or too long query, bad path or query value, a `.docx`/`.pdf` sent as JSON, a multipart body without a `file` field, bytes that do not match the format (a renamed `.xlsx` as `.docx`, a non-PDF as `.pdf`) |
 | 400 | `invalid_multipart` | A multipart body that cannot be parsed (500 with the same code if the server could not read the body stream) |
+| 400 | `download_unavailable` | `POST /v1/models/download` while a missing configured model is not in the download catalog |
 | 403 | `forbidden_host` | `Host` is not a loopback address |
 | 403 | `forbidden_origin` | A browser cross-origin request |
+| 403 | `download_disabled` | `POST /v1/models/download` while `models.download = false` |
 | 404 | `not_found` | Unknown collection, document, job or route |
 | 405 | `method_not_allowed` | The route exists, the method does not (`Allow` header lists methods) |
 | 408 | `upload_timeout` | The upload body did not arrive within 60 s |
@@ -270,9 +273,111 @@ The configured models and whether they are installed. `mode` is `setup` when
 the server started without one of them (D-023): then upload, query and reindex
 answer `503 models_missing` until the packs are imported and ORAG restarts.
 
+`download` says whether `POST /v1/models/download` can fetch the missing
+models (D-012 amendment): `available`, the `reason` when it is
+`false` (plain English: not in setup mode, `models.download = false` in
+`config.toml`, or which configured model is not in the download catalog),
+and `bytes`, the total size of the missing models' files (`null` when
+nothing can be downloaded).
+
+```bash
+curl -s http://127.0.0.1:7613/v1/models
+```
+
 ```text
 HTTP/1.1 200 OK
-{"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
+{"download":{"available":true,"bytes":3300000000,"reason":null},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
+```
+
+(The byte counts in this and the download examples below are rounded
+illustrations; the server reports exact sizes.)
+
+### `POST /v1/models/download`
+
+Setup mode only. Downloads every missing configured model from Hugging Face
+and installs it, as `orag models import` would. No body, or `{}`. It runs
+only when a client calls it; the server never downloads on its own. Only the
+catalog presets can be downloaded (`qwen3-embedding-0.6b-q8_0`,
+`qwen3.5-4b-q4_k_m`, `qwen3-4b-instruct-2507-q4_k_m`), each pinned to the
+Hugging Face revision and SHA-256 of `scripts/fetch-model-pack.sh`; every
+file is checked by SHA-256 before it is installed. `HTTPS_PROXY`,
+`HTTP_PROXY` and `NO_PROXY` are honoured.
+
+The download runs in its own task: the answer comes at once, and progress is
+read with `GET /v1/models/download`. Files are written to
+`<models_dir>/.download/<id>/` as `<file>.part`; a cancelled or broken
+download continues from there on the next start (a Range request). Free disk
+space is checked first when the system reports it.
+
+| Status | `code` | When |
+|---|---|---|
+| 202 | | Started; the body is the status body below |
+| 400 | `download_unavailable` | A missing configured model is not in the catalog (the message names it); import its pack instead |
+| 403 | `download_disabled` | `models.download = false` in `config.toml` |
+| 409 | `conflict` | Not in setup mode, or a download or an import is already running (they share one slot) |
+
+```bash
+curl -s -X POST http://127.0.0.1:7613/v1/models/download
+```
+
+```text
+HTTP/1.1 202 Accepted
+{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":0,"state":"waiting","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":0,"state":"waiting","total":2700000000}],"restart":null,"state":"running"}
+```
+
+**Status body.**
+
+| Field | Values |
+|---|---|
+| `state` | `idle` (nothing started since the server started), `running`, `done`, `failed`, `cancelled` |
+| `models[]` | one entry per model being downloaded: `id`, `state` (`waiting`, `downloading`, `verifying`, `installed`, `failed`), `received` and `total` bytes |
+| `error` | `null`, or `{"code", "message"}` when `state` is `failed` or `cancelled`; the message is plain English and names the host or file |
+| `restart` | `null` until `done`; then `"automatic"`, `"manual"` or `"none"`, as for `POST /v1/models/import` |
+
+`error.code` is one of:
+
+| `code` | Meaning |
+|---|---|
+| `network` | The host could not be reached: no connection within 30 s, or no data for 60 s (check the internet connection or the proxy variables) |
+| `http` | Hugging Face answered with an error status |
+| `checksum` | A file did not match its SHA-256; its `.part` file is deleted, so the next start fetches it again |
+| `disk` | Not enough free space (the message names the folder and the bytes needed), or a write failed |
+| `cancelled` | `DELETE /v1/models/download` stopped it |
+| `internal` | Any other failure; details are in the server log |
+
+When every configured model is installed, `state` is `done` and `restart`
+says what happens next, exactly as after an import: `"automatic"` under
+`orag start` and the desktop app (the server exits with code 75 and is
+started again), `"manual"` otherwise (restart ORAG yourself). After a
+`failed` or `cancelled` download, `POST` again to continue.
+
+### `GET /v1/models/download`
+
+Always `200` with the status body; `state` is `idle` before any download.
+
+```bash
+curl -s http://127.0.0.1:7613/v1/models/download
+```
+
+```text
+HTTP/1.1 200 OK
+{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639000000,"state":"installed","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":1200000000,"state":"downloading","total":2700000000}],"restart":null,"state":"running"}
+```
+
+### `DELETE /v1/models/download`
+
+Cancels a running download and answers `200` with the status body
+(`state` `cancelled`, `error.code` `cancelled`). The `.part` files are kept,
+so the next `POST` resumes where it stopped. With no download running it
+returns the current status unchanged.
+
+```bash
+curl -s -X DELETE http://127.0.0.1:7613/v1/models/download
+```
+
+```text
+HTTP/1.1 200 OK
+{"error":{"code":"cancelled","message":"download cancelled"},"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639000000,"state":"installed","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":1200000000,"state":"failed","total":2700000000}],"restart":null,"state":"cancelled"}
 ```
 
 ### `POST /v1/models/import`

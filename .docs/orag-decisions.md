@@ -481,6 +481,37 @@ Hugging Face API publishes for each LFS file. An in-app downloader is v0.3
 v0.3 desktop app installs models only from offline packs through the existing
 setup page and makes no network request of its own.
 
+**Amendment (step 76, 2026-10-19, owner decision).** The in-app downloader
+moves from v0.4 into this release. A first Windows user reached the setup
+page and expected one button that makes ORAG ready; a folder path to type was
+a dead end. The page now offers *Modelleri indir*, backed by
+`POST /v1/models/download`. The guarantees:
+- It downloads only on an explicit user action (the button or the API call),
+  never at startup, never in the background, never as a retry on its own.
+- It runs only in setup mode (D-023); a server that has its models answers
+  `409 conflict`.
+- It downloads only the catalog presets built into the binary:
+  `qwen3-embedding-0.6b-q8_0`, `qwen3.5-4b-q4_k_m` and
+  `qwen3-4b-instruct-2507-q4_k_m`. Each is pinned to the same Hugging Face
+  repository, revision, file, SHA-256 and license as
+  `scripts/fetch-model-pack.sh`; a test parses the script and fails on any
+  difference. Every file is checked by SHA-256 before it is installed; the
+  hash, not the host or the redirect, is what makes the bytes trusted. A
+  configured model outside the catalog (bge-m3, e5, any own pack) makes the
+  download unavailable and leaves the offline import as the only way.
+- It is resumable: files are written as `<models_dir>/.download/<id>/<file>.part`,
+  a cancelled or broken download continues from there with a Range request,
+  and a `.part` file that fails its SHA-256 is deleted. A model folder is
+  never left half installed; the result is the same as `orag models import`.
+- `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` are honoured.
+- `models.download = false` in `config.toml` turns it off for fully offline
+  installs; the page then shows only the import form.
+- Offline packs keep working unchanged: `orag models import` and the page's
+  *Modelleri kur* form.
+- Still no telemetry, no update check and no other network request. The
+  download talks only to Hugging Face (and the CDN it redirects to) for the
+  files of the missing configured models.
+
 ## D-013 — Local API access: no authentication, loopback only (owner decision, 2026-10-01)
 
 **Decision.** The API has **no authentication**: no token and no
@@ -559,6 +590,12 @@ spawn (Windows), `PR_SET_PDEATHSIG` with a parent check (Linux), the closed
 stdin (all). `scripts/smoke-desktop.sh` proves page load, a same-origin POST
 from the webview, window close and sidecar exit on all three platforms. Not
 built: signing and notarization, auto-update, tray icon, native file picker.
+
+**Amendment (step 76, 2026-10-19).** The desktop app still makes no network
+request of its own. Its page can now download the default models when the
+user presses *Modelleri indir* in setup mode (D-012 amendment); the request
+is made by the sidecar service, only on that action, and the supervisor
+restarts the service when the download is done, as after an import.
 
 ## D-017 — Versioning
 
@@ -718,6 +755,13 @@ of tokens to embed); other uploads wait `queued`. Mitigations:
 - these limits (4 uploads, 60 s upload body, 120 s generation wait, 64 KiB,
   64 MiB of parser output, 10 s shutdown drain, 2 s SSE shutdown grace) are fixed
   constants by design: config.toml holds only the owner-chosen keys.
+
+**Amendment (step 76, 2026-10-19).** New key `models.download` (bool,
+default `true`): whether setup mode may download the missing catalog models
+when the user asks (D-012 amendment). `false` turns the download off for
+fully offline installs; `GET /v1/models` then reports it unavailable and
+`POST /v1/models/download` answers `403 download_disabled`. Read once at
+startup like every other key.
 
 **Upgrades.** Because defaults are commented, a release that changes a
 default model makes existing installs use it after the upgrade, and startup
@@ -889,6 +933,15 @@ startup: setup mode hides only "not installed".
   restart from happening. Only a missing `orag-model.toml` (NotFound) means
   "not installed"; a folder that cannot be read is an error, and a build
   without an inference backend fails at once instead of offering setup.
+- **Download (step 76, 2026-10-19).** Setup mode can also fetch the missing
+  models itself: `POST /v1/models/download` (the page's *Modelleri indir*)
+  downloads the catalog presets under the D-012 amendment's rules. It shares
+  the one-import permit with `POST /v1/models/import`, so a download and an
+  import never run together. When every configured model is installed, it
+  ends with the same restart as an import (`automatic` under `orag start` and
+  the desktop app, `manual` otherwise). The *Why* above no longer holds for
+  catalog models: D-012 now allows a download on explicit user action, and
+  the copied folder stays the way for offline machines and other models.
 - **`orag start`** is for people: it runs `orag serve` with `ORAG_SUPERVISED=1`,
   passes its stdout through (the first line is unchanged, so D-016 holds),
   opens the page once on the `orag ui on` line, restarts the server on exit
@@ -939,6 +992,9 @@ startup: setup mode hides only "not installed".
 and the desktop supervisor restarts it, as `orag start` does. Unlike `orag
 start`, the desktop supervisor also restarts after a crash, at most 3 times in
 60 s, then shows an error page with the last stderr lines.
+
+**Amendment (step 76, 2026-10-19).** The same restart follows a finished
+in-app model download (D-012 amendment, D-023).
 
 ## D-024 — Heading lines in plain text and PDF (step 52, 2026-10-14)
 
