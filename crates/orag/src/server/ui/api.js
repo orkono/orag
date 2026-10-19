@@ -57,7 +57,7 @@ const MESSAGES = {
   shutting_down: "Sunucu kapanıyor.",
   not_found: "Bulunamadı; başka bir yerden silinmiş olabilir.",
   internal: "Sunucuda bir hata oluştu; ayrıntılar sunucu günlüğünde.",
-  models_missing: "Modeller henüz kurulu değil. Önce yukarıdaki \"Modelleri kur\" bölümünden model paketlerini içe aktarın.",
+  models_missing: "Modeller henüz kurulu değil. Önce yukarıdaki \"Modelleri kur\" bölümünden modelleri indirin.",
 };
 
 /**
