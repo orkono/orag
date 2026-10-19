@@ -159,6 +159,32 @@ Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
 7763), which explains most of the Linux gain (208.7 vs 226.4 ms); the 8-core
 follow-up below is still open.
 
+## v0.4.0 release candidate
+
+Both references on the release candidate `0.4.0-alpha.1` (release build);
+the bump to `0.4.0` after it changes only documentation.
+
+macOS reference (Apple M5 Max, 128 GB RAM; 2026-10-19):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.4.0-alpha.1 | 100000 | 1024 | 50 | 50 | 9.4 | 92.6 | 96.4 | 97.6 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, AMD EPYC 7763, 2026-10-19,
+workflow `vector-scale` run 39310892373, started by pushing `bench/v0.4.0-rc`,
+deleted after the run):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.4.0-alpha.1 | 100000 | 1024 | 50 | 50 | 27.7 | 224.6 | 225.7 | 225.8 | 250 | PASS |
+
+300k (informational): p95 661.1 ms, FAIL, as expected.
+
+Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
+0.4.0-alpha.1`). The runner was the older EPYC 7763 again, so the Linux
+figure is back near v0.2.0's 226.4 ms; the margin to 250 ms stays small and
+the 8-core follow-up below is still open.
+
 ## Follow-up after v0.1.0
 
 - Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux

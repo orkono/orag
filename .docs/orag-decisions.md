@@ -809,6 +809,11 @@ The owner authorized commit, merge into `main` and push for this repository
 only (2026-10-01). This repository-scoped grant overrides the owner's general
 "never commit/push" policy here and nowhere else.
 
+**Amendment (2026-10-19, owner decision):** rule 9 is lifted. The owner told the agent to
+set the version to 0.4.0 and release it, and to run the tag command itself; from v0.4.0 the
+agent pushes release tags after the release-candidate gates pass. Publishing a draft release
+is part of "release" when the owner asks for it.
+
 ## D-021 — Built-in web page on a second loopback port (owner decision, 2026-10-07)
 
 **Decision.** `orag serve` also serves a minimal page (choose, create or
