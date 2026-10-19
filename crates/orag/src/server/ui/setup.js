@@ -9,14 +9,12 @@ import {
   cancelDownload,
   downloadButtonLabel,
   downloadStatus,
-  downloadView,
-  followDownload,
+  settleDownload,
   startDownload,
   unavailableText,
+  waitUntilReady,
 } from "./download.js";
 
-const HEALTH_POLL_MS = 1000;
-const HEALTH_WAIT_MS = 60000;
 const MODELS_POLL_MS = 2000;
 
 let following = false;
@@ -53,23 +51,18 @@ function lockWork() {
   if (text) text.placeholder = "Soru sormak için önce modelleri kurun.";
 }
 
-async function waitForRestart() {
+function showRestarting() {
   showStatus(el("p", "ORAG yeniden başlıyor…", "hint"));
-  const deadline = Date.now() + HEALTH_WAIT_MS;
-  await sleep(HEALTH_POLL_MS);
-  while (Date.now() < deadline) {
-    try {
-      const models = await getJson("/v1/models");
-      if (models.mode === "ready") {
-        location.reload();
-        return;
-      }
-    } catch {
-      // Still restarting.
-    }
-    await sleep(HEALTH_POLL_MS);
-  }
+}
+
+function showRestartTimeout() {
   showStatus(el("p", "ORAG bir dakika içinde geri gelmedi. Sunucu penceresindeki iletiyi kontrol edin.", "failed"));
+}
+
+async function waitForRestart() {
+  showRestarting();
+  if (await waitUntilReady()) location.reload();
+  else showRestartTimeout();
 }
 
 async function waitForManualRestart() {
@@ -215,6 +208,21 @@ function showFailure(err, fallback) {
   keepFocus();
 }
 
+/**
+ * Acts on how a followed download ended. A restart can take the `done`
+ * status with it; `settleDownload` then answers `reload` or a timeout.
+ */
+async function settled(outcome, fallback) {
+  if (outcome.action === "finished") {
+    if (outcome.status.state === "done") await afterInstall(outcome.status.restart);
+  } else if (outcome.action === "reload") location.reload();
+  else if (outcome.action === "restart_timeout") showRestartTimeout();
+  else if (outcome.action === "show_start") {
+    showStatus();
+    showStart();
+  } else showFailure(outcome.error || {}, fallback);
+}
+
 /** Starts (or joins) a download and follows it to the end. */
 async function follow(begin) {
   if (following) return;
@@ -225,8 +233,8 @@ async function follow(begin) {
     const first = await begin();
     setInFlight(false);
     fallback = T.pollFailed;
-    const last = await followDownload(first, renderView);
-    if (last.state === "done") await afterInstall(last.restart);
+    const outcome = await settleDownload(first, renderView, { onRestarting: showRestarting });
+    await settled(outcome, fallback);
   } catch (err) {
     showFailure(err, fallback);
   } finally {

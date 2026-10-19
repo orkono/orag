@@ -1,10 +1,13 @@
 // The in-app model download (step 76): the `/v1/models/download` calls and
 // the pure logic that turns a status body into what the setup panel shows.
 // No DOM access, so `node --test` covers it (`test/download.test.mjs`).
-import { request } from "./api.js";
+import { getJson, request } from "./api.js";
 
 const ENDPOINT = "/v1/models/download";
+const MODELS_ENDPOINT = "/v1/models";
 const POLL_MS = 1000;
+const RESTART_POLL_MS = 1000;
+const RESTART_LIMIT_MS = 60000;
 
 /** Every user-visible sentence of the download, in one place. */
 export const DOWNLOAD_TEXT = {
@@ -131,19 +134,98 @@ export const downloadStatus = () => call("GET");
 /** Cancels; the `.part` files stay so the next start resumes. */
 export const cancelDownload = () => call("DELETE");
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Shows `status`, then polls once a second while it is running and shows
- * each one; returns the final status. A failed poll throws (the caller
- * tells a restart from an error).
+ * each one; returns the final status. A failed poll throws, and an `idle`
+ * after `running` is returned unshown: the server restarted, or lost the
+ * run. `settleDownload` tells which.
  */
-export async function followDownload(status, onView, { wait, intervalMs = POLL_MS } = {}) {
-  const pause = wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+export async function followDownload(status, onView, { wait = sleep, intervalMs = POLL_MS } = {}) {
   let current = status;
   onView(downloadView(current));
   while (current?.state === "running") {
-    await pause(intervalMs);
+    await wait(intervalMs);
     current = await downloadStatus();
+    if (current?.state === "idle") return current;
     onView(downloadView(current));
   }
   return current;
+}
+
+/**
+ * What to do when the status of a followed download was lost: its poll
+ * failed (`statusError`) or answered `idle`. `models` (or `modelsError`) is
+ * the answer of `/v1/models` asked right after; `status` (or `statusError`)
+ * the download status read when that answer was `setup`.
+ * - `reload`: the models are in (a new process answered `ready`);
+ * - `wait_restart`: no answer, so a restart is in progress;
+ * - `resume`: the download is still known (running or finished), follow it;
+ * - `show_start` / `show_error`: still in setup, nothing running.
+ */
+export function afterLostStatus({ status, statusError, models, modelsError } = {}) {
+  if (modelsError || !models) return "wait_restart";
+  if (models.mode === "ready") return "reload";
+  if (statusError || !status) return "show_error";
+  return status.state === "idle" || !PHASES.has(status.state) ? "show_start" : "resume";
+}
+
+async function attempt(read) {
+  try {
+    return { value: await read() };
+  } catch (error) {
+    return { error };
+  }
+}
+
+/** Asks `/v1/models` and, while still in setup, the download status again. */
+async function reconcile(lost) {
+  const models = await attempt(() => getJson(MODELS_ENDPOINT));
+  const facts = { ...lost, models: models.value, modelsError: models.error };
+  if (models.error || models.value?.mode === "ready" || !lost.statusError) return facts;
+  const again = await attempt(downloadStatus);
+  return { ...facts, status: again.value, statusError: again.error };
+}
+
+/**
+ * Polls `/v1/models` until it answers `ready` (true) or `limitMs` passes
+ * (false). Connection errors mean the restart is still under way.
+ */
+export async function waitUntilReady({ wait = sleep, now = Date.now, pollMs = RESTART_POLL_MS, limitMs = RESTART_LIMIT_MS } = {}) {
+  const deadline = now() + limitMs;
+  await wait(pollMs);
+  while (now() < deadline) {
+    const models = await attempt(() => getJson(MODELS_ENDPOINT));
+    if (models.value?.mode === "ready") return true;
+    await wait(pollMs);
+  }
+  return false;
+}
+
+/**
+ * Follows a download to its end, also when the end is a restart that took
+ * the status with it. Returns `{action}`: `finished` (with `status`, the
+ * caller handles done/failed/cancelled), `reload`, `restart_timeout`,
+ * `show_start`, or `show_error` (with `error`). `onRestarting` is called
+ * once a restart is detected, before waiting for it.
+ */
+export async function settleDownload(first, onView, { wait = sleep, now = Date.now, intervalMs = POLL_MS, onRestarting = () => {} } = {}) {
+  let current = first;
+  for (;;) {
+    const followed = await attempt(() => followDownload(current, onView, { wait, intervalMs }));
+    const last = followed.value;
+    if (!followed.error && last?.state !== "idle") return { action: "finished", status: last };
+    const facts = await reconcile(followed.error ? { statusError: followed.error } : { status: last });
+    const decision = afterLostStatus(facts);
+    if (decision === "resume") {
+      current = facts.status;
+      continue;
+    }
+    if (decision === "wait_restart") {
+      onRestarting();
+      return { action: (await waitUntilReady({ wait, now })) ? "reload" : "restart_timeout" };
+    }
+    return decision === "show_error" ? { action: decision, error: facts.statusError } : { action: decision };
+  }
 }
