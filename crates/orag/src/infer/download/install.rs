@@ -5,46 +5,25 @@
 use std::path::{Path, PathBuf};
 
 use crate::infer::download::catalog::CatalogEntry;
-use crate::infer::download::fetch::{disk_error, host};
+use crate::infer::download::fetch::disk_error;
+use crate::infer::download::guard;
 use crate::infer::download::status::{DownloadError, ErrorCode};
-use crate::infer::models::{MANIFEST_FILE, create_staging_dir, remove_stale_staging, sha256_file};
+use crate::infer::models::{MANIFEST_FILE, create_staging_dir, remove_stale_staging};
 
 /// The `.part` of `name` in a model's download folder.
-pub fn part_path(dir: &Path, name: &str) -> PathBuf {
-    dir.join(format!("{name}.part"))
-}
-
-/// Hashes the finished `.part`; one that does not match is removed, so the
-/// next start downloads it again instead of failing the same way.
-pub fn verify(part: &Path, name: &str, url: &str, expected: &str) -> Result<(), DownloadError> {
-    let actual = sha256_file(part).map_err(|err| {
-        DownloadError::new(
-            ErrorCode::Disk,
-            format!("cannot read {}: {err}", part.display()),
-        )
-    })?;
-    if actual == expected {
-        return Ok(());
-    }
-    let _ = std::fs::remove_file(part);
-    Err(DownloadError::new(
-        ErrorCode::Checksum,
-        format!(
-            "{name} from {} does not match its pinned SHA-256 (expected {expected}, got {actual}); \
-             the file was removed, start again",
-            host(url)
-        ),
-    ))
+pub fn part_path(dir: &Path, name: &str) -> Result<PathBuf, DownloadError> {
+    guard::child(dir, &format!("{name}.part"))
 }
 
 /// Moves the verified files of `entry` from `dir` into `models_dir/<id>/`
 /// with the manifest the pack script writes. On failure the files go back to
-/// `dir`, so nothing is downloaded twice.
+/// `dir`, so nothing is downloaded twice. `models_dir` is the canonical
+/// models folder and `dir` a checked folder under it.
 pub fn install(models_dir: &Path, entry: &CatalogEntry, dir: &Path) -> Result<(), DownloadError> {
     let manifest = entry
         .manifest()
         .map_err(|err| DownloadError::internal(format!("catalog entry {}: {err}", entry.id)))?;
-    let dest = models_dir.join(&entry.id);
+    let dest = guard::child(models_dir, &entry.id)?;
     if dest.exists() {
         return Err(DownloadError::internal(format!(
             "{} already exists but is not a working install of `{}`; delete that folder and start again",
@@ -66,24 +45,46 @@ pub fn install(models_dir: &Path, entry: &CatalogEntry, dir: &Path) -> Result<()
         let _ = std::fs::remove_dir_all(&staging);
         return moved;
     }
-    // Best effort: an empty leftover folder only costs a directory entry.
-    let _ = std::fs::remove_dir_all(dir);
-    if let Some(parent) = dir.parent() {
-        let _ = std::fs::remove_dir(parent);
-    }
+    clean_up(entry, dir);
     Ok(())
 }
 
+/// Best effort and never recursive: removes the model's own `.part` names,
+/// then its download folder and `.download` only once they are empty. A link
+/// or anything else left there stays; it only costs a directory entry.
+fn clean_up(entry: &CatalogEntry, dir: &Path) {
+    if guard::existing(dir).is_err() {
+        return;
+    }
+    for file in entry.files() {
+        if let Ok(part) = part_path(dir, &file.name) {
+            let _ = std::fs::remove_file(part);
+        }
+    }
+    let _ = std::fs::remove_dir(dir);
+    if let Some(parent) = dir.parent() {
+        let _ = std::fs::remove_dir(parent);
+    }
+}
+
+/// Renames each `.part` (never a link) into `staging` under its pack name.
 fn move_files(entry: &CatalogEntry, dir: &Path, staging: &Path) -> Result<(), DownloadError> {
     for file in entry.files() {
-        rename(&part_path(dir, &file.name), &staging.join(&file.name))?;
+        let part = part_path(dir, &file.name)?;
+        guard::existing(&part)?;
+        rename(&part, &guard::child(staging, &file.name)?)?;
     }
     Ok(())
 }
 
 fn put_back(entry: &CatalogEntry, staging: &Path, dir: &Path) {
     for file in entry.files() {
-        let _ = std::fs::rename(staging.join(&file.name), part_path(dir, &file.name));
+        if let (Ok(from), Ok(to)) = (
+            guard::child(staging, &file.name),
+            part_path(dir, &file.name),
+        ) {
+            let _ = std::fs::rename(from, to);
+        }
     }
 }
 

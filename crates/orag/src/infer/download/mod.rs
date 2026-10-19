@@ -5,15 +5,17 @@
 
 pub mod catalog;
 mod fetch;
+mod guard;
 pub mod http;
 mod install;
 pub mod status;
 #[cfg(test)]
 mod tests;
+mod verify;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use catalog::{Catalog, CatalogEntry};
 pub use http::HttpSettings;
@@ -23,7 +25,8 @@ pub use status::{
 };
 
 use crate::infer::download::fetch::{Fetch, fetch};
-use crate::infer::download::install::{check_free_space, install, part_path, verify};
+use crate::infer::download::install::{check_free_space, install, part_path};
+use crate::infer::download::verify::verify;
 
 /// The folder of unfinished downloads inside the models folder; its leading
 /// dot keeps `orag models list` from reading it as a model.
@@ -99,38 +102,64 @@ impl Job {
         }
     }
 
-    fn work_dir(&self) -> PathBuf {
-        self.models_dir.join(DOWNLOAD_DIR)
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
+
+    /// `Err(cancelled)` once the run was asked to stop.
+    fn check_cancel(&self) -> Result<(), DownloadError> {
+        if self.cancelled() {
+            return Err(DownloadError::cancelled());
+        }
+        Ok(())
     }
 }
 
 /// Downloads and installs every model of `job`, one file at a time. Blocking:
 /// run it on a blocking thread. The run's final state is the caller's.
+///
+/// Every path written is under the canonical models folder, and the download
+/// subtree must hold no links (see `guard`). A run stopped while the cancel
+/// flag is set ends as `Cancelled`, whatever the interrupted step reported.
 pub fn run(downloader: &Downloader, job: &Job) -> Result<(), DownloadError> {
-    let work = job.work_dir();
-    std::fs::create_dir_all(&work).map_err(|err| fetch::disk_error(&work, &err))?;
+    let models_dir = guard::anchor(&job.models_dir)?;
+    let work = guard::child(&models_dir, DOWNLOAD_DIR)?;
+    guard::ensure_dir(&work)?;
     check_free_space(&work, still_needed(job, &work))?;
-    let agent = http::agent(&downloader.http);
+    let agent = http::agent(&downloader.http, job.cancel.clone());
     for entry in &job.models {
-        download_model(downloader, &agent, job, entry).inspect_err(|err| {
-            let state = match err.code {
-                ErrorCode::Cancelled => ModelState::Waiting,
-                _ => ModelState::Failed,
-            };
-            job.status.update_model(&entry.id, |m| m.state = state);
-        })?;
+        download_model(downloader, &agent, job, &models_dir, entry)
+            .map_err(|err| {
+                if job.cancelled() {
+                    DownloadError::cancelled()
+                } else {
+                    err
+                }
+            })
+            .inspect_err(|err| {
+                let state = match err.code {
+                    ErrorCode::Cancelled => ModelState::Waiting,
+                    _ => ModelState::Failed,
+                };
+                job.status.update_model(&entry.id, |m| m.state = state);
+            })?;
     }
     Ok(())
 }
 
-/// Bytes still to download: what earlier runs left in `.part` files counts.
+/// Bytes still to download: what earlier runs left in `.part` files counts
+/// (a link counts as nothing; the download refuses it later).
 fn still_needed(job: &Job, work: &Path) -> u64 {
     job.models
         .iter()
         .flat_map(|entry| {
             let dir = work.join(&entry.id);
             entry.files().map(move |file| {
-                let have = std::fs::metadata(part_path(&dir, &file.name)).map_or(0, |m| m.len());
+                let have = part_path(&dir, &file.name)
+                    .and_then(|part| guard::existing(&part))
+                    .ok()
+                    .flatten()
+                    .map_or(0, |meta| meta.len());
                 file.size.saturating_sub(have)
             })
         })
@@ -141,14 +170,20 @@ fn download_model(
     downloader: &Downloader,
     agent: &ureq::Agent,
     job: &Job,
+    models_dir: &Path,
     entry: &CatalogEntry,
 ) -> Result<(), DownloadError> {
-    let dir = job.work_dir().join(&entry.id);
-    std::fs::create_dir_all(&dir).map_err(|err| fetch::disk_error(&dir, &err))?;
+    // Checked again for every model: an install before this one removes
+    // `.download` once it is empty.
+    let work = guard::child(models_dir, DOWNLOAD_DIR)?;
+    guard::ensure_dir(&work)?;
+    let dir = guard::child(&work, &entry.id)?;
+    guard::ensure_dir(&dir)?;
     let mut done = 0;
     for file in entry.files() {
+        job.check_cancel()?;
         let url = downloader.url(&file.url);
-        let part = part_path(&dir, &file.name);
+        let part = part_path(&dir, &file.name)?;
         job.status
             .update_model(&entry.id, |m| m.state = ModelState::Downloading);
         tracing::info!(model = %entry.id, file = %file.name, host = %fetch::host(&url), "model download started");
@@ -166,11 +201,13 @@ fn download_model(
         })?;
         job.status
             .update_model(&entry.id, |m| m.state = ModelState::Verifying);
-        verify(&part, &file.name, &url, &file.sha256)?;
+        verify(&part, &file.name, &url, &file.sha256, &job.cancel)?;
         tracing::info!(model = %entry.id, file = %file.name, "model download finished and verified");
         done += file.size;
     }
-    install(&job.models_dir, entry, &dir)?;
+    // The last moment a cancel can stop the run: an install is not undone.
+    job.check_cancel()?;
+    install(models_dir, entry, &dir)?;
     job.status
         .update_model(&entry.id, |m| m.state = ModelState::Installed);
     tracing::info!(model = %entry.id, "downloaded model installed");
