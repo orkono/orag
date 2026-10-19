@@ -83,6 +83,13 @@ fn plan(state: &AppState, missing: &Missing) -> ApiResult<Vec<CatalogEntry>> {
             "model download is turned off in config.toml (models.download = false); import the model packs instead",
         ));
     }
+    if missing.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            "the models are installed; restart orag to load them",
+        ));
+    }
     missing
         .iter()
         .map(|(id, role)| catalog_entry(&downloads.catalog, id, *role))

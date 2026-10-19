@@ -189,6 +189,12 @@ async fn without_orag_start_the_restart_is_manual_and_a_bodyless_post_works() {
         "{done}"
     );
     assert!(!app.state.shutdown_started());
+    // Installed but not loaded yet: nothing is left to download.
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(models["download"]["available"], json!(false), "{models}");
+    assert_eq!(models["download"]["code"], json!("conflict"), "{models}");
+    let (status, _) = send(&app, post_download()).await;
+    assert_eq!(status, StatusCode::CONFLICT);
 }
 
 #[tokio::test]
