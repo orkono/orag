@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.4.0] - 2026-10-19
+
+- **ORAG v0.4.0.** The setup page downloads the models with one button (step 76): pinned Hugging Face revisions, SHA-256 checked, resumable, with progress, cancel and a free-space check; ORAG restarts by itself under `orag start` and in the desktop app, so a new install needs no hand-made model packs. Offline packs still work, and `models.download = false` turns the download off. Five code-review rounds (gpt-6-astra) hardened cancel, links in the models folder, proxies and TLS time limits.
+- Release gates on the candidate `0.4.0-alpha.1`: real-model check unchanged from the recorded baselines (v02 hybrid in context 0.931, hybrid p95 14.2 ms on Metal; answers expected facts 0.925, abstention P/R 0.944/0.850, no uncited answer; seed recall@10 1.000); D-003 dense search at 100k p95 96.4 ms on Apple M5 Max and 225.7 ms on the Linux reference (both PASS). The packages are still unsigned. D-020: release tags are now pushed by the agent (owner decision).
+
 ## [0.4.0-alpha.1] - 2026-10-19
 
 - **Download the models from the setup page (step 76, D-012 amendment, owner decision).** In setup mode the page leads with one *Modelleri indir* button (with the total size): ORAG downloads the configured models from pinned Hugging Face revisions (the same pins as `scripts/fetch-model-pack.sh`, checked by a test), verifies every file by SHA-256, installs them exactly as `orag models import` would, and restarts by itself under `orag start` and in the desktop app. The page shows per-model and total progress, *Durdur* and *Tekrar dene*/*Devam et*; a download resumes where it stopped (HTTP `Range`), survives a page reload, checks free disk space first, honours `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`, and fails after 60 s with no data. The offline import stays under *Model paketlerim var (çevrimdışı kurulum)*.
