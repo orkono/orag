@@ -13,14 +13,14 @@ data folder are its own.
 | Windows 10 22H2 / 11 x86-64 (AVX2) | `ORAG_<version>_x64-setup.exe` (215 MB, most of it the offline WebView2 installer) | Per user, no administrator rights. It installs WebView2 if Windows lacks it (offline, included). Not code-signed yet: SmartScreen may ask once (*More info → Run anyway*). |
 | Linux x86-64 (glibc 2.35+) | `ORAG_<version>_amd64.AppImage` (85 MB) or `.deb` (11 MB) | The AppImage runs after `chmod +x`; the `.deb` installs with `sudo apt install ./ORAG_<version>_amd64.deb`. Needs WebKitGTK 4.1 (present on Ubuntu 22.04+ and Debian 12+). |
 
-The models are not in these files; the two default packs need about 3.3 GB
+The models are not in these files; the two default packs need about 3.1 GB
 more (see *First start*).
 
 ## First start
 
 The app starts the service in **setup mode** until the two default models are
 installed. Its page offers **Modelleri indir**: press it, wait while the two
-models (about 3.3 GB) download and are checked, and the app restarts the
+models (about 3.1 GB) download and are checked, and the app restarts the
 service by itself; the page reloads with the models loaded. The download
 runs only when you press the button. It fetches only the pinned Hugging Face
 revisions that `scripts/fetch-model-pack.sh` uses, checks every file by

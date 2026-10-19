@@ -274,8 +274,9 @@ the server started without one of them (D-023): then upload, query and reindex
 answer `503 models_missing` until the packs are imported and ORAG restarts.
 
 `download` says whether `POST /v1/models/download` can fetch the missing
-models (D-012 amendment): `available`, the `reason` when it is
-`false` (plain English: not in setup mode, `models.download = false` in
+models (D-012 amendment): `available`; when it is `false`, a `code`
+(`conflict`, `download_disabled` or `download_unavailable`, the same codes the
+`POST` would answer) and a `reason` (plain English: not in setup mode, `models.download = false` in
 `config.toml`, or which configured model is not in the download catalog),
 and `bytes`, the total size of the missing models' files (`null` when
 nothing can be downloaded).
@@ -286,11 +287,8 @@ curl -s http://127.0.0.1:7613/v1/models
 
 ```text
 HTTP/1.1 200 OK
-{"download":{"available":true,"bytes":3300000000,"reason":null},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
+{"download":{"available":true,"bytes":3380111382,"code":null,"reason":null},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
 ```
-
-(The byte counts in this and the download examples below are rounded
-illustrations; the server reports exact sizes.)
 
 ### `POST /v1/models/download`
 
@@ -322,7 +320,7 @@ curl -s -X POST http://127.0.0.1:7613/v1/models/download
 
 ```text
 HTTP/1.1 202 Accepted
-{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":0,"state":"waiting","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":0,"state":"waiting","total":2700000000}],"restart":null,"state":"running"}
+{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":0,"state":"waiting","total":639161950},{"id":"qwen3.5-4b-q4_k_m","received":0,"state":"waiting","total":2740949432}],"restart":null,"state":"running"}
 ```
 
 **Status body.**
@@ -361,15 +359,16 @@ curl -s http://127.0.0.1:7613/v1/models/download
 
 ```text
 HTTP/1.1 200 OK
-{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639000000,"state":"installed","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":1200000000,"state":"downloading","total":2700000000}],"restart":null,"state":"running"}
+{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639161950,"state":"installed","total":639161950},{"id":"qwen3.5-4b-q4_k_m","received":313673333,"state":"downloading","total":2740949432}],"restart":null,"state":"running"}
 ```
 
 ### `DELETE /v1/models/download`
 
-Cancels a running download and answers `200` with the status body
-(`state` `cancelled`, `error.code` `cancelled`). The `.part` files are kept,
-so the next `POST` resumes where it stopped. With no download running it
-returns the current status unchanged.
+Asks a running download to stop and answers `200` with the status at that
+moment, which may still read `running`; the download stops within a second,
+and the status then reads `state` `cancelled` with `error.code` `cancelled`.
+The `.part` files are kept, so the next `POST` resumes where it stopped. With
+no download running it returns the current status unchanged.
 
 ```bash
 curl -s -X DELETE http://127.0.0.1:7613/v1/models/download
@@ -377,7 +376,7 @@ curl -s -X DELETE http://127.0.0.1:7613/v1/models/download
 
 ```text
 HTTP/1.1 200 OK
-{"error":{"code":"cancelled","message":"download cancelled"},"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639000000,"state":"installed","total":639000000},{"id":"qwen3.5-4b-q4_k_m","received":1200000000,"state":"failed","total":2700000000}],"restart":null,"state":"cancelled"}
+{"error":null,"models":[{"id":"qwen3-embedding-0.6b-q8_0","received":639161950,"state":"installed","total":639161950},{"id":"qwen3.5-4b-q4_k_m","received":313673333,"state":"downloading","total":2740949432}],"restart":null,"state":"running"}
 ```
 
 ### `POST /v1/models/import`

@@ -503,7 +503,10 @@ a dead end. The page now offers *Modelleri indir*, backed by
   a cancelled or broken download continues from there with a Range request,
   and a `.part` file that fails its SHA-256 is deleted. A model folder is
   never left half installed; the result is the same as `orag models import`.
-- `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` are honoured.
+- `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` are honoured. TLS is verified
+  against the built-in Mozilla root set (webpki-roots), not the system store:
+  a proxy that re-signs TLS with a private company CA is refused, and such
+  installs use offline packs.
 - `models.download = false` in `config.toml` turns it off for fully offline
   installs; the page then shows only the import form.
 - Offline packs keep working unchanged: `orag models import` and the page's

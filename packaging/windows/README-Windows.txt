@@ -13,7 +13,7 @@ cevap verir. İnternete kendiliğinden bağlanmaz; modelleri yalnızca siz
    açılışta devam eder.
 2. İlk açılışta sayfa modelleri kurmanızı ister.
    - İnternet varsa: "Modelleri indir" düğmesine basın. İki model (yaklaşık
-     3,3 GB) indirilir ve doğrulanır; bekleyin. ORAG kendiliğinden yeniden
+     3,1 GB) indirilir ve doğrulanır; bekleyin. ORAG kendiliğinden yeniden
      başlar. Bağlantı koparsa düğmeye yeniden basın; kaldığı yerden devam
      eder.
    - İnternet yoksa: model paketlerini başka bir bilgisayarda hazırlayıp
@@ -48,7 +48,7 @@ from local packs.
    the browser opens http://127.0.0.1:2442. Closing the window stops ORAG;
    indexing that was cut off resumes on the next start.
 2. On the first start the page asks for the models. With internet, press
-   "Modelleri indir" (download models): the two models (about 3.3 GB) are
+   "Modelleri indir" (download models): the two models (about 3.1 GB) are
    downloaded and verified; wait, and ORAG restarts by itself. If the
    connection breaks, press it again; it continues where it stopped.
    Without internet, copy packs built elsewhere (for example on a USB
