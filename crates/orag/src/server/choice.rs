@@ -7,9 +7,9 @@
 use axum::http::StatusCode;
 use serde::Deserialize;
 
-use crate::infer::download::Catalog;
 use crate::infer::download::options::{Candidate, Ineligible, Options, evaluate};
 use crate::infer::download::tiers::current_tier;
+use crate::infer::download::{Catalog, remaining_bytes};
 use crate::infer::models::{ModelRole, find_model};
 use crate::probe::Machine;
 use crate::server::errors::{ApiError, ApiResult};
@@ -57,13 +57,16 @@ pub fn machine_options(state: &AppState) -> (Machine, Options) {
             Some(Candidate {
                 tier,
                 bytes: entry.total_size(),
+                remaining: remaining_bytes(&models.models_dir, entry),
                 installed: installed(&tier.id, ModelRole::Generation),
                 current,
             })
         })
         .collect();
     let embedding_bytes = match catalog.find(&models.embedding) {
-        Some(entry) if !installed(&models.embedding, ModelRole::Embedding) => entry.total_size(),
+        Some(entry) if !installed(&models.embedding, ModelRole::Embedding) => {
+            remaining_bytes(&models.models_dir, entry)
+        }
         _ => 0,
     };
     let options = evaluate(&machine, &candidates, embedding_bytes, &models.generation);

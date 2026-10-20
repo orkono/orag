@@ -216,3 +216,9 @@ test("a server without options offers no choice", () => {
   assert.equal(choiceView({ download: { options: [] } }), null);
   assert.equal(choiceView(null), null);
 });
+
+test("an interrupted download counts only what is still to fetch", () => {
+  const resumed = twoFit();
+  resumed.download.options[0].download_bytes = 1 * GB;
+  assert.equal(choiceTotal(resumed.download, "qwen3.5-4b-q4_k_m"), 1.5 * GB, "the embedder plus the rest of the 4B");
+});

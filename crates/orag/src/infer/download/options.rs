@@ -3,8 +3,10 @@
 //! /v1/models/download` checks a chosen generator against.
 //!
 //! RAM: total RAM against the tier's need (available RAM only warns). Disk:
-//! the embedder (if not installed), the generator (if not installed) and
-//! 512 MiB against the free space of the models folder. Unknown facts never
+//! what the embedder and the generator still have to fetch (nothing when
+//! installed; the `.part` files of an interrupted run count, as in the
+//! downloader's own check) and 512 MiB against the free space of the models
+//! folder. Unknown facts never
 //! block. The default tier is recommended whenever it fits; the large one
 //! is never recommended (it is slower and uses more memory, step 82). The
 //! configured generator, when it is a catalog generator but not a tier, is
@@ -77,6 +79,9 @@ pub struct Candidate<'a> {
     pub tier: &'a Tier,
     /// Bytes of the tier's pack (weights and license).
     pub bytes: u64,
+    /// Bytes a download still has to fetch: 0 when installed, less than
+    /// `bytes` when an interrupted run left `.part` files.
+    pub remaining: u64,
     pub installed: bool,
     /// The configured generator, offered although it is not a tier.
     pub current: bool,
@@ -91,18 +96,13 @@ pub struct TierOption {
     pub current: bool,
     pub label_key: &'static str,
     pub bytes: u64,
+    /// Bytes a download of this option still fetches.
+    pub download_bytes: u64,
     pub installed: bool,
     pub need_ram_bytes: u64,
     pub speed: SpeedHint,
     pub verdict: Verdict,
     pub warnings: Vec<Warning>,
-}
-
-impl TierOption {
-    /// Bytes a download of this tier fetches.
-    pub fn download_bytes(&self) -> u64 {
-        if self.installed { 0 } else { self.bytes }
-    }
 }
 
 /// The choice offered to this machine.
@@ -214,7 +214,7 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
     let download = if candidate.installed {
         0
     } else {
-        candidate.bytes
+        candidate.remaining
     };
     let needed_disk = embedding_bytes
         .saturating_add(download)
@@ -238,6 +238,7 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
             tier.size.label_key()
         },
         bytes: candidate.bytes,
+        download_bytes: download,
         installed: candidate.installed,
         need_ram_bytes: tier.need_ram_bytes,
         speed: tier.speed,
@@ -298,6 +299,7 @@ mod tests {
             .map(|tier| Candidate {
                 tier,
                 bytes: catalog.find(&tier.id).unwrap().total_size(),
+                remaining: catalog.find(&tier.id).unwrap().total_size(),
                 installed: false,
                 current: true,
             })
@@ -305,6 +307,7 @@ mod tests {
         candidates.extend(tiers.iter().zip(PACKS).map(|(tier, bytes)| Candidate {
             tier,
             bytes,
+            remaining: bytes,
             installed: false,
             current: false,
         }));
@@ -428,14 +431,37 @@ mod tests {
             .map(|(tier, bytes)| Candidate {
                 tier,
                 bytes,
+                remaining: if tier.id == DEFAULT { 0 } else { bytes },
                 installed: tier.id == DEFAULT,
                 current: false,
             })
             .collect();
         let options = evaluate(&machine(16, 16, 1), &candidates, 0, "");
         assert_eq!(verdicts(&options), [Recommended, TooBigDisk]);
-        assert_eq!(options.options[0].download_bytes(), 0);
-        assert_eq!(options.options[1].download_bytes(), PACKS[2]);
+        assert_eq!(options.options[0].download_bytes, 0);
+        assert_eq!(options.options[1].download_bytes, PACKS[2]);
+    }
+
+    #[test]
+    fn an_interrupted_download_needs_only_its_remaining_bytes() {
+        // The embedder is installed, 2 GiB are free, and an earlier run left
+        // all but 1 GiB of the 4B: the retry fits (1 GiB + 512 MiB).
+        let tiers = builtin_tiers();
+        let candidates: Vec<Candidate> = tiers
+            .iter()
+            .zip(PACKS)
+            .map(|(tier, bytes)| Candidate {
+                tier,
+                bytes,
+                remaining: if tier.id == DEFAULT { GIB } else { bytes },
+                installed: false,
+                current: false,
+            })
+            .collect();
+        let options = evaluate(&machine(16, 16, 2), &candidates, 0, "");
+        assert_eq!(verdicts(&options), [Recommended, TooBigDisk]);
+        assert_eq!(options.options[0].bytes, PACKS[1], "the pack size stays");
+        assert_eq!(options.options[0].download_bytes, GIB);
     }
 
     #[test]
@@ -565,6 +591,7 @@ mod tests {
             .map(|(tier, bytes)| Candidate {
                 tier,
                 bytes,
+                remaining: bytes,
                 installed: false,
                 current: false,
             })

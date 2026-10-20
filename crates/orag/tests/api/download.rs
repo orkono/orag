@@ -10,6 +10,7 @@ use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{Request as HttpRequest, StatusCode};
 use axum::response::{IntoResponse, Response};
+use orag::infer::download::options::DISK_HEADROOM_BYTES;
 use orag::infer::download::{Catalog, CatalogEntry, Downloader, SpeedHint, Tier, TierSize};
 use orag::infer::models::{ModelRole, find_model};
 use orag::probe::{CpuFeatures, Machine, X86Features};
@@ -721,4 +722,48 @@ async fn the_large_tier_is_never_recommended() {
         .collect();
     assert_eq!(verdicts, ["recommended", "fits"], "{models}");
     assert_eq!(models["download"]["selected"], json!(SETUP_GENERATION));
+}
+
+#[tokio::test]
+async fn an_interrupted_download_on_a_nearly_full_disk_can_be_resumed() {
+    // Free space for the embedder, the large generator minus what an
+    // earlier run already left, and the 512 MiB headroom: nothing more.
+    let large = entry(LARGE, ModelRole::Generation);
+    let embedder = entry(SETUP_EMBEDDING, ModelRole::Embedding);
+    let left = 1000u64;
+    let mut tight = machine(32);
+    tight.free_disk_bytes =
+        Some(DISK_HEADROOM_BYTES + embedder.total_size() + large.total_size() - left);
+    let app = setup_app();
+    let part_dir = app.state.models.models_dir.join(".download").join(LARGE);
+    let downloads = Downloads::new(
+        true,
+        Catalog::new(tiered_catalog()),
+        Downloader::with_base_url("http://127.0.0.1:9"),
+    )
+    .with_tiers(tiers())
+    .with_machine(tight)
+    .with_config_file(config_path(&app));
+    let app = app.map_state(|state| state.with_downloads(downloads));
+    let verdict = |models: &Value| models["download"]["options"][1]["verdict"].clone();
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(verdict(&models), json!("too_big_disk"), "{models}");
+    std::fs::create_dir_all(&part_dir).unwrap();
+    std::fs::write(
+        part_dir.join("model.gguf.part"),
+        &weights(LARGE)[..left as usize],
+    )
+    .unwrap();
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(verdict(&models), json!("fits"), "{models}");
+    assert_eq!(
+        models["download"]["options"][1]["download_bytes"],
+        json!(large.total_size() - left)
+    );
+    let (status, body) = send(&app, choose(LARGE)).await;
+    assert_eq!(
+        status,
+        StatusCode::ACCEPTED,
+        "the retry is accepted: {body}"
+    );
 }

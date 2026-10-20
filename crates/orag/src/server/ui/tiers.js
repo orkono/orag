@@ -40,8 +40,12 @@ export function machineRows(machine) {
   return rows;
 }
 
-/** Bytes a download of `option` fetches: nothing for an installed pack. */
-export const optionDownloadBytes = (option) => (option?.installed ? 0 : (isCount(option?.bytes) ? option.bytes : 0));
+/** Bytes a download of `option` still fetches: nothing for an installed pack, less after an interrupted run. */
+export function optionDownloadBytes(option) {
+  if (option?.installed) return 0;
+  if (isCount(option?.download_bytes)) return option.download_bytes;
+  return isCount(option?.bytes) ? option.bytes : 0;
+}
 
 /** The start button's total: the embedder still missing plus the chosen tier. */
 export function choiceTotal(download, selectedId) {
