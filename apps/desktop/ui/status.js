@@ -6,7 +6,9 @@
 // the language last chosen on the service page (window.oragLanguage). A choice
 // the app does not know yet is reported to it at once, as a navigation to
 // `orag-lang://choice?lang=<tr|en>&at=<ms>` that the app cancels
-// (src/window.rs `language_report`); this page only ever runs in the app.
+// (src/window.rs `language_report`), when the app's marker is there
+// (`__ORAG_DESKTOP__`, src/window.rs DESKTOP_MARKER_SCRIPT), as the service
+// page does.
 "use strict";
 
 const STORAGE_KEY = "orag.lang";
@@ -94,7 +96,7 @@ function applyLanguage() {
 
 /** Tells the app about a timed choice; the page stays as it is. */
 function report(choice) {
-  if (choice.at === null) return;
+  if (globalThis.__ORAG_DESKTOP__ !== true || choice.at === null) return;
   try {
     location.href = `${REPORT_URL}?lang=${choice.language}&at=${choice.at}`;
   } catch {

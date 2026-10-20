@@ -71,6 +71,22 @@ pub const SMOKE_SCRIPT: &str = r#"(async () => {
   window.location.href = "orag-smoke://result?" + report;
 })();"#;
 
+/// The marker the window sets in every page it shows, before the page's own
+/// scripts run (`initialization_script`, injected at document start on each
+/// top-level load and reload): only a page that sees it reports a language
+/// choice through `orag-lang:`, so the service page in a plain browser never
+/// navigates there, whatever its address says. Read-only and hidden; the
+/// window only shows the app's page and the service page (`navigation_allowed`).
+pub const DESKTOP_MARKER_SCRIPT: &str = r#"(() => {
+  if (Object.prototype.hasOwnProperty.call(globalThis, "__ORAG_DESKTOP__")) return;
+  Object.defineProperty(globalThis, "__ORAG_DESKTOP__", {
+    value: true,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+})();"#;
+
 /// The smoke report as text (`<status> <body>` or `error <message>`).
 pub fn smoke_report(url: &Url) -> Option<String> {
     if url.scheme() != SMOKE_SCHEME {

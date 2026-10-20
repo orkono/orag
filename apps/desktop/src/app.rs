@@ -10,9 +10,9 @@ use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow};
 use crate::prefs::Choice;
 use crate::supervisor::{SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
-    Action, SMOKE_SCRIPT, Status, action_for, external_allowed, is_language_report,
-    language_report, language_script, local_origin, navigation_allowed, smoke_report,
-    status_script, with_language,
+    Action, DESKTOP_MARKER_SCRIPT, SMOKE_SCRIPT, Status, action_for, external_allowed,
+    is_language_report, language_report, language_script, local_origin, navigation_allowed,
+    smoke_report, status_script, with_language,
 };
 
 /// Set in a smoke test: the app writes `<ui url> <child pid>` here on Ready.
@@ -126,6 +126,7 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .title("ORAG")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 400.0)
+        .initialization_script(DESKTOP_MARKER_SCRIPT)
         .on_navigation(move |url| {
             // A page reporting a language choice: kept, never followed.
             if is_language_report(url) {
