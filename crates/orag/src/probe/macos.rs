@@ -62,8 +62,8 @@ pub fn static_facts() -> StaticFacts {
     }
 }
 
-/// Free, inactive and speculative pages: what the system can hand out
-/// without swapping (about what Activity Monitor calls available).
+/// Free and inactive pages: what the system can hand out without swapping
+/// (about what Activity Monitor calls available).
 pub fn available_ram_bytes() -> Option<u64> {
     // SAFETY: `stats` is writable for `count` natural_t words, which the
     // kernel fills at most; the host port needs no clean-up.
@@ -85,8 +85,26 @@ pub fn available_ram_bytes() -> Option<u64> {
     };
     // SAFETY: sysconf has no preconditions.
     let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
-    let pages = u64::from(stats.free_count)
-        + u64::from(stats.inactive_count)
-        + u64::from(stats.speculative_count);
-    pages.checked_mul(page)
+    available_from(stats.free_count, stats.inactive_count, page)
+}
+
+/// Available bytes from the VM statistics. XNU's `host_statistics64`
+/// reports `free_count` with the speculative pages already in it, so
+/// `speculative_count` is not added again.
+fn available_from(free: u32, inactive: u32, page: u64) -> Option<u64> {
+    (u64::from(free) + u64::from(inactive)).checked_mul(page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn speculative_pages_are_counted_once_inside_free() {
+        // 100 free (30 of them speculative, already inside free_count) and
+        // 50 inactive 16 KiB pages.
+        assert_eq!(available_from(100, 50, 16_384), Some(150 * 16_384));
+        assert_eq!(available_from(0, 0, 16_384), Some(0));
+        assert_eq!(available_from(u32::MAX, u32::MAX, u64::MAX), None);
+    }
 }
