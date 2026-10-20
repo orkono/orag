@@ -142,8 +142,14 @@ async fn before_a_start_the_status_is_idle_and_the_download_is_offered() {
         [json!(true), Value::Null, Value::Null, json!(bytes)],
         "{models}"
     );
-    // The test catalog has none of the built-in tiers: nothing to choose.
-    assert_eq!(download["options"], json!([]), "{models}");
+    // The test catalog has none of the built-in tiers; the configured
+    // generator is a catalog generator, so it is the one (current) option.
+    let options = download["options"].as_array().unwrap();
+    assert_eq!(options.len(), 1, "{models}");
+    assert_eq!(
+        (options[0]["id"].clone(), options[0]["current"].clone()),
+        (json!(SETUP_GENERATION), json!(true))
+    );
     assert!(models["machine"]["total_ram_bytes"].is_u64(), "{models}");
 }
 
@@ -578,9 +584,10 @@ async fn choosing_the_configured_generator_downloads_like_before() {
     );
 }
 
-#[tokio::test]
-async fn an_unsupported_cpu_offers_nothing_and_refuses_a_choice() {
+/// A setup app on an x86-64 machine of `os` whose CPU lacks AVX2 and FMA.
+fn old_cpu_app(os: &'static str) -> TestApp {
     let mut old = machine(32);
+    old.os = os;
     old.arch = "x86_64";
     old.cpu_features = CpuFeatures::X86(X86Features {
         avx2: false,
@@ -595,7 +602,25 @@ async fn an_unsupported_cpu_offers_nothing_and_refuses_a_choice() {
     )
     .with_tiers(tiers())
     .with_machine(old);
-    let app = setup_app().map_state(|state| state.with_downloads(downloads));
+    setup_app().map_state(|state| state.with_downloads(downloads))
+}
+
+#[tokio::test]
+async fn an_old_cpu_on_linux_is_only_a_slow_cpu_warning() {
+    let app = old_cpu_app("linux");
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(
+        models["download"]["support"],
+        json!({"status": "supported", "code": null, "missing_cpu_features": ["avx2", "fma"]}),
+        "{models}"
+    );
+    assert_eq!(models["download"]["warnings"], json!(["slow_cpu"]));
+    assert_eq!(models["download"]["selected"], json!(SETUP_GENERATION));
+}
+
+#[tokio::test]
+async fn an_unsupported_cpu_offers_nothing_and_refuses_a_choice() {
+    let app = old_cpu_app("windows");
     let (_, models) = send(&app, get("/v1/models")).await;
     assert_eq!(
         models["download"]["support"],
@@ -611,4 +636,89 @@ async fn an_unsupported_cpu_offers_nothing_and_refuses_a_choice() {
     );
     let message = body["error"]["message"].as_str().unwrap();
     assert!(message.contains("cpu_unsupported"), "{message}");
+}
+
+/// A setup app whose configured generator (`gen-setup`) is a catalog
+/// generator but not a tier: the tiers are `gen-default` and `gen-large`.
+async fn untiered_app(total_gib: u64) -> TestApp {
+    let mut catalog = tiered_catalog();
+    catalog.push(entry("gen-default", ModelRole::Generation));
+    let base = file_server(&catalog, open_gate()).await;
+    let app = setup_app();
+    let config = config_path(&app);
+    let downloads = Downloads::new(true, Catalog::new(catalog), Downloader::with_base_url(base))
+        .with_tiers(vec![
+            tier("gen-default", TierSize::Default, 4),
+            tier(LARGE, TierSize::Large, 16),
+        ])
+        .with_machine(machine(total_gib))
+        .with_config_file(config);
+    app.map_state(|state| state.with_downloads(downloads))
+}
+
+#[tokio::test]
+async fn a_configured_generator_that_is_not_a_tier_is_the_current_option() {
+    let app = untiered_app(32).await;
+    let (_, models) = send(&app, get("/v1/models")).await;
+    let download = &models["download"];
+    let listed: Vec<(&str, &str, bool)> = download["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            (
+                o["id"].as_str().unwrap(),
+                o["verdict"].as_str().unwrap(),
+                o["current"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (SETUP_GENERATION, "fits", true),
+            ("gen-default", "recommended", false),
+            (LARGE, "fits", false)
+        ],
+        "{download}"
+    );
+    assert_eq!(
+        download["options"][0]["label_key"],
+        json!("setup.tier.current")
+    );
+    assert_eq!(
+        download["options"][0]["need_ram_bytes"],
+        json!(4 * GIB),
+        "the default's need"
+    );
+    assert_eq!(download["selected"], json!(SETUP_GENERATION));
+    // Downloading it changes nothing in config.toml: the key already names it.
+    let config = config_path(&app);
+    let before = format!("generation_model = \"{SETUP_GENERATION}\"\n");
+    std::fs::write(&config, &before).unwrap();
+    let (status, body) = send(&app, choose(SETUP_GENERATION)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let done = finished(&app).await;
+    assert_eq!(done["state"], json!("done"), "{done}");
+    find_model(
+        &app.state.models.models_dir,
+        SETUP_GENERATION,
+        ModelRole::Generation,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
+}
+
+#[tokio::test]
+async fn the_large_tier_is_never_recommended() {
+    let app = tiered_app(32, false, Some("http://127.0.0.1:9")).await;
+    let (_, models) = send(&app, get("/v1/models")).await;
+    let verdicts: Vec<&str> = models["download"]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["verdict"].as_str().unwrap())
+        .collect();
+    assert_eq!(verdicts, ["recommended", "fits"], "{models}");
+    assert_eq!(models["download"]["selected"], json!(SETUP_GENERATION));
 }

@@ -5,7 +5,10 @@
 //! RAM: total RAM against the tier's need (available RAM only warns). Disk:
 //! the embedder (if not installed), the generator (if not installed) and
 //! 512 MiB against the free space of the models folder. Unknown facts never
-//! block. The largest tier that fits is recommended.
+//! block. The default tier is recommended whenever it fits; the large one
+//! is never recommended (it is slower and uses more memory, step 82). The
+//! configured generator, when it is a catalog generator but not a tier, is
+//! offered as an extra "current" option with its own verdict.
 
 use serde::Serialize;
 
@@ -63,6 +66,9 @@ pub enum Warning {
     SingleOption,
     /// The tier fits the total RAM, but less is free right now.
     LowAvailableMemory,
+    /// An x86-64 CPU without AVX2/FMA/F16C/BMI2 outside Windows: it runs,
+    /// on slower code paths (only the Windows binary is built for that floor).
+    SlowCpu,
 }
 
 /// An offered tier with what this machine needs to install it.
@@ -72,13 +78,17 @@ pub struct Candidate<'a> {
     /// Bytes of the tier's pack (weights and license).
     pub bytes: u64,
     pub installed: bool,
+    /// The configured generator, offered although it is not a tier.
+    pub current: bool,
 }
 
 /// One tier as `download.options` lists it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TierOption {
     pub id: String,
-    pub size: TierSize,
+    /// `None` for the current (configured, not a tier) option.
+    pub size: Option<TierSize>,
+    pub current: bool,
     pub label_key: &'static str,
     pub bytes: u64,
     pub installed: bool,
@@ -102,8 +112,8 @@ pub struct Options {
     /// Machine-level warnings (`single_option`).
     pub warnings: Vec<Warning>,
     pub options: Vec<TierOption>,
-    /// The tier the page starts with: the configured generator when it is a
-    /// tier that fits, else the recommended one; `None` when unsupported.
+    /// The option the page starts with: the configured generator when it is
+    /// an option that fits, else the recommended one; `None` when unsupported.
     pub selected: Option<String>,
     /// Bytes of the embedder still to download (0 when installed).
     pub embedding_bytes: u64,
@@ -148,13 +158,17 @@ pub fn evaluate(
     configured: &str,
 ) -> Options {
     let missing_cpu_features = machine.cpu_features.missing_required();
+    // Only the Windows binary is built with the x86-64 floor; elsewhere the
+    // same CPU runs llama.cpp's slower paths.
+    let cpu_blocks = machine.os == "windows" && !missing_cpu_features.is_empty();
+    let slow_cpu = !cpu_blocks && !missing_cpu_features.is_empty();
     let mut options: Vec<TierOption> = candidates
         .iter()
-        .filter(|candidate| candidate.tier.offered)
+        .filter(|candidate| candidate.tier.offered || candidate.current)
         .map(|candidate| option(machine, candidate, embedding_bytes))
         .collect();
     let fitting = options.iter().filter(|o| o.verdict.eligible()).count();
-    let code = if !missing_cpu_features.is_empty() {
+    let code = if cpu_blocks {
         Some(SupportCode::CpuUnsupported)
     } else if fitting == 0 {
         Some(SupportCode::NoTierFits)
@@ -162,9 +176,11 @@ pub fn evaluate(
         None
     };
     if code.is_none()
-        && let Some(largest) = options.iter_mut().rev().find(|o| o.verdict.eligible())
+        && let Some(default) = options
+            .iter_mut()
+            .find(|o| !o.current && o.size == Some(TierSize::Default) && o.verdict.eligible())
     {
-        largest.verdict = Verdict::Recommended;
+        default.verdict = Verdict::Recommended;
     }
     let selected = code
         .is_none()
@@ -179,11 +195,13 @@ pub fn evaluate(
             code,
             missing_cpu_features,
         },
-        warnings: if code.is_none() && fitting == 1 {
-            vec![Warning::SingleOption]
-        } else {
-            Vec::new()
-        },
+        warnings: [
+            (code.is_none() && fitting == 1, Warning::SingleOption),
+            (slow_cpu, Warning::SlowCpu),
+        ]
+        .into_iter()
+        .filter_map(|(on, warning)| on.then_some(warning))
+        .collect(),
         options,
         selected,
         embedding_bytes,
@@ -212,8 +230,13 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
     let low_memory = verdict.eligible() && below(machine.available_ram_bytes, tier.need_ram_bytes);
     TierOption {
         id: tier.id.clone(),
-        size: tier.size,
-        label_key: tier.size.label_key(),
+        size: (!candidate.current).then_some(tier.size),
+        current: candidate.current,
+        label_key: if candidate.current {
+            "setup.tier.current"
+        } else {
+            tier.size.label_key()
+        },
         bytes: candidate.bytes,
         installed: candidate.installed,
         need_ram_bytes: tier.need_ram_bytes,
@@ -227,20 +250,21 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
     }
 }
 
-/// The configured generator when it is a tier that fits, else the
-/// recommended one.
+/// The configured generator when it is an option that fits, else the
+/// recommended one, else the first that fits.
 fn preselect(options: &[TierOption], configured: &str) -> Option<String> {
     options
         .iter()
         .find(|o| o.id == configured && o.verdict.eligible())
         .or_else(|| options.iter().find(|o| o.verdict == Verdict::Recommended))
+        .or_else(|| options.iter().find(|o| o.verdict.eligible()))
         .map(|o| o.id.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infer::download::tiers::builtin_tiers;
+    use crate::infer::download::tiers::{builtin_tiers, current_tier};
     use crate::probe::{CpuFeatures, X86Features};
 
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -267,15 +291,23 @@ mod tests {
 
     fn options_for(machine: &Machine, configured: &str) -> Options {
         let tiers = builtin_tiers();
-        let candidates: Vec<Candidate> = tiers
+        let catalog = crate::infer::download::Catalog::builtin();
+        let current = current_tier(configured, &tiers, &catalog);
+        let mut candidates: Vec<Candidate> = current
             .iter()
-            .zip(PACKS)
-            .map(|(tier, bytes)| Candidate {
+            .map(|tier| Candidate {
                 tier,
-                bytes,
+                bytes: catalog.find(&tier.id).unwrap().total_size(),
                 installed: false,
+                current: true,
             })
             .collect();
+        candidates.extend(tiers.iter().zip(PACKS).map(|(tier, bytes)| Candidate {
+            tier,
+            bytes,
+            installed: false,
+            current: false,
+        }));
         evaluate(machine, &candidates, EMBEDDER, configured)
     }
 
@@ -288,6 +320,7 @@ mod tests {
     const DEFAULT: &str = "qwen3.5-4b-q4_k_m";
     const LARGE: &str = "qwen3.5-9b-q4_k_m";
     const SMALL: &str = "qwen3.5-2b-q4_k_m";
+    const INSTRUCT: &str = "qwen3-4b-instruct-2507-q4_k_m";
 
     fn low_memory(options: &Options) -> Vec<bool> {
         options
@@ -297,15 +330,32 @@ mod tests {
             .collect()
     }
 
+    fn ids(options: &Options) -> Vec<&str> {
+        options.options.iter().map(|o| o.id.as_str()).collect()
+    }
+
+    fn x86(os: &'static str, avx2: bool) -> Machine {
+        let mut m = machine(32, 32, 500);
+        m.os = os;
+        m.arch = "x86_64";
+        m.cpu_features = CpuFeatures::X86(X86Features {
+            avx2,
+            fma: true,
+            f16c: true,
+            bmi2: true,
+        });
+        m
+    }
+
     #[test]
-    fn the_largest_tier_that_fits_the_total_ram_is_recommended() {
+    fn the_default_tier_is_recommended_whenever_it_fits() {
         // The offered tiers are the default (6.5 GiB) and the large (9 GiB).
         let table = [
             (4, [TooBigRam, TooBigRam], None, false),
             (6, [TooBigRam, TooBigRam], None, false),
             (8, [Recommended, TooBigRam], Some(DEFAULT), true),
-            (16, [Fits, Recommended], Some(LARGE), false),
-            (32, [Fits, Recommended], Some(LARGE), false),
+            (16, [Recommended, Fits], Some(DEFAULT), false),
+            (32, [Recommended, Fits], Some(DEFAULT), false),
         ];
         for (gib, expected, selected, single) in table {
             let options = options_for(&machine(gib, gib, 500), "");
@@ -318,6 +368,14 @@ mod tests {
             );
             assert_eq!(options.embedding_bytes, EMBEDDER);
         }
+    }
+
+    #[test]
+    fn the_large_tier_is_never_recommended_but_a_configured_one_is_preselected() {
+        let options = options_for(&machine(32, 32, 500), LARGE);
+        assert_eq!(verdicts(&options), [Recommended, Fits]);
+        assert_eq!(options.selected.as_deref(), Some(LARGE));
+        assert!(options.eligible(LARGE).is_ok());
     }
 
     #[test]
@@ -371,6 +429,7 @@ mod tests {
                 tier,
                 bytes,
                 installed: tier.id == DEFAULT,
+                current: false,
             })
             .collect();
         let options = evaluate(&machine(16, 16, 1), &candidates, 0, "");
@@ -386,21 +445,13 @@ mod tests {
         unknown.available_ram_bytes = None;
         unknown.free_disk_bytes = None;
         let options = options_for(&unknown, "");
-        assert_eq!(verdicts(&options), [Fits, Recommended]);
+        assert_eq!(verdicts(&options), [Recommended, Fits]);
         assert!(options.options.iter().all(|o| o.warnings.is_empty()));
     }
 
     #[test]
-    fn a_cpu_without_avx2_is_unsupported_whatever_fits() {
-        let mut old = machine(32, 32, 500);
-        old.arch = "x86_64";
-        old.cpu_features = CpuFeatures::X86(X86Features {
-            avx2: false,
-            fma: true,
-            f16c: true,
-            bmi2: true,
-        });
-        let options = options_for(&old, "");
+    fn on_windows_a_cpu_without_avx2_is_unsupported() {
+        let options = options_for(&x86("windows", false), "");
         assert_eq!(
             options.support,
             Support {
@@ -416,22 +467,38 @@ mod tests {
             Err(Ineligible::NotEligible("cpu_unsupported"))
         );
         // A CPU with the whole floor is supported.
-        old.cpu_features = CpuFeatures::X86(X86Features {
-            avx2: true,
-            fma: true,
-            f16c: true,
-            bmi2: true,
-        });
+        let ok = options_for(&x86("windows", true), "");
+        assert_eq!(ok.support.status, SupportStatus::Supported);
+        assert!(ok.warnings.is_empty());
+    }
+
+    #[test]
+    fn on_linux_a_cpu_without_avx2_only_warns_that_it_is_slow() {
+        let options = options_for(&x86("linux", false), "");
         assert_eq!(
-            options_for(&old, "").support.status,
-            SupportStatus::Supported
+            options.support,
+            Support {
+                status: SupportStatus::Supported,
+                code: None,
+                missing_cpu_features: vec!["avx2"],
+            }
+        );
+        assert_eq!(options.warnings, [Warning::SlowCpu]);
+        assert_eq!(verdicts(&options), [Recommended, Fits]);
+        assert_eq!(options.selected.as_deref(), Some(DEFAULT));
+        assert!(options.eligible(LARGE).is_ok());
+        let fast = options_for(&x86("linux", true), "");
+        assert!(fast.warnings.is_empty());
+        assert_eq!(
+            serde_json::to_value(&options.warnings).unwrap(),
+            serde_json::json!(["slow_cpu"])
         );
     }
 
     #[test]
     fn little_free_memory_warns_but_does_not_block() {
         let options = options_for(&machine(16, 6, 500), "");
-        assert_eq!(verdicts(&options), [Fits, Recommended]);
+        assert_eq!(verdicts(&options), [Recommended, Fits]);
         assert_eq!(low_memory(&options), [true, true], "6 GiB free");
         let options = options_for(&machine(16, 8, 500), "");
         assert_eq!(low_memory(&options), [false, true], "8 GiB free");
@@ -439,35 +506,57 @@ mod tests {
     }
 
     #[test]
-    fn the_configured_tier_is_preselected_when_it_fits() {
-        let big = machine(32, 32, 500);
+    fn a_configured_catalog_generator_is_the_current_option() {
+        let options = options_for(&machine(32, 32, 500), INSTRUCT);
+        assert_eq!(ids(&options), [INSTRUCT, DEFAULT, LARGE]);
+        let current = &options.options[0];
+        assert!(current.current);
+        assert_eq!(current.label_key, "setup.tier.current");
+        assert_eq!(current.size, None);
         assert_eq!(
-            options_for(&big, DEFAULT).selected.as_deref(),
-            Some(DEFAULT)
+            current.need_ram_bytes,
+            13 * GIB / 2,
+            "the default tier's need"
         );
-        // Not a tier, or a tier too big here: the recommended one.
-        assert_eq!(
-            options_for(&big, "qwen3-4b-instruct-2507-q4_k_m")
-                .selected
-                .as_deref(),
-            Some(LARGE)
-        );
-        assert_eq!(
-            options_for(&machine(8, 8, 500), LARGE).selected.as_deref(),
-            Some(DEFAULT)
-        );
+        assert_eq!(verdicts(&options), [Fits, Recommended, Fits]);
+        assert_eq!(options.selected.as_deref(), Some(INSTRUCT));
+        assert!(options.eligible(INSTRUCT).is_ok());
+        // Too big here: it is listed with its verdict, the default selected.
+        let options = options_for(&machine(32, 32, 3), INSTRUCT);
+        assert_eq!(verdicts(&options), [TooBigDisk, TooBigDisk, TooBigDisk]);
+        assert_eq!(options.support.code, Some(SupportCode::NoTierFits));
+        let options = options_for(&machine(4, 4, 500), INSTRUCT);
+        assert_eq!(verdicts(&options), [TooBigRam, TooBigRam, TooBigRam]);
     }
 
     #[test]
-    fn a_tier_not_offered_is_neither_listed_nor_eligible() {
-        // The built-in small tier failed the quality rule.
-        let options = options_for(&machine(32, 32, 500), SMALL);
-        let ids: Vec<&str> = options.options.iter().map(|o| o.id.as_str()).collect();
-        assert_eq!(ids, [DEFAULT, LARGE]);
+    fn a_configured_small_tier_is_offered_only_as_the_current_option() {
+        let options = options_for(&machine(6, 6, 500), SMALL);
+        assert_eq!(ids(&options), [SMALL, DEFAULT, LARGE]);
+        assert_eq!(options.options[0].need_ram_bytes, 5 * GIB, "its own need");
+        assert_eq!(verdicts(&options), [Fits, TooBigRam, TooBigRam]);
+        assert_eq!(options.support.status, SupportStatus::Supported);
+        assert_eq!(options.warnings, [Warning::SingleOption]);
+        assert_eq!(options.selected.as_deref(), Some(SMALL));
+        // Not configured: never offered.
+        let options = options_for(&machine(32, 32, 500), DEFAULT);
+        assert_eq!(ids(&options), [DEFAULT, LARGE]);
         assert_eq!(options.eligible(SMALL), Err(Ineligible::Unknown));
-        assert_eq!(options.eligible("nope"), Err(Ineligible::Unknown));
-        assert_eq!(options.selected.as_deref(), Some(LARGE));
-        // Withdrawing the large tier too leaves one option.
+    }
+
+    #[test]
+    fn a_configured_id_outside_the_catalog_is_not_offered() {
+        let options = options_for(&machine(32, 32, 500), "my-own-pack");
+        assert_eq!(ids(&options), [DEFAULT, LARGE]);
+        assert_eq!(options.selected.as_deref(), Some(DEFAULT));
+        assert_eq!(options.eligible("my-own-pack"), Err(Ineligible::Unknown));
+        // An embedder id is not a generator either.
+        let options = options_for(&machine(32, 32, 500), "qwen3-embedding-0.6b-q8_0");
+        assert_eq!(ids(&options), [DEFAULT, LARGE]);
+    }
+
+    #[test]
+    fn a_withdrawn_tier_is_neither_listed_nor_eligible() {
         let mut tiers = builtin_tiers();
         tiers[2].offered = false;
         let candidates: Vec<Candidate> = tiers
@@ -477,12 +566,14 @@ mod tests {
                 tier,
                 bytes,
                 installed: false,
+                current: false,
             })
             .collect();
         let options = evaluate(&machine(32, 32, 500), &candidates, EMBEDDER, "");
         assert_eq!(verdicts(&options), [Recommended]);
         assert_eq!(options.warnings, [Warning::SingleOption]);
         assert_eq!(options.eligible(LARGE), Err(Ineligible::Unknown));
+        assert_eq!(options.eligible("nope"), Err(Ineligible::Unknown));
     }
 
     #[test]
@@ -491,11 +582,13 @@ mod tests {
         let default = &options.options[0];
         assert_eq!(default.id, DEFAULT);
         assert_eq!(default.label_key, "setup.tier.default");
+        assert_eq!(options.options[1].label_key, "setup.tier.large");
         assert_eq!(default.bytes, PACKS[1]);
         assert_eq!(default.need_ram_bytes, 13 * GIB / 2);
         let json = serde_json::to_value(default).unwrap();
-        assert_eq!(json["verdict"], "fits");
+        assert_eq!(json["verdict"], "recommended");
         assert_eq!(json["size"], "default");
+        assert_eq!(json["current"], false);
         assert_eq!(json["installed"], false);
         assert!((json["speed"]["metal_p50_answer_s"].as_f64().unwrap() - 0.9).abs() < 1e-6);
         assert_eq!(json["speed"]["cpu_p50_answer_s"], serde_json::Value::Null);

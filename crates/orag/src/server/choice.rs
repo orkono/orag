@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::infer::download::Catalog;
 use crate::infer::download::options::{Candidate, Ineligible, Options, evaluate};
+use crate::infer::download::tiers::current_tier;
 use crate::infer::models::{ModelRole, find_model};
 use crate::probe::Machine;
 use crate::server::errors::{ApiError, ApiResult};
@@ -43,15 +44,21 @@ pub fn machine_options(state: &AppState) -> (Machine, Options) {
     let machine = downloads.machine(&models.models_dir);
     let catalog = &downloads.catalog;
     let installed = |id: &str, role| find_model(&models.models_dir, id, role).is_ok();
-    let candidates: Vec<Candidate> = downloads
-        .tiers
+    // The configured generator first, when it is a catalog generator but
+    // not an offered tier.
+    let current = current_tier(&models.generation, &downloads.tiers, catalog);
+    let tiers = current
         .iter()
-        .filter_map(|tier| {
+        .map(|tier| (tier, true))
+        .chain(downloads.tiers.iter().map(|tier| (tier, false)));
+    let candidates: Vec<Candidate> = tiers
+        .filter_map(|(tier, current)| {
             let entry = generator(catalog, &tier.id)?;
             Some(Candidate {
                 tier,
                 bytes: entry.total_size(),
                 installed: installed(&tier.id, ModelRole::Generation),
+                current,
             })
         })
         .collect();

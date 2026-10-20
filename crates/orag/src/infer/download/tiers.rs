@@ -6,6 +6,9 @@
 
 use serde::Serialize;
 
+use crate::infer::download::Catalog;
+use crate::infer::models::ModelRole;
+
 const GIB: u64 = 1024 * 1024 * 1024;
 
 /// Tenths of a GiB in bytes.
@@ -110,6 +113,34 @@ pub fn builtin_tiers() -> Vec<Tier> {
             true,
         ),
     ]
+}
+
+/// The configured generator as the page's extra "current" option, when it
+/// is a catalog generator but not an offered tier (a hand-set
+/// `qwen3-4b-instruct-2507-q4_k_m`, or the withdrawn 2B). Its need is its
+/// own tier's when it has one, else the default tier's (`DEFAULT_NEED`): the
+/// only such catalog generator today is the same-size 4B instruct model
+/// (2.50 GB of weights against the default's 2.74 GB). An id outside the
+/// catalog, an offered tier, or a table without a default gives `None`.
+pub fn current_tier(configured: &str, tiers: &[Tier], catalog: &Catalog) -> Option<Tier> {
+    let own = tiers.iter().find(|tier| tier.id == configured);
+    if own.is_some_and(|tier| tier.offered) {
+        return None;
+    }
+    catalog
+        .find(configured)
+        .filter(|entry| entry.role == ModelRole::Generation)?;
+    let default_need = tiers
+        .iter()
+        .find(|tier| tier.size == TierSize::Default)?
+        .need_ram_bytes;
+    Some(Tier {
+        id: configured.to_string(),
+        size: own.map_or(TierSize::Default, |tier| tier.size),
+        need_ram_bytes: own.map_or(default_need, |tier| tier.need_ram_bytes),
+        speed: own.map_or_else(SpeedHint::default, |tier| tier.speed),
+        offered: true,
+    })
 }
 
 #[cfg(test)]
