@@ -92,3 +92,17 @@ test("a stale fragment does not downgrade a newer stored choice, and is correcte
   // The address now tells the desktop app the page's (newer) choice.
   assert.equal(location.hash, "#lang=en&at=2000");
 });
+
+test("a choice made after the clock moved back still beats the standing one", async () => {
+  const future = Date.now() + 3_600_000; // chosen while the clock was an hour fast
+  const storage = memoryStorage({ "orag.lang": "en", "orag.lang.at": String(future) });
+  const page = installPage({ storage, hash: `#lang=en&at=${future}` });
+  const fresh = await import("../i18n.js?clock-back");
+  const select = page.getElementById("language-select");
+  fresh.initLanguage(select);
+  select.value = "tr";
+  select.dispatchEvent(new Event("change"));
+  const at = Number(storage.items.get("orag.lang.at"));
+  assert.ok(at > future, `${at} must be after ${future}`);
+  assert.equal(location.hash, `#lang=tr&at=${at}`);
+});

@@ -662,6 +662,15 @@ function writeFragment({ language, at }) {
   }
 }
 
+/**
+ * The time for a new choice: now, but always after the standing choice, so a
+ * clock set back after a choice cannot make the newer choice lose.
+ */
+function nextTime(standing) {
+  const now = Date.now();
+  return standing && standing.at !== null && standing.at >= now ? standing.at + 1 : now;
+}
+
 /** Shows the page in `lang` without storing it. */
 function apply(lang) {
   current = lang;
@@ -680,7 +689,7 @@ function apply(lang) {
  */
 export function setLanguage(lang) {
   if (!isLanguage(lang)) return current;
-  chosen = { language: lang, at: Date.now() };
+  chosen = { language: lang, at: nextTime(chosen) };
   store(chosen);
   if (followsFragment) writeFragment(chosen);
   apply(lang);

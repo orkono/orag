@@ -110,9 +110,12 @@ function adopt(choice) {
   applyLanguage();
 }
 
-/** A choice made on this page's menu: now. */
+/** A choice made on this page's menu: now, but always after the standing choice. */
 function chooseOnPage(lang) {
-  if (isLanguage(lang)) adopt({ language: lang, at: Date.now() });
+  if (!isLanguage(lang)) return;
+  const now = Date.now();
+  const at = chosen && chosen.at !== null && chosen.at >= now ? chosen.at + 1 : now;
+  adopt({ language: lang, at });
 }
 
 /** The app hands over the choice it knows (`at`: ms since 1970, or null). */

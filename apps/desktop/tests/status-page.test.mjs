@@ -95,3 +95,14 @@ test("a choice on the page is stored with its time and written into the address"
   assert.equal(page.location.hash, `#lang=en&at=${at}`);
   assert.equal(page.$("status").textContent, "Starting the service…");
 });
+
+test("a choice made after the clock moved back still beats the standing one", () => {
+  const future = Date.now() + 3_600_000;
+  const page = loadPage({ "orag.lang": "en", "orag.lang.at": String(future) });
+  const select = page.$("language-select");
+  select.value = "tr";
+  select.dispatchEvent(new Event("change"));
+  const at = Number(page.items.get("orag.lang.at"));
+  assert.ok(at > future, `${at} must be after ${future}`);
+  assert.equal(page.location.hash, `#lang=tr&at=${at}`);
+});
