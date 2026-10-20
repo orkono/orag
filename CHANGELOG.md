@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.4.1] - 2026-10-20
+
+- **ORAG v0.4.1.** The web UI and the desktop app's status page speak Turkish and English, with a TR/EN menu; the page opens in Turkish unless English was chosen (step 78). Every release now carries `SHA256SUMS` and GitHub build provenance for each file, and the macOS desktop build signs and notarizes once the owner adds the Apple secrets (step 79, `docs/signing.md`); the packages of this release are still unsigned. The desktop app no longer reads its window's address, which could crash it on macOS before a page had loaded.
+- Release gates on the candidate `0.4.1-alpha.2`: real-model check unchanged from v0.4.0 (v02 hybrid in context 0.931, hybrid p95 14.2 ms on Metal; answers expected facts 0.925, abstention P/R 0.944/0.850, no uncited answer; seed recall@10 1.000); D-003 dense search at 100k p95 104.5 ms on Apple M5 Max and 222.4 ms on the Linux reference (both PASS). The release workflow's macOS desktop smoke passed on GitHub.
+
 ## [0.4.1-alpha.2] - 2026-10-20
 
 - **Release checksums and provenance (step 79).** Every release now carries `SHA256SUMS` and GitHub build provenance for each file (`gh attestation verify <file> --repo orkono/orag`). The macOS desktop build signs and notarizes once the `APPLE_*` repository secrets are set and is built unsigned without them; Windows signing waits for the owner's choice of provider. See `docs/signing.md`.

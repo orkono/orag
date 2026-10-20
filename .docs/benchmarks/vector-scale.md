@@ -185,6 +185,32 @@ Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
 figure is back near v0.2.0's 226.4 ms; the margin to 250 ms stays small and
 the 8-core follow-up below is still open.
 
+## v0.4.1 release candidate
+
+Both references on the release candidate `0.4.1-alpha.2` (release build);
+the bump to `0.4.1` after it changes only documentation.
+
+macOS reference (Apple M5 Max, 128 GB RAM; 2026-10-20):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.4.1-alpha.2 | 100000 | 1024 | 50 | 50 | 10.0 | 98.1 | 104.5 | 106.6 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, AMD EPYC 7763, 2026-10-20,
+workflow `vector-scale` run 39420573889, started by pushing `bench/v0.4.1-rc`,
+deleted after the run):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.4.1-alpha.2 | 100000 | 1024 | 50 | 50 | 27.0 | 221.9 | 222.4 | 223.0 | 250 | PASS |
+
+300k (informational): p95 661.2 ms, FAIL, as expected.
+
+Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
+0.4.1-alpha.2`). The engine is unchanged since v0.4.0 (this release changes the
+web UI, the desktop app and the release workflow), and both figures are within
+run-to-run noise of v0.4.0.
+
 ## Follow-up after v0.1.0
 
 - Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux
