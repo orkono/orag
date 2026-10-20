@@ -309,7 +309,7 @@ facts once per process, available RAM and free disk on every call):
 | `warnings` | `single_option` when only one option fits; `slow_cpu` on an x86-64 CPU without that floor outside Windows (it runs, more slowly) |
 | `selected` | The option the page starts with: the configured `generation_model` if it is an option that fits, else the recommended one; `null` when unsupported |
 | `embedding_bytes` | Bytes of the embedder still to download (0 when installed; `.part` files of an interrupted run count as downloaded) |
-| `configured_downloadable` | `false` when the configured `generation_model` is not in the download catalog. If the selected option can be downloaded, `available` is still `true` and `bytes` is the embedder plus that option; choosing it writes `generation_model`. A `POST` without a body still answers `400 download_unavailable` |
+| `configured_downloadable` | Whether a `POST` without a body (the configured models) would start. `true` only when `available` is `true` for the configured models. `false` whenever that `POST` would be refused: outside setup mode or with the models installed (`409 conflict`), with `models.download = false` (`403 download_disabled`; `available` is `false` too), or when a configured model is not in the download catalog (`400 download_unavailable`). Only in that last case can `available` still be `true`: when the selected option (and a missing embedder) can be downloaded, `bytes` is the embedder plus that option, and choosing it writes `generation_model` |
 
 The small tier (`qwen3.5-2b-q4_k_m`) failed the quality rule and is not
 offered (`.docs/benchmarks/v0.5-model-tiers.md`); it stays downloadable only as
