@@ -37,23 +37,20 @@ pub const SMOKE_SCHEME: &str = "orag-smoke";
 
 /// The script the smoke test runs inside the service page: a same-origin POST
 /// as the page itself sends it, reported through a `orag-smoke:` navigation.
-/// While that POST is in flight it picks English on the page's language
-/// menu, which the page reports at once through an `orag-lang:` navigation
-/// that the app cancels: the POST must still answer, so a run shows that a
-/// cancelled report navigation leaves the page and its requests alone, and
-/// that the choice is saved before the app closes its window right after the
-/// smoke report (`language` in the app data folder reads `en <ms>`). The
-/// page-load event can come while the page's modules are still loading, so
-/// it waits for `load`.
+/// First it picks English on the page's language menu, which the page
+/// reports at once through an `orag-lang:` navigation that the app cancels;
+/// the POST starts right behind it. The POST must still answer and the
+/// script still run, so a run shows that a cancelled report leaves the page
+/// alone, and that the choice is saved before the app closes its window
+/// right after the smoke report (`language` in the app data folder reads
+/// `en <ms>`). WebKit keeps one scheduled navigation per page and a newer
+/// one replaces it, so the smoke report waits a moment for the language
+/// report to be decided first. The page-load event can come while the
+/// page's modules are still loading, so it waits for `load`.
 pub const SMOKE_SCRIPT: &str = r#"(async () => {
   if (document.readyState !== "complete") {
     await new Promise((resolve) => window.addEventListener("load", resolve, { once: true }));
   }
-  const post = fetch("/v1/models/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: "relative/pack" }),
-  });
   const menu = document.getElementById("language-select");
   if (menu) {
     menu.value = "en";
@@ -61,11 +58,16 @@ pub const SMOKE_SCRIPT: &str = r#"(async () => {
   }
   let report;
   try {
-    const r = await post;
+    const r = await fetch("/v1/models/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "relative/pack" }),
+    });
     report = "status=" + r.status + "&body=" + encodeURIComponent((await r.text()).slice(0, 300));
   } catch (e) {
     report = "error=" + encodeURIComponent(String(e));
   }
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   window.location.href = "orag-smoke://result?" + report;
 })();"#;
 
