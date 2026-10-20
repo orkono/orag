@@ -19,10 +19,16 @@ provenance to check a download with; see `docs/signing.md`.
 
 ## First start
 
-The app starts the service in **setup mode** until the two default models are
-installed. Its page offers **Modelleri indir**: press it, wait while the two
-models (about 3.1 GB) download and are checked, and the app restarts the
-service by itself; the page reloads with the models loaded. The download
+The app starts the service in **setup mode** until the two models are
+installed. Its page shows **Bu bilgisayar** (memory, processor, cores, GPU,
+free disk) and the answer models that fit this computer: *Standart*
+(`qwen3.5-4b-q4_k_m`, about 3.1 GB with the embedder, 6.5 GB RAM) and
+*Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB, 9 GB RAM; slower, not more
+accurate). One that does not fit is greyed out with the reason; a computer
+nothing fits is told so. Pick one and press **Modelleri indir**: the two
+models download and are checked, the choice is written as `generation_model`
+into the data folder's `config.toml`, and the app restarts the service by
+itself; the page reloads with the models loaded. The download
 runs only when you press the button. It fetches only the pinned Hugging Face
 revisions that `scripts/fetch-model-pack.sh` uses, checks every file by
 SHA-256, honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues

@@ -71,9 +71,13 @@ Run `ORAG-Setup-<version>.exe` from the release (per user, no administrator
 rights; it installs to `%LOCALAPPDATA%\Programs\ORAG`) and open **ORAG** from
 the Start menu; or unzip `orag-<version>-x86_64-pc-windows-msvc.zip` anywhere
 you can write to and run `orag.exe start`. The page opens at
-<http://127.0.0.1:2442> in setup mode until the models are installed: press
-*Modelleri indir*, wait while the two default models (about 3.1 GB) download,
-and ORAG restarts by itself. The Start menu also has
+<http://127.0.0.1:2442> in setup mode until the models are installed. The page
+shows this computer (*Bu bilgisayar*) and the answer models that fit it: the
+default `qwen3.5-4b-q4_k_m` (6.5 GB RAM) and, with 9 GB RAM or more, the
+larger, slower `qwen3.5-9b-q4_k_m`. Pick one and press *Modelleri indir*;
+the embedder and that model download (about 3.1 GB for the default), the
+choice is written as `generation_model` into `config.toml`, and ORAG
+restarts by itself. The Start menu also has
 *ORAG modellerini indir (internet)*, which downloads the same two packs
 (after asking) into `%USERPROFILE%\ORAG-paketleri` with
 `fetch-model-pack.ps1`. Data lives in
@@ -102,7 +106,7 @@ uncomment a line. It is read **once at startup**; after editing it, restart
 | `ui_bind` | `"127.0.0.1:2442"` | Address of the built-in web page, loopback only, or `"off"` |
 | `max_document_mb` | `10` | Largest document accepted, in MB (1–10) |
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding model pack (`orag models list`) |
-| `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack |
+| `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack; the setup page writes the model you picked here (only this key) |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace`, on stderr |
 | `models.download` | `true` | Whether setup mode may download the missing models when you press *Modelleri indir*; set `models.download = false` for a fully offline install |
 
