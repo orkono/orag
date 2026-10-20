@@ -1,6 +1,8 @@
 // The desktop app hands the language to the page in the URL fragment
-// (`#lang=en`, step 77 review P2-2) and reads it back from there: the page
-// adopts a valid value, stores it, and keeps the fragment in step.
+// (`#lang=en`, step 77 review P2-2); the page adopts a valid value, stores
+// it, and reports every choice back to the app the moment it is made, as a
+// navigation to `orag-lang://choice?lang=<tr|en>&at=<ms>` that the app
+// cancels (apps/desktop/src/window.rs `language_report`).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installPage, memoryStorage } from "./fake-dom.mjs";
@@ -16,16 +18,27 @@ test("a timed fragment wins over an older stored choice and is stored", () => {
   assert.equal(storage.items.get("orag.lang"), "en");
   assert.equal(storage.items.get("orag.lang.at"), "1000");
   assert.equal(location.hash, "#lang=en&at=1000");
+  assert.deepEqual(location.navigations, [], "the app's own hand-over is not reported back");
   assert.equal(doc.documentElement.lang, "en");
   assert.equal(doc.getElementById("language-select").value, "en");
   assert.equal(doc.getElementById("setup-title").textContent, "Install models");
 });
 
-test("a page opened with the fragment keeps it in step with the menu", () => {
-  i18n.setLanguage("tr");
-  assert.match(location.hash, /^#lang=tr&at=\d+$/);
+test("a page opened with the fragment reports every menu choice to the app at once", () => {
+  location.navigations.length = 0;
+  const select = doc.getElementById("language-select");
+  select.value = "tr";
+  select.dispatchEvent(new Event("change"));
+  const trAt = storage.items.get("orag.lang.at");
+  assert.deepEqual(location.navigations, [`orag-lang://choice?lang=tr&at=${trAt}`]);
   i18n.setLanguage("en");
-  assert.match(location.hash, /^#lang=en&at=\d+$/);
+  const enAt = storage.items.get("orag.lang.at");
+  assert.deepEqual(location.navigations, [`orag-lang://choice?lang=tr&at=${trAt}`, `orag-lang://choice?lang=en&at=${enAt}`]);
+  assert.match(location.navigations[1], /^orag-lang:\/\/choice\?lang=en&at=[1-9]\d*$/);
+  assert.ok(Number(enAt) > Number(trAt), "a new choice is always after the standing one");
+  assert.equal(location.hash, "#lang=en&at=1000", "the address keeps the app's hand-over");
+  i18n.setLanguage("de");
+  assert.equal(location.navigations.length, 2, "an unknown language is not reported");
 });
 
 test("the fragment carries when the choice was made", () => {
@@ -58,7 +71,7 @@ test("a choice on the page is stored and written with its time", () => {
   i18n.setLanguage("en");
   const at = Number(storage.items.get("orag.lang.at"));
   assert.ok(at >= before && at <= Date.now(), String(at));
-  assert.equal(location.hash, `#lang=en&at=${at}`);
+  assert.equal(location.navigations.at(-1), `orag-lang://choice?lang=en&at=${at}`);
 });
 
 test("the fragment is read strictly", () => {
@@ -89,8 +102,8 @@ test("a stale fragment does not downgrade a newer stored choice, and is correcte
   assert.equal(fresh.getLanguage(), "en");
   assert.equal(page.getElementById("setup-title").textContent, "Install models");
   assert.equal(newer.items.get("orag.lang"), "en");
-  // The address now tells the desktop app the page's (newer) choice.
-  assert.equal(location.hash, "#lang=en&at=2000");
+  // The desktop app is told the page's (newer) choice.
+  assert.deepEqual(location.navigations, ["orag-lang://choice?lang=en&at=2000"]);
 });
 
 test("a choice made after the clock moved back still beats the standing one", async () => {
@@ -104,5 +117,5 @@ test("a choice made after the clock moved back still beats the standing one", as
   select.dispatchEvent(new Event("change"));
   const at = Number(storage.items.get("orag.lang.at"));
   assert.ok(at > future, `${at} must be after ${future}`);
-  assert.equal(location.hash, `#lang=tr&at=${at}`);
+  assert.equal(location.navigations.at(-1), `orag-lang://choice?lang=tr&at=${at}`);
 });

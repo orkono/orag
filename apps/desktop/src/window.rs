@@ -37,15 +37,23 @@ pub const SMOKE_SCHEME: &str = "orag-smoke";
 
 /// The script the smoke test runs inside the service page: a same-origin POST
 /// as the page itself sends it, reported through a `orag-smoke:` navigation.
-/// It also picks English on the page's language menu first: the app closes
-/// its window right after the report, well before the next language poll,
-/// so a run shows that the close path saves the last choice (`language` in
-/// the app data folder reads `en <ms>` afterwards). The page-load event can
-/// come while the page's modules are still loading, so it waits for `load`.
+/// While that POST is in flight it picks English on the page's language
+/// menu, which the page reports at once through an `orag-lang:` navigation
+/// that the app cancels: the POST must still answer, so a run shows that a
+/// cancelled report navigation leaves the page and its requests alone, and
+/// that the choice is saved before the app closes its window right after the
+/// smoke report (`language` in the app data folder reads `en <ms>`). The
+/// page-load event can come while the page's modules are still loading, so
+/// it waits for `load`.
 pub const SMOKE_SCRIPT: &str = r#"(async () => {
   if (document.readyState !== "complete") {
     await new Promise((resolve) => window.addEventListener("load", resolve, { once: true }));
   }
+  const post = fetch("/v1/models/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: "relative/pack" }),
+  });
   const menu = document.getElementById("language-select");
   if (menu) {
     menu.value = "en";
@@ -53,11 +61,7 @@ pub const SMOKE_SCRIPT: &str = r#"(async () => {
   }
   let report;
   try {
-    const r = await fetch("/v1/models/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "relative/pack" }),
-    });
+    const r = await post;
     report = "status=" + r.status + "&body=" + encodeURIComponent((await r.text()).slice(0, 300));
   } catch (e) {
     report = "error=" + encodeURIComponent(String(e));
@@ -123,25 +127,76 @@ pub fn status_script(status: &Status) -> String {
     format!("window.oragStatus && window.oragStatus({json});")
 }
 
-/// The fragment pair both pages keep their language in (`#lang=en`): the app
-/// hands the language over in it and reads the page's choice back from it.
+/// The pair the app hands the language to the service page in, in its URL
+/// fragment (`#lang=en`), and the pages report a choice in.
 const LANGUAGE_PAIR: &str = "lang";
 
-/// When the language was chosen (ms since 1970), next to it in the fragment.
+/// When the language was chosen (ms since 1970), next to it.
 const AT_PAIR: &str = "at";
 
-/// The choice a page's address names in its fragment (`lang=en&at=<ms>`),
-/// or None.
-pub fn language_of(url: &Url) -> Option<Choice> {
-    let pairs: Vec<(&str, &str)> = url
-        .fragment()?
-        .split('&')
-        .filter_map(|pair| pair.split_once('='))
-        .collect();
-    let value = |name: &str| pairs.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
-    let language = crate::prefs::parse_language(value(LANGUAGE_PAIR)?)?;
-    let at = value(AT_PAIR).and_then(|at| at.parse::<u64>().ok());
-    Some(Choice { language, at })
+/// The pages' language report channel: a page navigates to
+/// `orag-lang://choice?lang=<tr|en>&at=<ms>` the moment a choice is made,
+/// and the app cancels that navigation and keeps the choice. (The webview's
+/// address is never read for it: WKWebView has none while a navigation is
+/// pending, and wry 0.57 unwraps it.)
+pub const LANGUAGE_SCHEME: &str = "orag-lang";
+
+/// The only host of a language report.
+const LANGUAGE_HOST: &str = "choice";
+
+/// The latest time a report may name: the last millisecond of the year 9999,
+/// so a sane page clock always fits and `+ 1` never overflows.
+pub const LATEST_AT: u64 = 253_402_300_799_999;
+
+/// Whether `url` is on the language report channel (valid or not); such a
+/// navigation is always cancelled.
+pub fn is_language_report(url: &Url) -> bool {
+    url.scheme() == LANGUAGE_SCHEME
+}
+
+/// The choice a language report names, or None for anything that is not
+/// exactly `orag-lang://choice?lang=<tr|en>&at=<1..=LATEST_AT>`: no other
+/// host, port, user, path, fragment, parameter or repeated parameter, and
+/// `at` in plain digits.
+pub fn language_report(url: &Url) -> Option<Choice> {
+    let bare = is_language_report(url)
+        && url.host_str() == Some(LANGUAGE_HOST)
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path().is_empty()
+        && url.fragment().is_none();
+    if !bare {
+        return None;
+    }
+    // The raw query, never percent-decoded: the pages write plain values.
+    let (mut language, mut at) = (None, None);
+    for pair in url.query()?.split('&') {
+        let (name, value) = pair.split_once('=')?;
+        let slot = match name {
+            LANGUAGE_PAIR => &mut language,
+            AT_PAIR => &mut at,
+            _ => return None,
+        };
+        if slot.replace(value).is_some() {
+            return None; // repeated
+        }
+    }
+    let language = crate::prefs::parse_language(language?)?;
+    Some(Choice {
+        language,
+        at: Some(report_time(at?)?),
+    })
+}
+
+/// A report's time: plain digits, 1 to [`LATEST_AT`].
+fn report_time(text: &str) -> Option<u64> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.parse::<u64>()
+        .ok()
+        .filter(|at| (1..=LATEST_AT).contains(at))
 }
 
 /// `url` with its fragment set to `lang=<language>[&at=<ms>]`.
@@ -324,25 +379,78 @@ mod tests {
             .as_str(),
             "http://127.0.0.1:42000/#lang=tr"
         );
+    }
+
+    #[test]
+    fn a_language_report_names_a_timed_choice() {
         assert_eq!(
-            language_of(&url("http://127.0.0.1:42000/#lang=en&at=1700")),
-            Some(choice("en", Some(1700)))
+            language_report(&url("orag-lang://choice?lang=en&at=1700000000000")),
+            Some(choice("en", Some(1_700_000_000_000)))
         );
         assert_eq!(
-            language_of(&url("tauri://localhost/index.html#x=1&lang=tr")),
-            Some(choice("tr", None))
+            language_report(&url("orag-lang://choice?at=1&lang=tr")),
+            Some(choice("tr", Some(1)))
         );
         assert_eq!(
-            language_of(&url("http://127.0.0.1:42000/#lang=en&at=soon")),
-            Some(choice("en", None))
+            language_report(&url(&format!("orag-lang://choice?lang=en&at={LATEST_AT}"))),
+            Some(choice("en", Some(LATEST_AT)))
         );
+        assert!(is_language_report(&url("orag-lang://choice?lang=en&at=1")));
+        assert!(is_language_report(&url("orag-lang://elsewhere")));
+        assert!(!is_language_report(&url("orag-smoke://result?status=400")));
+        assert!(!is_language_report(&url(
+            "http://127.0.0.1:42000/#lang=en&at=1"
+        )));
+    }
+
+    #[test]
+    fn junk_language_reports_are_refused() {
+        let too_late = LATEST_AT + 1;
         for bad in [
-            "http://127.0.0.1:42000/",
-            "http://127.0.0.1:42000/#lang=de",
-            "http://127.0.0.1:42000/#lang=EN",
-            "http://127.0.0.1:42000/?lang=en",
+            // Wrong scheme, host, port, user, path or fragment.
+            "orag-smoke://choice?lang=en&at=1".to_string(),
+            "http://choice/?lang=en&at=1".to_string(),
+            "http://127.0.0.1:42000/?lang=en&at=1".to_string(),
+            "orag-lang://other?lang=en&at=1".to_string(),
+            "orag-lang://CHOICE?lang=en&at=1".to_string(),
+            "orag-lang://choice:80?lang=en&at=1".to_string(),
+            "orag-lang://me@choice?lang=en&at=1".to_string(),
+            "orag-lang://choice/x?lang=en&at=1".to_string(),
+            "orag-lang://choice/?lang=en&at=1".to_string(),
+            "orag-lang://choice?lang=en&at=1#x".to_string(),
+            "orag-lang:choice?lang=en&at=1".to_string(),
+            // Missing or bad language.
+            "orag-lang://choice".to_string(),
+            "orag-lang://choice?at=1".to_string(),
+            "orag-lang://choice?lang=&at=1".to_string(),
+            "orag-lang://choice?lang=de&at=1".to_string(),
+            "orag-lang://choice?lang=EN&at=1".to_string(),
+            "orag-lang://choice?lang=en%00&at=1".to_string(),
+            "orag-lang://choice?lang=e%6E&at=1".to_string(),
+            // Missing, untimed, zero, negative, huge or non-numeric time.
+            "orag-lang://choice?lang=en".to_string(),
+            "orag-lang://choice?lang=en&at=".to_string(),
+            "orag-lang://choice?lang=en&at=0".to_string(),
+            "orag-lang://choice?lang=en&at=-5".to_string(),
+            "orag-lang://choice?lang=en&at=+5".to_string(),
+            "orag-lang://choice?lang=en&at=1.5".to_string(),
+            "orag-lang://choice?lang=en&at=1e3".to_string(),
+            "orag-lang://choice?lang=en&at=soon".to_string(),
+            "orag-lang://choice?lang=en&at=0x10".to_string(),
+            "orag-lang://choice?lang=en&at=%31".to_string(),
+            "orag-lang://choice?lang=en&at= 1".to_string(),
+            format!("orag-lang://choice?lang=en&at={too_late}"),
+            "orag-lang://choice?lang=en&at=18446744073709551616".to_string(),
+            "orag-lang://choice?lang=en&at=99999999999999999999999".to_string(),
+            // Extra, repeated or malformed parameters.
+            "orag-lang://choice?lang=en&at=1&x=1".to_string(),
+            "orag-lang://choice?lang=en&at=1&".to_string(),
+            "orag-lang://choice?lang=en&lang=tr&at=1".to_string(),
+            "orag-lang://choice?lang=en&at=1&at=2".to_string(),
+            "orag-lang://choice?lang=en&at".to_string(),
+            "orag-lang://choice?lang=en;at=1".to_string(),
         ] {
-            assert_eq!(language_of(&url(bad)), None, "{bad}");
+            assert_eq!(language_report(&url(&bad)), None, "{bad}");
         }
     }
 

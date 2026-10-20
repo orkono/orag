@@ -3,13 +3,17 @@
 // Every value is set with textContent, so service output is never parsed as HTML.
 // Turkish or English like the web page (step 77): the page opens in Turkish
 // unless English was chosen (localStorage "orag.lang"); the app also hands it
-// the language last chosen on the service page (window.oragLanguage).
+// the language last chosen on the service page (window.oragLanguage). A choice
+// the app does not know yet is reported to it at once, as a navigation to
+// `orag-lang://choice?lang=<tr|en>&at=<ms>` that the app cancels
+// (src/window.rs `language_report`); this page only ever runs in the app.
 "use strict";
 
 const STORAGE_KEY = "orag.lang";
 /** When the choice was made (ms since 1970). */
 const AT_KEY = "orag.lang.at";
 const STATES = ["loading", "restarting", "failed"];
+const REPORT_URL = "orag-lang://choice";
 
 const MESSAGES = {
   tr: {
@@ -88,7 +92,17 @@ function applyLanguage() {
   render(lastStatus);
 }
 
-/** Shows, stores and writes into the address the choice that stands. */
+/** Tells the app about a timed choice; the page stays as it is. */
+function report(choice) {
+  if (choice.at === null) return;
+  try {
+    location.href = `${REPORT_URL}?lang=${choice.language}&at=${choice.at}`;
+  } catch {
+    // The app keeps the choice it knew.
+  }
+}
+
+/** Shows and stores the choice that stands. */
 function adopt(choice) {
   chosen = choice;
   language = choice.language;
@@ -99,14 +113,6 @@ function adopt(choice) {
   } catch {
     // Not remembered; the page still switches now.
   }
-  // The app reads the choice back from the address (src/app.rs) and hands it
-  // to the service page, whose own storage is on another origin.
-  const at = choice.at === null ? "" : `&at=${choice.at}`;
-  try {
-    history.replaceState(history.state, "", `${location.pathname}${location.search}#lang=${choice.language}${at}`);
-  } catch {
-    // The app keeps the language it handed over.
-  }
   applyLanguage();
 }
 
@@ -116,12 +122,16 @@ function chooseOnPage(lang) {
   const now = Date.now();
   const at = chosen && chosen.at !== null && chosen.at >= now ? chosen.at + 1 : now;
   adopt({ language: lang, at });
+  report(chosen);
 }
 
 /** The app hands over the choice it knows (`at`: ms since 1970, or null). */
 function handOver(lang, at) {
   if (!isLanguage(lang)) return;
-  adopt(choose({ language: lang, at: timeOf(at) }, chosen));
+  const handed = { language: lang, at: timeOf(at) };
+  adopt(choose(handed, chosen));
+  // The page's own choice was newer: the app learns it.
+  if (chosen.language !== handed.language || chosen.at !== handed.at) report(chosen);
 }
 
 document.getElementById("language-select").addEventListener("change", (event) => chooseOnPage(event.target.value));

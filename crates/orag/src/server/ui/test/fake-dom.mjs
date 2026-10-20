@@ -304,6 +304,14 @@ export function installPage({ storage = memoryStorage(), hash = "" } = {}) {
     hash,
     pathname: "/",
     search: "",
+    /** Every address the page navigated to (`location.href = …`), in order. */
+    navigations: [],
+    get href() {
+      return `http://127.0.0.1:42000${this.pathname}${this.search}${this.hash}`;
+    },
+    set href(url) {
+      this.navigations.push(String(url));
+    },
     reload() {},
   };
   const history = {
