@@ -211,6 +211,32 @@ Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
 web UI, the desktop app and the release workflow), and both figures are within
 run-to-run noise of v0.4.0.
 
+## v0.5.0 release candidate
+
+Both references on the release candidate `0.5.0-alpha.1` (release build);
+the bump to `0.5.0` after it changes only documentation.
+
+macOS reference (Apple M5 Max, 128 GB RAM; 2026-10-21):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| macos-aarch64 | 0.5.0-alpha.1 | 100000 | 1024 | 50 | 50 | 9.8 | 93.8 | 97.3 | 100.9 | 250 | PASS |
+
+Linux reference (GitHub `ubuntu-22.04` runner, x86-64, AMD EPYC 7763, 2026-10-21,
+workflow `vector-scale` run 39502376301, started by pushing `bench/v0.5.0-rc`,
+deleted after the run):
+
+| platform | version | chunks | dims | k | queries | insert s | p50 ms | p95 ms | max ms | target p95 | result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| linux-x86_64 | 0.5.0-alpha.1 | 100000 | 1024 | 50 | 50 | 27.1 | 224.9 | 226.3 | 226.8 | 250 | PASS |
+
+300k (informational): p95 660.3 ms, FAIL, as expected.
+
+Gate: **PASS** on both references (`scripts/check-benchmark-gate.sh
+0.5.0-alpha.1`). The search engine is unchanged since v0.4.0 (this release
+changes the setup page, the downloader and the config write), and both figures
+are within run-to-run noise of v0.4.1.
+
 ## Follow-up after v0.1.0
 
 - Apple M-series laptop with 16 GB RAM and an x86-64 8-core, 16 GB Linux

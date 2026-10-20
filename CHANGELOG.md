@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.5.0] - 2026-10-20
+
+- **ORAG v0.5.0.** The setup page shows this computer and the answer models that fit it, and downloads the one the user picks: the default `qwen3.5-4b-q4_k_m` (recommended) or `qwen3.5-9b-q4_k_m` (larger, slower). Each tier has a RAM floor and a recommended RAM measured on Mac (Metal) and Linux (CPU); a hand-set generator is kept; the choice is written to `config.toml` only after the download verifies (steps 81-82). Packages are still unsigned.
+- Release gates on the candidate `0.5.0-alpha.1`: real-model check unchanged from v0.4.1 (v02 hybrid in context 0.931, hybrid p95 14.4 ms on Metal; answers expected facts 0.925, abstention P/R 0.944/0.850, no uncited answer; seed recall@10 1.000); D-003 dense search at 100k p95 97.3 ms on Apple M5 Max and 226.3 ms on the Linux reference (both PASS). Answer time on a 4-vCPU CPU without a GPU is about 108 s (4B) and 194 s (9B), so GPU support for Windows and Linux is the next step.
+
 ## [0.5.0-alpha.1] - 2026-10-20
 
 - The setup page shows this computer (memory, CPU, cores, graphics, free disk) and the answer models that fit it, and downloads the one the user picks (steps 81-82). Two tiers are offered: the default `qwen3.5-4b-q4_k_m` (recommended) and `qwen3.5-9b-q4_k_m` ("Large: slower, uses more memory"); the 2B failed the quality rule (abstention recall 0.200) and is not offered. Each tier has a hard RAM floor (4B 7 GiB, 9B 11 GiB) and a recommended RAM (8 / 12 GiB) from the larger of the Mac and Linux CPU peaks; between them it is offered with a warning (`.docs/benchmarks/v0.5-model-tiers.md`).
