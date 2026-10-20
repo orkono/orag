@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.5.0-alpha.1] - 2026-10-20
+
+- The setup page shows this computer (memory, CPU, cores, graphics, free disk) and the answer models that fit it, and downloads the one the user picks (steps 81-82). Two tiers are offered: the default `qwen3.5-4b-q4_k_m` (recommended) and `qwen3.5-9b-q4_k_m` ("Large: slower, uses more memory"); the 2B failed the quality rule (abstention recall 0.200) and is not offered. Each tier has a hard RAM floor (4B 7 GiB, 9B 11 GiB) and a recommended RAM (8 / 12 GiB) from the larger of the Mac and Linux CPU peaks; between them it is offered with a warning (`.docs/benchmarks/v0.5-model-tiers.md`).
+- The chosen generator is written to `generation_model` in `config.toml` only after the download verifies; comments, line endings and a symlinked file are kept. A hand-set generator is offered as "Current". `GET /v1/models` gains `machine` and `options`; `POST /v1/models/download` takes an optional `{"model": id}` (`docs/api.md`). Missing AVX2/FMA/F16C/BMI2 blocks only the Windows build; elsewhere it is a slow-CPU warning.
+
 ## [0.4.1] - 2026-10-20
 
 - **ORAG v0.4.1.** The web UI and the desktop app's status page speak Turkish and English, with a TR/EN menu; the page opens in Turkish unless English was chosen (step 78). Every release now carries `SHA256SUMS` and GitHub build provenance for each file, and the macOS desktop build signs and notarizes once the owner adds the Apple secrets (step 79, `docs/signing.md`); the packages of this release are still unsigned. The desktop app no longer reads its window's address, which could crash it on macOS before a page had loaded.
