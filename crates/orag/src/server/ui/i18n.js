@@ -6,6 +6,9 @@
 const STORAGE_KEY = "orag.lang";
 /** The URL fragment pair the desktop app hands the language over in. */
 const HASH_KEY = "lang";
+/** When the choice was made (ms since 1970), in storage and the fragment. */
+const AT_STORAGE_KEY = "orag.lang.at";
+const AT_KEY = "at";
 const LANGUAGES = ["tr", "en"];
 const DEFAULT_LANGUAGE = "tr";
 const LOCALES = { tr: "tr-TR", en: "en-US" };
@@ -479,41 +482,66 @@ export const MESSAGES = { tr, en };
 
 const isLanguage = (lang) => LANGUAGES.includes(lang);
 
-/** The language a `#lang=tr|en` fragment names, or null. */
-export function languageFromHash(hash) {
-  for (const pair of String(hash ?? "").replace(/^#/, "").split("&")) {
-    const [name, value] = pair.split("=");
-    if (name === HASH_KEY && isLanguage(value)) return value;
-  }
-  return null;
+/** A time in ms since 1970 as written in storage or a fragment, else null. */
+function timeOf(text) {
+  return /^\d{1,15}$/.test(String(text ?? "")) ? Number(text) : null;
+}
+
+/**
+ * The choice a `#lang=tr|en[&at=<ms>]` fragment hands over: its language
+ * and when it was made (null for the app's default, no choice seen yet).
+ */
+export function choiceFromHash(hash) {
+  const pairs = new Map(String(hash ?? "").replace(/^#/, "").split("&").map((pair) => pair.split("=")));
+  const language = pairs.get(HASH_KEY);
+  return isLanguage(language) ? { language, at: timeOf(pairs.get(AT_KEY)) } : null;
+}
+
+/** The language a `#lang=` fragment names, or null. */
+export const languageFromHash = (hash) => choiceFromHash(hash)?.language ?? null;
+
+/**
+ * Which of two choices stands: a timed choice beats an untimed one, the
+ * later time wins (a tie goes to the hand-over), and between two untimed
+ * ones the stored choice stays. So a stale hand-over from the desktop app
+ * never downgrades a newer choice made on the page, and the app's default
+ * never overrides a stored one. Turkish when there is neither.
+ */
+export function chooseLanguage(handed, stored) {
+  if (!handed || !stored) return handed ?? stored ?? { language: DEFAULT_LANGUAGE, at: null };
+  if (handed.at === null) return stored;
+  if (stored.at === null) return handed;
+  return handed.at >= stored.at ? handed : stored;
 }
 
 const currentHash = () => globalThis.location?.hash ?? "";
 
-/**
- * The language to open in: one handed over in the URL fragment (the desktop
- * app does that, its page origin may change between launches), else the
- * stored choice, else Turkish.
- */
-export function initialLanguage() {
-  const handed = languageFromHash(currentHash());
-  if (handed) return handed;
+function storedChoice() {
   try {
-    const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
-    if (isLanguage(stored)) return stored;
+    const language = globalThis.localStorage?.getItem(STORAGE_KEY);
+    return isLanguage(language) ? { language, at: timeOf(globalThis.localStorage.getItem(AT_STORAGE_KEY)) } : null;
   } catch {
-    // Storage blocked: the page opens in Turkish.
+    return null; // Storage blocked.
   }
-  return DEFAULT_LANGUAGE;
 }
+
+/**
+ * The choice to open in: the one handed over in the URL fragment (the
+ * desktop app does that, its page origin may change between launches) or
+ * the stored one, by `chooseLanguage`; else Turkish.
+ */
+const initialChoice = () => chooseLanguage(choiceFromHash(currentHash()), storedChoice());
+
+export const initialLanguage = () => initialChoice().language;
 
 /**
  * Opened with a `#lang=` fragment (by the desktop app): the fragment then
  * follows the menu, which is how the app reads the choice back. A page
  * opened without one never gets a fragment.
  */
-const followsFragment = languageFromHash(currentHash()) !== null;
-let current = initialLanguage();
+const followsFragment = choiceFromHash(currentHash()) !== null;
+let chosen = initialChoice();
+let current = chosen.language;
 
 export const getLanguage = () => current;
 
@@ -613,19 +641,22 @@ export function setAttrText(node, attr, key, params) {
   node.setAttribute(attr, t(key, params));
 }
 
-function store(lang) {
+function store({ language, at }) {
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, lang);
+    globalThis.localStorage?.setItem(STORAGE_KEY, language);
+    if (at === null) globalThis.localStorage?.removeItem(AT_STORAGE_KEY);
+    else globalThis.localStorage?.setItem(AT_STORAGE_KEY, String(at));
   } catch {
     // Not remembered across reloads; the page still switches now.
   }
 }
 
-/** Writes `#lang=<lang>` into the address without a navigation. */
-function writeFragment(lang) {
+/** Writes `#lang=<language>[&at=<ms>]` into the address without a navigation. */
+function writeFragment({ language, at }) {
   const loc = globalThis.location;
+  const fragment = `${HASH_KEY}=${language}${at === null ? "" : `&${AT_KEY}=${at}`}`;
   try {
-    globalThis.history?.replaceState(globalThis.history.state ?? null, "", `${loc.pathname}${loc.search}#${HASH_KEY}=${lang}`);
+    globalThis.history?.replaceState(globalThis.history.state ?? null, "", `${loc.pathname}${loc.search}#${fragment}`);
   } catch {
     // The app then reads the choice it handed over.
   }
@@ -649,18 +680,24 @@ function apply(lang) {
  */
 export function setLanguage(lang) {
   if (!isLanguage(lang)) return current;
-  store(lang);
-  if (followsFragment) writeFragment(lang);
+  chosen = { language: lang, at: Date.now() };
+  store(chosen);
+  if (followsFragment) writeFragment(chosen);
   apply(lang);
   return current;
 }
 
 /**
- * Translates the page into the starting language and wires the menu; a
- * language handed over in the fragment is stored as the choice.
+ * Translates the page into the starting language and wires the menu. In
+ * the desktop app (a fragment) the standing choice is stored and written
+ * back into the address, so the app learns when the page's own choice was
+ * newer than the one it handed over.
  */
 export function initLanguage(select) {
-  if (followsFragment) store(current);
+  if (followsFragment) {
+    store(chosen);
+    writeFragment(chosen);
+  }
   apply(current);
   if (!select) return;
   select.value = current;

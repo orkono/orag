@@ -7,6 +7,8 @@
 "use strict";
 
 const STORAGE_KEY = "orag.lang";
+/** When the choice was made (ms since 1970). */
+const AT_KEY = "orag.lang.at";
 const STATES = ["loading", "restarting", "failed"];
 
 const MESSAGES = {
@@ -26,17 +28,35 @@ const MESSAGES = {
   },
 };
 
-function storedLanguage() {
+const isLanguage = (lang) => typeof lang === "string" && Object.hasOwn(MESSAGES, lang);
+const timeOf = (value) => (/^\d{1,15}$/.test(String(value ?? "")) ? Number(value) : null);
+
+/** The stored choice ({language, at}), or null. */
+function storedChoice() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (Object.hasOwn(MESSAGES, stored)) return stored;
+    if (isLanguage(stored)) return { language: stored, at: timeOf(localStorage.getItem(AT_KEY)) };
   } catch {
-    // Storage blocked: Turkish.
+    // Storage blocked.
   }
-  return "tr";
+  return null;
 }
 
-let language = storedLanguage();
+/**
+ * Which choice stands, as on the service page (i18n.js chooseLanguage) and
+ * in the app (prefs.rs Choice::prefer): a timed choice beats an untimed one,
+ * the later time wins (a tie goes to the hand-over), and an untimed
+ * hand-over, the app's default, never overrides a stored choice.
+ */
+function choose(handed, stored) {
+  if (!handed || !stored) return handed || stored || { language: "tr", at: null };
+  if (handed.at === null) return stored;
+  if (stored.at === null) return handed;
+  return handed.at >= stored.at ? handed : stored;
+}
+
+let chosen = choose(null, storedChoice());
+let language = chosen.language;
 let lastStatus = null;
 
 const text = (key) => MESSAGES[language][key];
@@ -68,27 +88,42 @@ function applyLanguage() {
   render(lastStatus);
 }
 
-function setLanguage(lang) {
-  if (!Object.hasOwn(MESSAGES, lang)) return;
-  language = lang;
+/** Shows, stores and writes into the address the choice that stands. */
+function adopt(choice) {
+  chosen = choice;
+  language = choice.language;
   try {
-    localStorage.setItem(STORAGE_KEY, lang);
+    localStorage.setItem(STORAGE_KEY, choice.language);
+    if (choice.at === null) localStorage.removeItem(AT_KEY);
+    else localStorage.setItem(AT_KEY, String(choice.at));
   } catch {
     // Not remembered; the page still switches now.
   }
   // The app reads the choice back from the address (src/app.rs) and hands it
   // to the service page, whose own storage is on another origin.
+  const at = choice.at === null ? "" : `&at=${choice.at}`;
   try {
-    history.replaceState(history.state, "", `${location.pathname}${location.search}#lang=${lang}`);
+    history.replaceState(history.state, "", `${location.pathname}${location.search}#lang=${choice.language}${at}`);
   } catch {
     // The app keeps the language it handed over.
   }
   applyLanguage();
 }
 
-document.getElementById("language-select").addEventListener("change", (event) => setLanguage(event.target.value));
+/** A choice made on this page's menu: now. */
+function chooseOnPage(lang) {
+  if (isLanguage(lang)) adopt({ language: lang, at: Date.now() });
+}
+
+/** The app hands over the choice it knows (`at`: ms since 1970, or null). */
+function handOver(lang, at) {
+  if (!isLanguage(lang)) return;
+  adopt(choose({ language: lang, at: timeOf(at) }, chosen));
+}
+
+document.getElementById("language-select").addEventListener("change", (event) => chooseOnPage(event.target.value));
 applyLanguage();
 
 window.oragStatus = render;
 // The app hands over the language last chosen on either page after each load.
-window.oragLanguage = setLanguage;
+window.oragLanguage = handOver;

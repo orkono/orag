@@ -34,64 +34,141 @@ pub fn write_ui_port(dir: &Path, port: u16) -> io::Result<()> {
     std::fs::write(dir.join(UI_PORT_FILE), format!("{port}\n"))
 }
 
-/// The language last chosen on a page; None until one was seen.
-pub fn read_language(dir: &Path) -> Option<&'static str> {
-    parse_language(&read(dir, LANGUAGE_FILE)?)
+/// A page language and when it was chosen (ms since 1970, the page's clock),
+/// or no time for the default before any choice was seen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Choice {
+    pub language: &'static str,
+    pub at: Option<u64>,
 }
 
-pub fn write_language(dir: &Path, language: &str) -> io::Result<()> {
-    let language = parse_language(language).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("unknown language {language:?}"),
-        )
-    })?;
-    std::fs::write(dir.join(LANGUAGE_FILE), format!("{language}\n"))
+impl Default for Choice {
+    /// Turkish, with no choice made.
+    fn default() -> Self {
+        Choice {
+            language: LANGUAGES[0],
+            at: None,
+        }
+    }
+}
+
+impl Choice {
+    /// The choice that stands when a page shows `seen` and the app knows
+    /// `current`: a timed choice beats an untimed one, the later time wins (a
+    /// tie goes to `seen`), and an untimed `seen`, a page's default, changes
+    /// nothing. The pages apply the same rule (i18n.js `chooseLanguage`).
+    pub fn prefer(current: Choice, seen: Choice) -> Choice {
+        match (current.at, seen.at) {
+            (_, None) => current,
+            (None, Some(_)) => seen,
+            (Some(known), Some(shown)) if shown >= known => seen,
+            _ => current,
+        }
+    }
+}
+
+/// The language last chosen on a page; None until one was seen. A missing
+/// or broken time (the step 77 round 1 file had none) reads as no time.
+pub fn read_language(dir: &Path) -> Option<Choice> {
+    let text = read(dir, LANGUAGE_FILE)?;
+    let mut parts = text.split_whitespace();
+    let language = parse_language(parts.next()?)?;
+    let at = parts.next().and_then(|at| at.parse::<u64>().ok());
+    Some(Choice { language, at })
+}
+
+pub fn write_language(dir: &Path, choice: Choice) -> io::Result<()> {
+    let text = match choice.at {
+        Some(at) => format!("{} {at}\n", choice.language),
+        None => format!("{}\n", choice.language),
+    };
+    std::fs::write(dir.join(LANGUAGE_FILE), text)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn choice(language: &'static str, at: Option<u64>) -> Choice {
+        Choice { language, at }
+    }
+
     #[test]
     fn nothing_is_remembered_on_a_first_start() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read_ui_port(dir.path()), None);
         assert_eq!(read_language(dir.path()), None);
+        assert_eq!(Choice::default(), choice("tr", None));
     }
 
     #[test]
     fn the_page_port_and_the_language_survive_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         write_ui_port(dir.path(), 42017).unwrap();
-        write_language(dir.path(), "en").unwrap();
+        write_language(dir.path(), choice("en", Some(1_700_000_000_000))).unwrap();
         assert_eq!(read_ui_port(dir.path()), Some(42017));
-        assert_eq!(read_language(dir.path()), Some("en"));
-        write_language(dir.path(), "tr").unwrap();
-        assert_eq!(read_language(dir.path()), Some("tr"));
+        assert_eq!(
+            read_language(dir.path()),
+            Some(choice("en", Some(1_700_000_000_000)))
+        );
+        write_language(dir.path(), choice("tr", None)).unwrap();
+        assert_eq!(read_language(dir.path()), Some(choice("tr", None)));
     }
 
     #[test]
     fn damaged_files_are_ignored() {
         let dir = tempfile::tempdir().unwrap();
-        for (port, language) in [("0", "de"), ("70000", "EN"), ("x", ""), ("-1", "en-US")] {
+        for (port, language) in [("0", "de"), ("70000", "EN 5"), ("x", ""), ("-1", "en-US")] {
             std::fs::write(dir.path().join(UI_PORT_FILE), port).unwrap();
             std::fs::write(dir.path().join(LANGUAGE_FILE), language).unwrap();
             assert_eq!(read_ui_port(dir.path()), None, "{port}");
             assert_eq!(read_language(dir.path()), None, "{language}");
         }
         std::fs::write(dir.path().join(UI_PORT_FILE), " 42017\n").unwrap();
+        // The step 77 round 1 format (no time) and a broken time still read.
         std::fs::write(dir.path().join(LANGUAGE_FILE), "en\n").unwrap();
         assert_eq!(read_ui_port(dir.path()), Some(42017));
-        assert_eq!(read_language(dir.path()), Some("en"));
+        assert_eq!(read_language(dir.path()), Some(choice("en", None)));
+        std::fs::write(dir.path().join(LANGUAGE_FILE), "en soon\n").unwrap();
+        assert_eq!(read_language(dir.path()), Some(choice("en", None)));
     }
 
     #[test]
-    fn only_known_languages_are_written() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(write_language(dir.path(), "de").is_err());
-        assert_eq!(read_language(dir.path()), None);
+    fn languages_are_parsed_strictly() {
         assert_eq!(parse_language("tr"), Some("tr"));
         assert_eq!(parse_language("xx"), None);
+    }
+
+    #[test]
+    fn a_later_choice_wins_and_a_default_never_overrides_one() {
+        let prefer = |current, seen| Choice::prefer(current, seen);
+        // A stale choice the page still shows does not undo a newer one.
+        assert_eq!(
+            prefer(choice("en", Some(200)), choice("tr", Some(100))),
+            choice("en", Some(200))
+        );
+        assert_eq!(
+            prefer(choice("tr", Some(100)), choice("en", Some(200))),
+            choice("en", Some(200))
+        );
+        assert_eq!(
+            prefer(choice("tr", Some(200)), choice("en", Some(200))),
+            choice("en", Some(200)),
+            "a tie goes to what the page shows"
+        );
+        // A page showing the default (no choice made) changes nothing.
+        assert_eq!(
+            prefer(choice("en", Some(200)), choice("tr", None)),
+            choice("en", Some(200))
+        );
+        assert_eq!(
+            prefer(choice("en", None), choice("tr", None)),
+            choice("en", None)
+        );
+        // A timed choice beats one remembered without a time.
+        assert_eq!(
+            prefer(choice("en", None), choice("tr", Some(5))),
+            choice("tr", Some(5))
+        );
     }
 }
