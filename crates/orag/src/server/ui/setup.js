@@ -1,7 +1,8 @@
 // Setup mode (D-023): the configured models are not installed. One button
-// downloads them from Hugging Face (step 76); a local folder of model packs
-// still works offline. ORAG then restarts, by itself under `orag start`, or by
-// the user otherwise.
+// downloads them from Hugging Face (step 76), with the answer model the user
+// picked from the ones that fit this computer (step 82); a local folder of
+// model packs still works offline. ORAG then restarts, by itself under
+// `orag start`, or by the user otherwise.
 import { $, el, tEl } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
 import {
@@ -16,6 +17,8 @@ import {
   waitUntilReady,
 } from "./download.js";
 import { setAttrText, setText } from "./i18n.js";
+import { chosenGenerator, draw as drawChoice, initChoice } from "./setup-choice.js";
+import { choiceTotal } from "./tiers.js";
 
 const MODELS_POLL_MS = 2000;
 
@@ -24,6 +27,8 @@ let lastPhase = null;
 /** The last view shown and the size on the start button, drawn again in a new language. */
 let lastView = null;
 let downloadBytes = null;
+/** The `/v1/models` answer, when it offers a choice of answer model. */
+let choiceModels = null;
 
 function isWindows() {
   return /win/i.test(navigator.userAgentData?.platform || navigator.platform || "");
@@ -155,10 +160,30 @@ function drawProgress(view) {
   $("setup-progress-amount").textContent = `${view.overall.amount} · ${view.overall.percent}`;
 }
 
+/** The card and the list again (a new language, a new pick); the list hides while a download runs. */
+function redrawChoice(listShown) {
+  if (!choiceModels) return;
+  drawChoice();
+  if (!listShown) $("setup-tiers").hidden = true;
+}
+
+/** The start button: the size of what the press downloads, off without a pick. */
+function labelStart() {
+  const button = $("setup-download-start");
+  if (!choiceModels) {
+    button.textContent = downloadButtonLabel(downloadBytes);
+    return;
+  }
+  const chosen = chosenGenerator();
+  button.textContent = downloadButtonLabel(chosen ? choiceTotal(choiceModels.download, chosen) : null);
+  button.disabled = following || !chosen;
+}
+
 function renderView(view) {
   lastView = view.phase === "idle" ? null : view;
   if (view.phase === "idle") return showStart();
   $("setup-download").hidden = true;
+  redrawChoice(false);
   $("setup-progress").hidden = false;
   drawProgress(view);
   $("setup-download-cancel").hidden = !view.busy;
@@ -179,12 +204,16 @@ function renderView(view) {
  * from the last status drawn, which is also what they show now.
  */
 function relabel() {
-  $("setup-download-start").textContent = downloadButtonLabel(downloadBytes);
-  if (lastView && !$("setup-progress").hidden) drawProgress(downloadView(lastView.status));
+  const progressShown = !$("setup-progress").hidden;
+  redrawChoice(!progressShown);
+  labelStart();
+  if (lastView && progressShown) drawProgress(downloadView(lastView.status));
 }
 
 function showStart() {
   lastView = null;
+  redrawChoice(true);
+  labelStart();
   $("setup-download").hidden = false;
   $("setup-progress").hidden = true;
   $("setup-import").disabled = false;
@@ -193,6 +222,11 @@ function showStart() {
 
 function setInFlight(busy) {
   for (const id of ["setup-download-start", "setup-download-cancel", "setup-download-again"]) $(id).disabled = busy;
+  for (const input of $("setup-tier-list").querySelectorAll("input")) if (busy) input.disabled = true;
+  if (!busy && choiceModels && !$("setup-download").hidden) {
+    redrawChoice(true);
+    labelStart();
+  }
 }
 
 /** No download here: say why (the key `reason`) and open the offline form. */
@@ -209,7 +243,7 @@ function offlineOnly(reason, detail) {
 /** A refused start: another tab may run the download already; follow it. */
 async function startOrJoin() {
   try {
-    return await startDownload();
+    return await startDownload(choiceModels ? chosenGenerator() : undefined);
   } catch (err) {
     if (err.code !== "conflict") throw err;
     const status = await downloadStatus();
@@ -292,10 +326,21 @@ async function joinRunning() {
   if (status.state !== "idle") follow(async () => status);
 }
 
-function initDownload(download) {
+/** A machine no answer model fits: say why; the offline form stays. */
+function unsupportedOnly() {
+  $("setup-download").hidden = true;
+  $("setup-progress").hidden = true;
+  $("setup-offline").open = true;
+}
+
+function initDownload(models) {
+  const download = models.download;
   if (!download?.available) return offlineOnly(unavailableKey(download), download?.reason);
+  const choice = initChoice(models, labelStart);
+  choiceModels = choice ? models : null;
+  if (choice?.unsupported) return unsupportedOnly();
   downloadBytes = download.bytes;
-  $("setup-download-start").textContent = downloadButtonLabel(downloadBytes);
+  labelStart();
   $("setup-download-start").addEventListener("click", () => follow(startOrJoin));
   $("setup-download-again").addEventListener("click", () => follow(startOrJoin));
   $("setup-download-cancel").addEventListener("click", cancel);
@@ -357,5 +402,5 @@ export async function initSetup() {
   window.addEventListener("orag:language", relabel);
   $("setup-panel").hidden = false;
   lockWork();
-  await initDownload(models.download);
+  await initDownload(models);
 }
