@@ -2,7 +2,10 @@
 //! decides the setup page's list and the eligibility `POST
 //! /v1/models/download` checks a chosen generator against.
 //!
-//! RAM: total RAM against the tier's need (available RAM only warns). Disk:
+//! RAM: total RAM against the tier's hard floor (`too_big_ram` below it);
+//! below its recommended RAM the tier stays selectable with the
+//! `below_recommended_ram` warning, and available RAM below the recommended
+//! value only warns (`low_available_memory`). Disk:
 //! what the embedder and the generator still have to fetch (nothing when
 //! installed; the `.part` files of an interrupted run count, as in the
 //! downloader's own check) and 512 MiB against the free space of the models
@@ -66,8 +69,11 @@ pub struct Support {
 pub enum Warning {
     /// Only one tier fits: it is offered without a choice (owner decision).
     SingleOption,
-    /// The tier fits the total RAM, but less is free right now.
+    /// The tier fits, but less RAM is free right now than it recommends.
     LowAvailableMemory,
+    /// Total RAM is at or above the tier's hard floor but below its
+    /// recommended RAM: selectable, answers may be slow.
+    BelowRecommendedRam,
     /// An x86-64 CPU without AVX2/FMA/F16C/BMI2 outside Windows: it runs,
     /// on slower code paths (only the Windows binary is built for that floor).
     SlowCpu,
@@ -99,7 +105,8 @@ pub struct TierOption {
     /// Bytes a download of this option still fetches.
     pub download_bytes: u64,
     pub installed: bool,
-    pub need_ram_bytes: u64,
+    pub min_ram_bytes: u64,
+    pub recommended_ram_bytes: u64,
     pub speed: SpeedHint,
     pub verdict: Verdict,
     pub warnings: Vec<Warning>,
@@ -220,14 +227,15 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
         .saturating_add(download)
         .saturating_add(DISK_HEADROOM_BYTES);
     let below = |have: Option<u64>, need: u64| have.is_some_and(|have| have < need);
-    let verdict = if below(machine.total_ram_bytes, tier.need_ram_bytes) {
+    let verdict = if below(machine.total_ram_bytes, tier.min_ram_bytes) {
         Verdict::TooBigRam
     } else if below(machine.free_disk_bytes, needed_disk) {
         Verdict::TooBigDisk
     } else {
         Verdict::Fits
     };
-    let low_memory = verdict.eligible() && below(machine.available_ram_bytes, tier.need_ram_bytes);
+    let low_memory =
+        verdict.eligible() && below(machine.available_ram_bytes, tier.recommended_ram_bytes);
     TierOption {
         id: tier.id.clone(),
         size: (!candidate.current).then_some(tier.size),
@@ -240,14 +248,20 @@ fn option(machine: &Machine, candidate: &Candidate, embedding_bytes: u64) -> Tie
         bytes: candidate.bytes,
         download_bytes: download,
         installed: candidate.installed,
-        need_ram_bytes: tier.need_ram_bytes,
+        min_ram_bytes: tier.min_ram_bytes,
+        recommended_ram_bytes: tier.recommended_ram_bytes,
         speed: tier.speed,
         verdict,
-        warnings: if low_memory {
-            vec![Warning::LowAvailableMemory]
-        } else {
-            Vec::new()
-        },
+        warnings: [
+            (
+                verdict.eligible() && below(machine.total_ram_bytes, tier.recommended_ram_bytes),
+                Warning::BelowRecommendedRam,
+            ),
+            (low_memory, Warning::LowAvailableMemory),
+        ]
+        .into_iter()
+        .filter_map(|(on, warning)| on.then_some(warning))
+        .collect(),
     }
 }
 
@@ -348,6 +362,52 @@ mod tests {
             bmi2: true,
         });
         m
+    }
+
+    /// A machine with `tenths` tenths of a GiB of RAM, all free.
+    fn tenths(tenths: u64) -> Machine {
+        let mut m = machine(1, 1, 500);
+        m.total_ram_bytes = Some(tenths * GIB / 10);
+        m.available_ram_bytes = m.total_ram_bytes;
+        m
+    }
+
+    fn below_recommended(options: &Options) -> Vec<bool> {
+        options
+            .options
+            .iter()
+            .map(|o| o.warnings.contains(&Warning::BelowRecommendedRam))
+            .collect()
+    }
+
+    #[test]
+    fn the_hard_floor_decides_and_the_recommended_ram_only_warns() {
+        // 4B: floor 7 GiB, recommended 8 GiB; 9B: floor 11 GiB, recommended 12 GiB.
+        let table = [
+            (65, [TooBigRam, TooBigRam], [false, false]),
+            (77, [Recommended, TooBigRam], [true, false]),
+            (80, [Recommended, TooBigRam], [false, false]),
+            (115, [Recommended, Fits], [false, true]),
+            (160, [Recommended, Fits], [false, false]),
+        ];
+        for (t, expected, warned) in table {
+            let options = options_for(&tenths(t), "");
+            assert_eq!(verdicts(&options), expected, "{t} tenths of a GiB");
+            assert_eq!(below_recommended(&options), warned, "{t} tenths of a GiB");
+        }
+        let small = options_for(&tenths(65), "");
+        assert_eq!(small.support.code, Some(SupportCode::NoTierFits));
+        let eight = options_for(&tenths(77), "");
+        assert_eq!(eight.warnings, [Warning::SingleOption]);
+        assert!(eight.eligible(DEFAULT).is_ok());
+        assert_eq!(
+            eight.eligible(LARGE),
+            Err(Ineligible::NotEligible("too_big_ram"))
+        );
+        assert_eq!(
+            serde_json::to_value(Warning::BelowRecommendedRam).unwrap(),
+            serde_json::json!("below_recommended_ram")
+        );
     }
 
     #[test]
@@ -540,9 +600,9 @@ mod tests {
         assert_eq!(current.label_key, "setup.tier.current");
         assert_eq!(current.size, None);
         assert_eq!(
-            current.need_ram_bytes,
-            13 * GIB / 2,
-            "the default tier's need"
+            (current.min_ram_bytes, current.recommended_ram_bytes),
+            (7 * GIB, 8 * GIB),
+            "the default tier's thresholds"
         );
         assert_eq!(verdicts(&options), [Fits, Recommended, Fits]);
         assert_eq!(options.selected.as_deref(), Some(INSTRUCT));
@@ -559,8 +619,20 @@ mod tests {
     fn a_configured_small_tier_is_offered_only_as_the_current_option() {
         let options = options_for(&machine(6, 6, 500), SMALL);
         assert_eq!(ids(&options), [SMALL, DEFAULT, LARGE]);
-        assert_eq!(options.options[0].need_ram_bytes, 5 * GIB, "its own need");
+        assert_eq!(
+            (
+                options.options[0].min_ram_bytes,
+                options.options[0].recommended_ram_bytes
+            ),
+            (6 * GIB, 7 * GIB),
+            "its own thresholds"
+        );
         assert_eq!(verdicts(&options), [Fits, TooBigRam, TooBigRam]);
+        assert!(
+            options.options[0]
+                .warnings
+                .contains(&Warning::BelowRecommendedRam)
+        );
         assert_eq!(options.support.status, SupportStatus::Supported);
         assert_eq!(options.warnings, [Warning::SingleOption]);
         assert_eq!(options.selected.as_deref(), Some(SMALL));
@@ -611,14 +683,20 @@ mod tests {
         assert_eq!(default.label_key, "setup.tier.default");
         assert_eq!(options.options[1].label_key, "setup.tier.large");
         assert_eq!(default.bytes, PACKS[1]);
-        assert_eq!(default.need_ram_bytes, 13 * GIB / 2);
+        assert_eq!(
+            (default.min_ram_bytes, default.recommended_ram_bytes),
+            (7 * GIB, 8 * GIB)
+        );
         let json = serde_json::to_value(default).unwrap();
         assert_eq!(json["verdict"], "recommended");
         assert_eq!(json["size"], "default");
         assert_eq!(json["current"], false);
         assert_eq!(json["installed"], false);
         assert!((json["speed"]["metal_p50_answer_s"].as_f64().unwrap() - 0.9).abs() < 1e-6);
-        assert_eq!(json["speed"]["cpu_p50_answer_s"], serde_json::Value::Null);
+        assert!((json["speed"]["cpu_p50_answer_s"].as_f64().unwrap() - 108.0).abs() < 1e-6);
+        assert_eq!(json["min_ram_bytes"], 7 * GIB);
+        assert_eq!(json["recommended_ram_bytes"], 8 * GIB);
+        assert!(json.get("need_ram_bytes").is_none());
         let json = serde_json::to_value(options_for(&machine(4, 4, 500), "")).unwrap();
         assert_eq!(json["support"]["status"], "unsupported");
         assert_eq!(json["support"]["code"], "no_tier_fits");

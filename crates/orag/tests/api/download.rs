@@ -358,11 +358,13 @@ fn machine(total_gib: u64) -> Machine {
     }
 }
 
-fn tier(id: &str, size: TierSize, need_gib: u64) -> Tier {
+/// A tier with a hard floor of `min_gib` and 1 GiB more recommended.
+fn tier(id: &str, size: TierSize, min_gib: u64) -> Tier {
     Tier {
         id: id.into(),
         size,
-        need_ram_bytes: need_gib * GIB,
+        min_ram_bytes: min_gib * GIB,
+        recommended_ram_bytes: (min_gib + 1) * GIB,
         speed: SpeedHint::default(),
         offered: true,
     }
@@ -449,7 +451,9 @@ async fn the_models_status_reports_the_machine_and_the_tiers_that_fit() {
         "the small tier is not offered: {download}"
     );
     assert_eq!(options[0]["label_key"], json!("setup.tier.default"));
-    assert_eq!(options[0]["need_ram_bytes"], json!(4 * GIB));
+    assert_eq!(options[0]["min_ram_bytes"], json!(4 * GIB));
+    assert_eq!(options[0]["recommended_ram_bytes"], json!(5 * GIB));
+    assert!(options[0].get("need_ram_bytes").is_none());
     assert_eq!(
         options[1]["bytes"],
         json!(entry(LARGE, ModelRole::Generation).total_size())
@@ -688,9 +692,9 @@ async fn a_configured_generator_that_is_not_a_tier_is_the_current_option() {
         json!("setup.tier.current")
     );
     assert_eq!(
-        download["options"][0]["need_ram_bytes"],
+        download["options"][0]["min_ram_bytes"],
         json!(4 * GIB),
-        "the default's need"
+        "the default's floor"
     );
     assert_eq!(download["selected"], json!(SETUP_GENERATION));
     // Downloading it changes nothing in config.toml: the key already names it.
@@ -827,4 +831,30 @@ async fn a_downloadable_configuration_says_so() {
     let app = tiered_app(32, false, Some("http://127.0.0.1:9")).await;
     let (_, models) = send(&app, get("/v1/models")).await;
     assert_eq!(models["download"]["configured_downloadable"], json!(true));
+}
+
+#[tokio::test]
+async fn ram_between_the_floor_and_the_recommendation_warns_but_downloads() {
+    // The default tier: floor 4 GiB, recommended 5 GiB; this machine has 4.5.
+    let catalog = tiered_catalog();
+    let base = file_server(&catalog, open_gate()).await;
+    let mut tight = machine(32);
+    tight.total_ram_bytes = Some(9 * GIB / 2);
+    tight.available_ram_bytes = tight.total_ram_bytes;
+    let app = setup_app();
+    let downloads = Downloads::new(true, Catalog::new(catalog), Downloader::with_base_url(base))
+        .with_tiers(tiers())
+        .with_machine(tight)
+        .with_config_file(config_path(&app));
+    let app = app.map_state(|state| state.with_downloads(downloads));
+    let (_, models) = send(&app, get("/v1/models")).await;
+    let default = &models["download"]["options"][0];
+    assert_eq!(default["verdict"], json!("recommended"), "{models}");
+    assert_eq!(
+        default["warnings"],
+        json!(["below_recommended_ram", "low_available_memory"])
+    );
+    let (status, body) = send(&app, choose(SETUP_GENERATION)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "the floor decides: {body}");
+    assert_eq!(finished(&app).await["state"], json!("done"));
 }
