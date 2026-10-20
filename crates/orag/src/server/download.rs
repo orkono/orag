@@ -174,19 +174,27 @@ fn catalog_entry(catalog: &Catalog, id: &str, role: ModelRole) -> ApiResult<Cata
 
 /// The `download` member of `GET /v1/models`: today's availability of the
 /// configured models, plus the generator options for this machine.
+///
+/// A configured generator outside the catalog (`download_unavailable` for
+/// the configured models) does not hide the choice: when the selected option
+/// can be downloaded the page offers the tiers, `configured_downloadable`
+/// says the configured model itself cannot be, and `bytes` is the selected
+/// option's download.
 pub fn availability(state: &AppState, missing: &Missing, options: &Options) -> Value {
-    let mut download = match plan(state, missing, None) {
-        Ok(entries) => json!({
-            "available": true,
-            "code": null,
-            "reason": null,
-            "bytes": entries.iter().map(CatalogEntry::total_size).sum::<u64>(),
-        }),
-        Err(err) => json!({
+    let configured = plan(state, missing, None);
+    let fallback = match &configured {
+        Err(err) if err.code == "download_unavailable" => selected_plan(state, missing, options),
+        _ => None,
+    };
+    let mut download = match (configured, fallback) {
+        (Ok(entries), _) => available(&entries, true),
+        (Err(_), Some(entries)) => available(&entries, false),
+        (Err(err), None) => json!({
             "available": false,
             "code": err.code,
             "reason": err.message,
             "bytes": null,
+            "configured_downloadable": false,
         }),
     };
     let choice = serde_json::to_value(options).unwrap_or_else(|_| json!({}));
@@ -194,6 +202,34 @@ pub fn availability(state: &AppState, missing: &Missing, options: &Options) -> V
         download.extend(choice);
     }
     download
+}
+
+fn available(entries: &[CatalogEntry], configured_downloadable: bool) -> Value {
+    json!({
+        "available": true,
+        "code": null,
+        "reason": null,
+        "bytes": entries.iter().map(CatalogEntry::total_size).sum::<u64>(),
+        "configured_downloadable": configured_downloadable,
+    })
+}
+
+/// The download of the embedder (if missing) and the selected option (if
+/// not installed), when every one of them is in the catalog.
+fn selected_plan(
+    state: &AppState,
+    missing: &Missing,
+    options: &Options,
+) -> Option<Vec<CatalogEntry>> {
+    let selected = options.selected.as_deref()?;
+    let option = options.options.iter().find(|o| o.id == selected)?;
+    let chosen: Missing = missing
+        .iter()
+        .filter(|(_, role)| *role != ModelRole::Generation)
+        .cloned()
+        .chain((!option.installed).then(|| (selected.to_string(), ModelRole::Generation)))
+        .collect();
+    plan(state, &chosen, Some(selected)).ok()
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<DownloadStatus> {

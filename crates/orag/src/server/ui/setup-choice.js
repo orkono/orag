@@ -58,6 +58,9 @@ function drawList(view) {
   $("setup-tier-list").replaceChildren(...view.options.map(tierItem));
   $("setup-choice-warnings").replaceChildren(...view.warnings.map((text) => el("p", text, "warning")));
   $("setup-tiers").hidden = !view.showList;
+  const note = $("setup-choice-note");
+  note.textContent = view.note ?? "";
+  note.hidden = !view.note;
   const unsupported = $("setup-unsupported");
   unsupported.textContent = view.unsupported?.text ?? "";
   unsupported.hidden = !view.unsupported;

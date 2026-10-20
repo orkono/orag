@@ -151,5 +151,8 @@ export function choiceView(models, chosen) {
     showList: support.code !== "cpu_unsupported",
     warnings: unsupported ? [] : warningTexts(download, support),
     total: pick ? choiceTotal(download, pick.id) : null,
+    note: download.configured_downloadable === false && models.generation?.id
+      ? t("setup.configuredNotDownloadable", { id: String(models.generation.id) })
+      : null,
   };
 }

@@ -767,3 +767,64 @@ async fn an_interrupted_download_on_a_nearly_full_disk_can_be_resumed() {
         "the retry is accepted: {body}"
     );
 }
+
+#[tokio::test]
+async fn a_configured_generator_outside_the_catalog_still_offers_the_tiers() {
+    let catalog = tiered_catalog();
+    let base = file_server(&catalog, open_gate()).await;
+    let app = setup_app();
+    let config = config_path(&app);
+    let models = orag::server::ModelsInfo {
+        generation: "my-old-custom-model".into(),
+        ..(*app.state.models).clone()
+    };
+    let downloads = Downloads::new(true, Catalog::new(catalog), Downloader::with_base_url(base))
+        .with_tiers(tiers())
+        .with_machine(machine(32))
+        .with_config_file(config.clone());
+    let app = app.map_state(|state| {
+        state
+            .with_models(models, true, false)
+            .with_downloads(downloads)
+    });
+    let (_, models) = send(&app, get("/v1/models")).await;
+    let download = &models["download"];
+    assert_eq!(download["available"], json!(true), "{download}");
+    assert_eq!(
+        download["configured_downloadable"],
+        json!(false),
+        "{download}"
+    );
+    assert_eq!(download["selected"], json!(SETUP_GENERATION));
+    let expected = entry(SETUP_EMBEDDING, ModelRole::Embedding).total_size()
+        + entry(SETUP_GENERATION, ModelRole::Generation).total_size();
+    assert_eq!(
+        download["bytes"],
+        json!(expected),
+        "the embedder and the selected tier"
+    );
+    // The configured models alone still cannot be downloaded.
+    let (status, body) = send(&app, post_download()).await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::BAD_REQUEST, json!("download_unavailable")),
+        "{body}"
+    );
+    // Choosing a tier downloads it and replaces the configured model.
+    std::fs::write(&config, "generation_model = \"my-old-custom-model\"\n").unwrap();
+    let (status, body) = send(&app, choose(SETUP_GENERATION)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let done = finished(&app).await;
+    assert_eq!(done["state"], json!("done"), "{done}");
+    assert_eq!(
+        std::fs::read_to_string(&config).unwrap(),
+        format!("generation_model = \"{SETUP_GENERATION}\"\n")
+    );
+}
+
+#[tokio::test]
+async fn a_downloadable_configuration_says_so() {
+    let app = tiered_app(32, false, Some("http://127.0.0.1:9")).await;
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(models["download"]["configured_downloadable"], json!(true));
+}
