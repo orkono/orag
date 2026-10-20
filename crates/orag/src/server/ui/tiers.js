@@ -76,7 +76,7 @@ export function optionView(option, machine, download, supported) {
   const warnings = Array.isArray(option.warnings) ? option.warnings : [];
   return {
     id: String(option.id),
-    name: t(option.label_key || "setup.tier.default"),
+    name: t(option.label_key || "setup.tier.default", { id: String(option.id) }),
     verdict,
     badge: t(`setup.verdict.${verdict}`),
     details: option.installed
@@ -93,11 +93,35 @@ export function optionView(option, machine, download, supported) {
 
 function unsupportedText(support, options) {
   if (support.code === "cpu_unsupported") {
-    const features = (support.missing_cpu_features ?? []).map((f) => String(f).toUpperCase()).join(", ");
-    return t("setup.unsupported.cpu_unsupported", { features });
+    return t("setup.unsupported.cpu_unsupported", { features: featureList(support) });
   }
   const needs = options.map((o) => o.need_ram_bytes).filter(isCount);
   return t("setup.unsupported.no_tier_fits", { need: byteText(needs.length ? Math.min(...needs) : null) });
+}
+
+const featureList = (support) => (support.missing_cpu_features ?? []).map((f) => String(f).toUpperCase()).join(", ");
+
+/** The machine-level warnings the page knows, in the current language. */
+function warningTexts(download, support) {
+  const codes = Array.isArray(download.warnings) ? download.warnings : [];
+  return codes.flatMap((code) => {
+    if (code === "single_option") return [t("setup.warning.single_option")];
+    if (code === "slow_cpu") return [t("setup.warning.slow_cpu", { features: featureList(support) })];
+    return [];
+  });
+}
+
+/**
+ * The model ids the press installs: the embedder if missing and the picked
+ * generator if not installed; null without a pick.
+ */
+export function neededIds(models, chosen) {
+  const option = (models?.download?.options ?? []).find((o) => o.id === chosen);
+  if (!option) return null;
+  const ids = [];
+  if (models.embedding && !models.embedding.installed) ids.push(String(models.embedding.id));
+  if (!option.installed) ids.push(String(option.id));
+  return ids;
 }
 
 /**
@@ -121,9 +145,7 @@ export function choiceView(models, chosen) {
     selected: pick?.id ?? null,
     unsupported: unsupported ? { code: UNSUPPORTED.has(support.code) ? support.code : "no_tier_fits", text: unsupportedText(support, options) } : null,
     showList: support.code !== "cpu_unsupported",
-    warnings: (Array.isArray(download.warnings) ? download.warnings : [])
-      .filter((code) => code === "single_option" && !unsupported)
-      .map(() => t("setup.warning.single_option")),
+    warnings: unsupported ? [] : warningTexts(download, support),
     total: pick ? choiceTotal(download, pick.id) : null,
   };
 }

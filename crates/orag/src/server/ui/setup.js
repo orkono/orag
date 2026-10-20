@@ -18,7 +18,7 @@ import {
 } from "./download.js";
 import { setAttrText, setText } from "./i18n.js";
 import { chosenGenerator, draw as drawChoice, initChoice } from "./setup-choice.js";
-import { choiceTotal } from "./tiers.js";
+import { choiceTotal, neededIds } from "./tiers.js";
 
 const MODELS_POLL_MS = 2000;
 
@@ -177,6 +177,8 @@ function labelStart() {
   const chosen = chosenGenerator();
   button.textContent = downloadButtonLabel(chosen ? choiceTotal(choiceModels.download, chosen) : null);
   button.disabled = following || !chosen;
+  const ids = neededIds(choiceModels, chosen);
+  if (ids?.length) $("setup-missing").textContent = ids.join(", ");
 }
 
 function renderView(view) {

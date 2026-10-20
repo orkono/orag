@@ -48,10 +48,10 @@ const models = {
     bytes: 3 * GB,
     embedding_bytes: 0.5 * GB,
     options: [
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "fits", 0.9),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "recommended", 2.5),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended", 0.9),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "fits", 2.5),
     ],
-    selected: "qwen3.5-9b-q4_k_m",
+    selected: "qwen3.5-4b-q4_k_m",
     warnings: [],
     support: { status: "supported", code: null, missing_cpu_features: [] },
   },
@@ -96,41 +96,45 @@ test("the card, the list and the start button describe this machine's choice", a
   assert.equal($("setup-tiers").hidden, false);
   assert.equal(radios().length, 2);
   assert.ok(radios().every((r) => !r.disabled));
-  assert.equal(checked(), "qwen3.5-9b-q4_k_m", "the server's selection");
-  assert.deepEqual(badges(), ["Uygun", "Önerilen"]);
+  assert.equal(checked(), "qwen3.5-4b-q4_k_m", "the server's selection");
+  assert.deepEqual(badges(), ["Önerilen", "Uygun"]);
+  assert.match($("setup-tier-list").textContent, /Büyük: daha yavaş, daha çok bellek kullanır/);
   assert.match($("setup-tier-list").textContent, /Apple GPU'da yaklaşık 2,5 sn/);
   assert.equal($("setup-download").hidden, false);
-  assert.equal($("setup-download-start").textContent, "Modelleri indir (6 GB)");
+  assert.equal($("setup-download-start").textContent, "Modelleri indir (3 GB)");
+  assert.equal($("setup-missing").textContent, "qwen3-embedding-0.6b-q8_0, qwen3.5-4b-q4_k_m");
   assert.equal($("setup-unsupported").hidden, true);
 });
 
-test("a pick changes the size on the button", () => {
-  const small = radios().find((r) => r.value === "qwen3.5-4b-q4_k_m");
-  small.checked = true;
-  small.dispatchEvent(new Event("change"));
-  assert.equal(checked(), "qwen3.5-4b-q4_k_m");
-  assert.equal($("setup-download-start").textContent, "Modelleri indir (3 GB)");
-  assert.equal(doc.activeElement.value, "qwen3.5-4b-q4_k_m", "focus stays on the picked radio");
+test("a pick changes the size on the button and the models named above", () => {
+  const large = radios().find((r) => r.value === "qwen3.5-9b-q4_k_m");
+  large.checked = true;
+  large.dispatchEvent(new Event("change"));
+  assert.equal(checked(), "qwen3.5-9b-q4_k_m");
+  assert.equal($("setup-download-start").textContent, "Modelleri indir (6 GB)");
+  assert.equal($("setup-missing").textContent, "qwen3-embedding-0.6b-q8_0, qwen3.5-9b-q4_k_m");
+  assert.equal(doc.activeElement.value, "qwen3.5-9b-q4_k_m", "focus stays on the picked radio");
 });
 
 test("a language switch draws the card and the list again, keeping the pick", () => {
   setLanguage("en");
   assert.match($("setup-machine-facts").textContent, /Memory16 GB \(10 GB free now\)/);
   assert.equal($("setup-machine-title").textContent, "This computer");
-  assert.deepEqual(badges(), ["Fits", "Recommended"]);
-  assert.equal(checked(), "qwen3.5-4b-q4_k_m");
-  assert.equal($("setup-download-start").textContent, "Download models (3 GB)");
+  assert.deepEqual(badges(), ["Recommended", "Fits"]);
+  assert.equal(checked(), "qwen3.5-9b-q4_k_m");
+  assert.equal($("setup-download-start").textContent, "Download models (6 GB)");
+  assert.equal($("setup-missing").textContent, "qwen3-embedding-0.6b-q8_0, qwen3.5-9b-q4_k_m");
   setLanguage("tr");
-  assert.deepEqual(badges(), ["Uygun", "Önerilen"]);
+  assert.deepEqual(badges(), ["Önerilen", "Uygun"]);
 });
 
 test("the press sends the picked generator; a refusal is shown and the choice stays", async () => {
   $("setup-download-start").click();
   await until(() => posts.length === 1 && $("setup-status").textContent !== "");
-  assert.deepEqual(posts[0], { generation_model: "qwen3.5-4b-q4_k_m" });
+  assert.deepEqual(posts[0], { generation_model: "qwen3.5-9b-q4_k_m" });
   assert.match($("setup-status").textContent, /artık uymuyor/);
   await until(() => !$("setup-download-start").disabled);
   assert.equal($("setup-tiers").hidden, false);
   assert.ok(radios().every((r) => !r.disabled), "the list is usable again");
-  assert.equal(checked(), "qwen3.5-4b-q4_k_m");
+  assert.equal(checked(), "qwen3.5-9b-q4_k_m");
 });

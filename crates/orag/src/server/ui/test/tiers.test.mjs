@@ -55,10 +55,10 @@ function models({ machine = mac, options, selected, warnings = [], support } = {
 const twoFit = () =>
   models({
     options: [
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "fits", { speed: { metal_p50_answer_s: 0.9, cpu_p50_answer_s: null } }),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "recommended", { speed: { metal_p50_answer_s: 2.5, cpu_p50_answer_s: 14 } }),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended", { speed: { metal_p50_answer_s: 0.9, cpu_p50_answer_s: null } }),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "fits", { speed: { metal_p50_answer_s: 2.5, cpu_p50_answer_s: 14 } }),
     ],
-    selected: "qwen3.5-9b-q4_k_m",
+    selected: "qwen3.5-4b-q4_k_m",
   });
 
 afterEach(() => setLanguage("tr"));
@@ -101,27 +101,59 @@ test("a PC's card shows physical and logical cores, its GPU, and unknowns", () =
 
 test("each tier shows its name, size, need, speed on this machine and verdict", () => {
   const view = choiceView(twoFit());
-  assert.equal(view.selected, "qwen3.5-9b-q4_k_m");
+  assert.equal(view.selected, "qwen3.5-4b-q4_k_m");
   assert.deepEqual(
     view.options.map((o) => [o.name, o.badge, o.details, o.speed, o.eligible]),
     [
-      ["Standart", "Uygun", "2,5 GB indirme · 6,5 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 0,9 sn (tahmin)", true],
-      ["Büyük", "Önerilen", "5,5 GB indirme · 9 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 2,5 sn (tahmin)", true],
+      ["Standart", "Önerilen", "2,5 GB indirme · 6,5 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 0,9 sn (tahmin)", true],
+      ["Büyük: daha yavaş, daha çok bellek kullanır", "Uygun", "5,5 GB indirme · 9 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 2,5 sn (tahmin)", true],
     ],
   );
-  assert.equal(view.total, 6 * GB, "the embedder plus the large tier");
-  assert.equal(choiceTotal(twoFit().download, "qwen3.5-4b-q4_k_m"), 3 * GB);
+  assert.equal(view.total, 3 * GB, "the embedder plus the default tier");
+  assert.equal(choiceTotal(twoFit().download, "qwen3.5-9b-q4_k_m"), 6 * GB);
   assert.equal(view.unsupported, null);
   assert.deepEqual(view.warnings, []);
   setLanguage("en");
   const en = choiceView(twoFit());
-  assert.deepEqual(en.options.map((o) => o.badge), ["Fits", "Recommended"]);
+  assert.deepEqual(en.options.map((o) => o.badge), ["Recommended", "Fits"]);
+  assert.equal(en.options[1].name, "Large: slower, uses more memory");
   assert.equal(en.options[0].details, "2.5 GB download · needs 6.5 GB of memory");
 });
 
 test("a pick stays while it is eligible; otherwise the server's selection", () => {
-  assert.equal(choiceView(twoFit(), "qwen3.5-4b-q4_k_m").selected, "qwen3.5-4b-q4_k_m");
-  assert.equal(choiceView(twoFit(), "gone").selected, "qwen3.5-9b-q4_k_m");
+  assert.equal(choiceView(twoFit(), "qwen3.5-9b-q4_k_m").selected, "qwen3.5-9b-q4_k_m");
+  assert.equal(choiceView(twoFit(), "gone").selected, "qwen3.5-4b-q4_k_m");
+});
+
+test("the configured generator that is not a tier is the current option", () => {
+  const current = models({
+    options: [
+      option("qwen3-4b-instruct-2507-q4_k_m", null, 2.3 * GB, 6.5 * GB, "fits", { current: true, label_key: "setup.tier.current" }),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended"),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "fits"),
+    ],
+    selected: "qwen3-4b-instruct-2507-q4_k_m",
+  });
+  const view = choiceView(current);
+  assert.equal(view.options[0].name, "Şu anki: qwen3-4b-instruct-2507-q4_k_m (config.toml'da ayarlı)");
+  assert.equal(view.selected, "qwen3-4b-instruct-2507-q4_k_m");
+  setLanguage("en");
+  assert.equal(choiceView(current).options[0].name, "Current: qwen3-4b-instruct-2507-q4_k_m (set in config.toml)");
+});
+
+test("an old CPU outside Windows is a slow-CPU warning, not a block", () => {
+  const slow = models({
+    machine: { ...mac, metal: false, cpu_features: { avx2: false, fma: true, f16c: true, bmi2: true } },
+    options: twoFit().download.options,
+    selected: "qwen3.5-4b-q4_k_m",
+    warnings: ["slow_cpu"],
+    support: { status: "supported", code: null, missing_cpu_features: ["avx2"] },
+  });
+  const view = choiceView(slow);
+  assert.equal(view.unsupported, null);
+  assert.equal(view.selected, "qwen3.5-4b-q4_k_m");
+  assert.equal(view.warnings.length, 1);
+  assert.match(view.warnings[0], /\(AVX2\).*daha yavaş/);
 });
 
 test("a tier that does not fit is disabled with the reason; warnings are shown", () => {
