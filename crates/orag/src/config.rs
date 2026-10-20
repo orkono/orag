@@ -135,6 +135,14 @@ impl Config {
         parse().map_err(|err| at_path(err, path))
     }
 
+    /// Reads `text` exactly as a start reads `home/config.toml`; the setup
+    /// page checks an edited file with it before writing (step 82).
+    pub(crate) fn from_text(home: &Path, text: &str) -> Result<Config> {
+        let file: FileConfig =
+            toml::from_str(text).map_err(|err| OragError::InvalidInput(err.to_string()))?;
+        Self::from_file(home, file)
+    }
+
     fn from_file(home: &Path, file: FileConfig) -> Result<Config> {
         let max_document_mb = file.max_document_mb.unwrap_or(DEFAULT_MAX_DOCUMENT_MB);
         if !(1..=MAX_DOCUMENT_MB_LIMIT).contains(&max_document_mb) {

@@ -3,6 +3,7 @@
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod config_edit;
 pub mod domain;
 pub mod error;
 pub mod eval;
