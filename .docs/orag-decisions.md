@@ -533,9 +533,16 @@ choice. Rules agreed by muse and gpt-6-astra, owner decisions marked:
 - One place decides (`infer::download::options`), for the list and for the
   request alike: a tier fits when total RAM >= its need and free disk >=
   embedder (if missing) + tier (if missing) + 512 MiB; unknown facts never
-  block; the largest tier that fits is recommended; little available RAM
-  only warns. An x86-64 CPU without the shipped binary's instructions is
-  `unsupported` (`cpu_unsupported`). Owner decision: where only one tier
+  block; the default tier is recommended (and preselected unless the
+  configured generator fits) whenever it fits, and the large tier never is
+  (slower, more memory; no quality claim); little available RAM only warns.
+  A configured `generation_model` that is a catalog generator but not an
+  offered tier (the hand-set 4B instruct model, or the withdrawn 2B) is
+  listed first as the current option, judged by its own tier's need or else
+  the default tier's, and accepted when it fits; an id outside the catalog
+  is not offered. On Windows, an x86-64 CPU without AVX2/FMA/F16C/BMI2 (the
+  Windows binary's floor) is `unsupported` (`cpu_unsupported`); on other
+  systems it is a `slow_cpu` warning, never a block. Owner decision: where only one tier
   fits it is offered with a `single_option` warning; where none fits the
   machine is `unsupported` (`no_tier_fits`) and the page offers no download.
 - `POST /v1/models/download` may name the generator

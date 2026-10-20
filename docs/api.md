@@ -302,12 +302,12 @@ facts once per process, available RAM and free disk on every call):
 
 | Field | Meaning |
 |---|---|
-| `options[]` | Each offered tier, smallest first: `id`, `size` (`default`, `large`), `label_key` (the page's dictionary key), `bytes` (the pack), `installed`, `need_ram_bytes` (total RAM the whole process needs: measured peak + 2 GiB), `speed` (`metal_p50_answer_s`, `cpu_p50_answer_s`: typical answer seconds, `null` until measured), `verdict` and `warnings` |
-| `verdict` | `recommended` (the largest tier that fits), `fits`, `too_big_ram` (total RAM below the need) or `too_big_disk` (free disk below the embedder if missing + the tier if missing + 512 MiB); unknown RAM or disk never blocks |
+| `options[]` | Each offered tier, smallest first: `id`, `size` (`default`, `large`), `current`, `label_key` (the page's dictionary key), `bytes` (the pack), `installed`, `need_ram_bytes` (total RAM the whole process needs: measured peak + 2 GiB), `speed` (`metal_p50_answer_s`, `cpu_p50_answer_s`: typical answer seconds, `null` until measured), `verdict` and `warnings`. When the configured `generation_model` is a catalog generator but not an offered tier (e.g. a hand-set `qwen3-4b-instruct-2507-q4_k_m`), it comes first as the current option: `current: true`, `size: null`, `label_key` `setup.tier.current`, its own tier's need or else the default tier's. A configured id outside the catalog is not listed |
+| `verdict` | `recommended` (the default tier, whenever it fits; the large tier is never recommended: it is slower and uses more memory), `fits`, `too_big_ram` (total RAM below the need) or `too_big_disk` (free disk below the embedder if missing + the tier if missing + 512 MiB); unknown RAM or disk never blocks |
 | `options[].warnings` | `["low_available_memory"]` when the tier fits but less RAM is free right now (a warning, not a block) |
-| `support` | `{"status": "supported" \| "unsupported", "code", "missing_cpu_features"}`; `code` is `cpu_unsupported` (an x86-64 CPU without AVX2, FMA, F16C and BMI2, which the shipped binary is built for) or `no_tier_fits` |
-| `warnings` | `["single_option"]` when only one tier fits |
-| `selected` | The tier the page starts with: the configured `generation_model` if it is a tier that fits, else the recommended one; `null` when unsupported |
+| `support` | `{"status": "supported" \| "unsupported", "code", "missing_cpu_features"}`; `code` is `cpu_unsupported` (Windows only: an x86-64 CPU without AVX2, FMA, F16C and BMI2, which the Windows binary is built for) or `no_tier_fits` (no option fits). `missing_cpu_features` lists the missing instructions on any x86-64 system |
+| `warnings` | `single_option` when only one option fits; `slow_cpu` on an x86-64 CPU without that floor outside Windows (it runs, more slowly) |
+| `selected` | The option the page starts with: the configured `generation_model` if it is an option that fits, else the recommended one; `null` when unsupported |
 | `embedding_bytes` | Bytes of the embedder still to download (0 when installed) |
 
 The small tier (`qwen3.5-2b-q4_k_m`) failed the quality rule and is not
@@ -320,7 +320,7 @@ curl -s http://127.0.0.1:7613/v1/models
 
 ```text
 HTTP/1.1 200 OK
-{"download":{"available":true,"bytes":3380111382,"code":null,"embedding_bytes":639161950,"options":[{"bytes":2740949432,"id":"qwen3.5-4b-q4_k_m","installed":false,"label_key":"setup.tier.default","need_ram_bytes":6979321856,"size":"default","speed":{"cpu_p50_answer_s":null,"metal_p50_answer_s":0.9},"verdict":"fits","warnings":[]},{"bytes":5680534008,"id":"qwen3.5-9b-q4_k_m","installed":false,"label_key":"setup.tier.large","need_ram_bytes":9663676416,"size":"large","speed":{"cpu_p50_answer_s":null,"metal_p50_answer_s":2.5},"verdict":"recommended","warnings":[]}],"reason":null,"selected":"qwen3.5-4b-q4_k_m","support":{"code":null,"missing_cpu_features":[],"status":"supported"},"warnings":[]},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"machine":{"apple_silicon":true,"arch":"aarch64","available_ram_bytes":86288089088,"cpu_features":"not_applicable","cpu_model":"Apple M5 Max","free_disk_bytes":662947000320,"gpu":null,"logical_cores":18,"metal":true,"os":"macos","physical_cores":18,"total_ram_bytes":137438953472},"mode":"setup","models_dir":"/home/u/.orag/models"}
+{"download":{"available":true,"bytes":3380111382,"code":null,"embedding_bytes":639161950,"options":[{"bytes":2740949432,"id":"qwen3.5-4b-q4_k_m","installed":false,"current":false,"label_key":"setup.tier.default","need_ram_bytes":6979321856,"size":"default","speed":{"cpu_p50_answer_s":null,"metal_p50_answer_s":0.9},"verdict":"recommended","warnings":[]},{"bytes":5680534008,"id":"qwen3.5-9b-q4_k_m","installed":false,"current":false,"label_key":"setup.tier.large","need_ram_bytes":9663676416,"size":"large","speed":{"cpu_p50_answer_s":null,"metal_p50_answer_s":2.5},"verdict":"fits","warnings":[]}],"reason":null,"selected":"qwen3.5-4b-q4_k_m","support":{"code":null,"missing_cpu_features":[],"status":"supported"},"warnings":[]},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"machine":{"apple_silicon":true,"arch":"aarch64","available_ram_bytes":86288089088,"cpu_features":"not_applicable","cpu_model":"Apple M5 Max","free_disk_bytes":662947000320,"gpu":null,"logical_cores":18,"metal":true,"os":"macos","physical_cores":18,"total_ram_bytes":137438953472},"mode":"setup","models_dir":"/home/u/.orag/models"}
 ```
 
 ### `POST /v1/models/download`
@@ -330,8 +330,9 @@ and installs it, as `orag models import` would. No body, or `{}`, downloads
 the configured models. `{"generation_model": "<id>"}` downloads that
 generator instead of the configured one (with the embedder if it is
 missing); the id must be one of `GET /v1/models` `download.options` and pass
-the same check now (an offered tier, `fits` or `recommended`, a supported
-machine). Once every file passed SHA-256 and was installed, the server sets
+the same check now (an offered option, `fits` or `recommended`, a supported
+machine). Choosing the current option downloads the configured model and
+leaves `config.toml` as it is. Once every file passed SHA-256 and was installed, the server sets
 only `generation_model = "<id>"` in `<home>/config.toml` (comments and order
 kept, written atomically: a temporary file, fsync, rename), and only then
 restarts as below; on any failure `config.toml` is left as it was, and a key

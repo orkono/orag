@@ -23,8 +23,9 @@ The app starts the service in **setup mode** until the two models are
 installed. Its page shows **Bu bilgisayar** (memory, processor, cores, GPU,
 free disk) and the answer models that fit this computer: *Standart*
 (`qwen3.5-4b-q4_k_m`, about 3.1 GB with the embedder, 6.5 GB RAM) and
-*Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB, 9 GB RAM; slower, not more
-accurate). One that does not fit is greyed out with the reason; a computer
+*Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB, 9 GB RAM; slower and uses more
+memory). *Standart* is the recommended one whenever it fits; a model set by
+hand in `config.toml` is listed first as *Şu anki*. One that does not fit is greyed out with the reason; a computer
 nothing fits is told so. Pick one and press **Modelleri indir**: the two
 models download and are checked, the choice is written as `generation_model`
 into the data folder's `config.toml`, and the app restarts the service by
