@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use crate::error::{OragError, Result};
 use crate::infer::models::{MANIFEST_FILE, ModelRole, find_model, import_pack, read_manifest};
+use crate::server::choice::machine_options;
 use crate::server::download::{availability, missing_models};
 use crate::server::errors::{ApiError, ApiResult};
 use crate::server::{AppState, ModelsInfo, blocking};
@@ -23,15 +24,23 @@ pub struct ImportBody {
 }
 
 pub async fn status(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    let models = state.models.clone();
-    let ((embedding, generation), missing) =
-        blocking(move || Ok((installed(&models), missing_models(&models)))).await?;
+    let read = state.clone();
+    let ((embedding, generation), missing, (machine, options)) = blocking(move || {
+        let models = &read.models;
+        Ok((
+            installed(models),
+            missing_models(models),
+            machine_options(&read),
+        ))
+    })
+    .await?;
     Ok(Json(json!({
         "mode": if state.setup { "setup" } else { "ready" },
         "embedding": { "id": state.models.embedding, "installed": embedding },
         "generation": { "id": state.models.generation, "installed": generation },
         "models_dir": state.models.models_dir,
-        "download": availability(&state, &missing),
+        "machine": machine,
+        "download": availability(&state, &missing, &options),
     })))
 }
 

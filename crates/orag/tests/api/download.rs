@@ -10,8 +10,9 @@ use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{Request as HttpRequest, StatusCode};
 use axum::response::{IntoResponse, Response};
-use orag::infer::download::{Catalog, CatalogEntry, Downloader};
+use orag::infer::download::{Catalog, CatalogEntry, Downloader, SpeedHint, Tier, TierSize};
 use orag::infer::models::{ModelRole, find_model};
+use orag::probe::{CpuFeatures, Machine, X86Features};
 use orag::server::download::Downloads;
 use serde_json::{Value, json};
 use sha2::Digest;
@@ -135,11 +136,15 @@ async fn before_a_start_the_status_is_idle_and_the_download_is_offered() {
     );
     let (_, models) = send(&app, get("/v1/models")).await;
     let bytes: u64 = both().iter().map(CatalogEntry::total_size).sum();
+    let download = &models["download"];
     assert_eq!(
-        models["download"],
-        json!({"available": true, "code": null, "reason": null, "bytes": bytes}),
+        ["available", "code", "reason", "bytes"].map(|key| download[key].clone()),
+        [json!(true), Value::Null, Value::Null, json!(bytes)],
         "{models}"
     );
+    // The test catalog has none of the built-in tiers: nothing to choose.
+    assert_eq!(download["options"], json!([]), "{models}");
+    assert!(models["machine"]["total_ram_bytes"].is_u64(), "{models}");
 }
 
 #[tokio::test]
@@ -321,4 +326,289 @@ async fn a_catalog_model_of_the_wrong_role_is_not_offered() {
         reason.contains(SETUP_EMBEDDING) && reason.contains("embedding"),
         "{reason}"
     );
+}
+
+/* The generator choice (step 82): the machine, the tiers and the config write. */
+
+const LARGE: &str = "gen-large";
+const GIB: u64 = 1024 * 1024 * 1024;
+
+/// A machine with `total_gib` of RAM (all of it free) and lots of disk.
+fn machine(total_gib: u64) -> Machine {
+    Machine {
+        os: "test",
+        arch: "aarch64",
+        total_ram_bytes: Some(total_gib * GIB),
+        available_ram_bytes: Some(total_gib * GIB),
+        logical_cores: Some(8),
+        physical_cores: Some(8),
+        cpu_model: Some("Test CPU".into()),
+        cpu_features: CpuFeatures::NotApplicable,
+        apple_silicon: true,
+        metal: true,
+        free_disk_bytes: Some(500 * GIB),
+        gpu: None,
+    }
+}
+
+fn tier(id: &str, size: TierSize, need_gib: u64) -> Tier {
+    Tier {
+        id: id.into(),
+        size,
+        need_ram_bytes: need_gib * GIB,
+        speed: SpeedHint::default(),
+        offered: true,
+    }
+}
+
+/// The configured generator is the default tier (4 GiB), `gen-large` the
+/// large one (16 GiB); `gen-small` is in the catalog but not offered.
+fn tiers() -> Vec<Tier> {
+    let mut small = tier("gen-small", TierSize::Small, 2);
+    small.offered = false;
+    vec![
+        small,
+        tier(SETUP_GENERATION, TierSize::Default, 4),
+        tier(LARGE, TierSize::Large, 16),
+    ]
+}
+
+fn tiered_catalog() -> Vec<CatalogEntry> {
+    let mut entries = both();
+    entries.push(entry(LARGE, ModelRole::Generation));
+    entries.push(entry("gen-small", ModelRole::Generation));
+    entries
+}
+
+/// A setup app on a machine with `total_gib` of RAM, its config file in
+/// the app's home.
+async fn tiered_app(total_gib: u64, supervised: bool, base: Option<&str>) -> TestApp {
+    let catalog = tiered_catalog();
+    let base = match base {
+        Some(base) => base.to_string(),
+        None => file_server(&catalog, open_gate()).await,
+    };
+    let app = if supervised {
+        setup_app_supervised()
+    } else {
+        setup_app()
+    };
+    let config = config_path(&app);
+    let downloads = Downloads::new(true, Catalog::new(catalog), Downloader::with_base_url(base))
+        .with_tiers(tiers())
+        .with_machine(machine(total_gib))
+        .with_config_file(config);
+    app.map_state(|state| state.with_downloads(downloads))
+}
+
+fn config_path(app: &TestApp) -> std::path::PathBuf {
+    app.state
+        .models
+        .models_dir
+        .parent()
+        .unwrap()
+        .join("config.toml")
+}
+
+fn choose(id: &str) -> HttpRequest<Body> {
+    json_request(
+        "POST",
+        "/v1/models/download",
+        json!({"generation_model": id}),
+    )
+}
+
+#[tokio::test]
+async fn the_models_status_reports_the_machine_and_the_tiers_that_fit() {
+    let app = tiered_app(8, false, Some("http://127.0.0.1:9")).await;
+    let (status, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(status, StatusCode::OK, "{models}");
+    assert_eq!(
+        models["machine"]["total_ram_bytes"],
+        json!(8 * GIB),
+        "{models}"
+    );
+    assert_eq!(models["machine"]["metal"], json!(true));
+    assert_eq!(models["machine"]["cpu_features"], json!("not_applicable"));
+    let download = &models["download"];
+    let options = download["options"].as_array().unwrap();
+    let listed: Vec<(&str, &str)> = options
+        .iter()
+        .map(|o| (o["id"].as_str().unwrap(), o["verdict"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        listed,
+        [(SETUP_GENERATION, "recommended"), (LARGE, "too_big_ram")],
+        "the small tier is not offered: {download}"
+    );
+    assert_eq!(options[0]["label_key"], json!("setup.tier.default"));
+    assert_eq!(options[0]["need_ram_bytes"], json!(4 * GIB));
+    assert_eq!(
+        options[1]["bytes"],
+        json!(entry(LARGE, ModelRole::Generation).total_size())
+    );
+    assert_eq!(
+        download["support"],
+        json!({"status": "supported", "code": null, "missing_cpu_features": []})
+    );
+    assert_eq!(download["warnings"], json!(["single_option"]));
+    assert_eq!(download["selected"], json!(SETUP_GENERATION));
+    assert_eq!(
+        download["embedding_bytes"],
+        json!(entry(SETUP_EMBEDDING, ModelRole::Embedding).total_size())
+    );
+    // Today's fields stay.
+    assert_eq!(download["available"], json!(true));
+}
+
+#[tokio::test]
+async fn an_unknown_or_unoffered_generator_is_refused_with_400() {
+    let app = tiered_app(32, false, Some("http://127.0.0.1:9")).await;
+    for id in ["nope", "gen-small", SETUP_EMBEDDING] {
+        let (status, body) = send(&app, choose(id)).await;
+        assert_eq!(
+            (status, body["error"]["code"].clone()),
+            (StatusCode::BAD_REQUEST, json!("unknown_model")),
+            "{id}: {body}"
+        );
+    }
+    let (status, body) = send(
+        &app,
+        json_request(
+            "POST",
+            "/v1/models/download",
+            json!({"generation_model": 4}),
+        ),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_input")),
+        "{body}"
+    );
+    let (_, idle) = send(&app, get("/v1/models/download")).await;
+    assert_eq!(idle["state"], json!("idle"));
+    assert!(!config_path(&app).exists(), "nothing was written");
+}
+
+#[tokio::test]
+async fn a_generator_too_big_for_this_machine_is_refused_with_409() {
+    let app = tiered_app(8, false, Some("http://127.0.0.1:9")).await;
+    let (status, body) = send(&app, choose(LARGE)).await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::CONFLICT, json!("model_not_eligible")),
+        "{body}"
+    );
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(message.contains("too_big_ram"), "{message}");
+    let (_, idle) = send(&app, get("/v1/models/download")).await;
+    assert_eq!(idle["state"], json!("idle"));
+}
+
+#[tokio::test]
+async fn the_chosen_generator_is_downloaded_and_written_before_the_restart() {
+    let app = tiered_app(32, true, None).await;
+    let config = config_path(&app);
+    let before = "# mine\nlog_level = \"debug\"\n";
+    std::fs::write(&config, before).unwrap();
+    let (status, body) = send(&app, choose(LARGE)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let ids: Vec<&str> = body["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [SETUP_EMBEDDING, LARGE],
+        "the chosen generator replaces the configured one"
+    );
+    let done = finished(&app).await;
+    assert_eq!(
+        (done["state"].clone(), done["restart"].clone()),
+        (json!("done"), json!("automatic")),
+        "{done}"
+    );
+    let dir = &app.state.models.models_dir;
+    find_model(dir, LARGE, ModelRole::Generation).unwrap();
+    assert!(find_model(dir, SETUP_GENERATION, ModelRole::Generation).is_err());
+    let written = std::fs::read_to_string(&config).unwrap();
+    assert_eq!(written, format!("{before}generation_model = \"{LARGE}\"\n"));
+    assert_eq!(app.state.exit_code(), Some(75));
+}
+
+#[tokio::test]
+async fn a_failed_download_leaves_the_config_untouched() {
+    let base = file_server(&[], open_gate()).await; // every path is 404
+    let app = tiered_app(32, false, Some(&base)).await;
+    let config = config_path(&app);
+    let before = b"# mine\r\ngeneration_model = \"gen-setup\"\r\n".to_vec();
+    std::fs::write(&config, &before).unwrap();
+    assert_eq!(send(&app, choose(LARGE)).await.0, StatusCode::ACCEPTED);
+    let done = finished(&app).await;
+    assert_eq!(done["state"], json!("failed"), "{done}");
+    assert_eq!(std::fs::read(&config).unwrap(), before);
+}
+
+#[tokio::test]
+async fn choosing_the_configured_generator_downloads_like_before() {
+    let app = tiered_app(32, false, None).await;
+    let config = config_path(&app);
+    let before = format!("generation_model = \"{SETUP_GENERATION}\" # mine\n");
+    std::fs::write(&config, &before).unwrap();
+    let modified = std::fs::metadata(&config).unwrap().modified().unwrap();
+    let (status, body) = send(&app, choose(SETUP_GENERATION)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let done = finished(&app).await;
+    assert_eq!(
+        (done["state"].clone(), done["restart"].clone()),
+        (json!("done"), json!("manual")),
+        "{done}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&config).unwrap(),
+        before,
+        "the key already names it"
+    );
+    assert_eq!(
+        std::fs::metadata(&config).unwrap().modified().unwrap(),
+        modified
+    );
+}
+
+#[tokio::test]
+async fn an_unsupported_cpu_offers_nothing_and_refuses_a_choice() {
+    let mut old = machine(32);
+    old.arch = "x86_64";
+    old.cpu_features = CpuFeatures::X86(X86Features {
+        avx2: false,
+        fma: false,
+        f16c: true,
+        bmi2: true,
+    });
+    let downloads = Downloads::new(
+        true,
+        Catalog::new(tiered_catalog()),
+        Downloader::with_base_url("http://127.0.0.1:9"),
+    )
+    .with_tiers(tiers())
+    .with_machine(old);
+    let app = setup_app().map_state(|state| state.with_downloads(downloads));
+    let (_, models) = send(&app, get("/v1/models")).await;
+    assert_eq!(
+        models["download"]["support"],
+        json!({"status": "unsupported", "code": "cpu_unsupported", "missing_cpu_features": ["avx2", "fma"]}),
+        "{models}"
+    );
+    assert_eq!(models["download"]["selected"], Value::Null);
+    let (status, body) = send(&app, choose(SETUP_GENERATION)).await;
+    assert_eq!(
+        (status, body["error"]["code"].clone()),
+        (StatusCode::CONFLICT, json!("model_not_eligible")),
+        "{body}"
+    );
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(message.contains("cpu_unsupported"), "{message}");
 }

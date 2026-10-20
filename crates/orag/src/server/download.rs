@@ -1,6 +1,10 @@
 //! Model download from the setup page (step 76): one press downloads every
-//! missing configured model, and setup ends like an import does.
+//! missing configured model, and setup ends like an import does. Since step
+//! 82 the press may name the generator the page offered for this machine;
+//! once it is installed its id is written into config.toml before the
+//! restart.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -10,13 +14,23 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
+use crate::config_edit::set_generation_model;
 use crate::infer::download::{
-    Catalog, CatalogEntry, DownloadError, DownloadStatus, Downloader, ErrorCode, Job, Restart,
-    RunState, SharedStatus, run,
+    Catalog, CatalogEntry, DownloadError, DownloadStatus, Downloader, ErrorCode, Job, Options,
+    Restart, RunState, SharedStatus, Tier, builtin_tiers, run,
 };
 use crate::infer::models::{ModelRole, find_model};
+use crate::probe::{Machine, probe};
+use crate::server::choice::{check_choice, machine_options, requested_generator, with_generator};
 use crate::server::errors::{ApiError, ApiResult};
 use crate::server::{AppState, ModelsInfo, blocking};
+
+/// Where the machine facts come from: the live probe, or fixed (tests).
+#[derive(Debug, Clone)]
+enum MachineSource {
+    Probe,
+    Fixed(Box<Machine>),
+}
 
 /// The download side of the server: settings read once at startup and the
 /// one run's shared status.
@@ -26,6 +40,11 @@ pub struct Downloads {
     pub enabled: bool,
     pub catalog: Catalog,
     pub downloader: Downloader,
+    /// The generators offered by hardware, smallest first.
+    pub tiers: Vec<Tier>,
+    machine: MachineSource,
+    /// `<home>/config.toml`, where a chosen generator is written.
+    config_file: Option<PathBuf>,
     status: SharedStatus,
     cancel: Arc<AtomicBool>,
 }
@@ -36,6 +55,9 @@ impl Downloads {
             enabled,
             catalog,
             downloader,
+            tiers: builtin_tiers(),
+            machine: MachineSource::Probe,
+            config_file: None,
             status: SharedStatus::default(),
             cancel: Arc::new(AtomicBool::new(false)),
         }
@@ -46,8 +68,36 @@ impl Downloads {
         Downloads::new(enabled, Catalog::builtin(), Downloader::production())
     }
 
+    pub fn with_tiers(self, tiers: Vec<Tier>) -> Downloads {
+        Downloads { tiers, ..self }
+    }
+
+    /// Answers every probe with `machine` (tests).
+    pub fn with_machine(self, machine: Machine) -> Downloads {
+        Downloads {
+            machine: MachineSource::Fixed(Box::new(machine)),
+            ..self
+        }
+    }
+
+    /// The config file a chosen generator is written into.
+    pub fn with_config_file(self, path: PathBuf) -> Downloads {
+        Downloads {
+            config_file: Some(path),
+            ..self
+        }
+    }
+
     pub fn status(&self) -> DownloadStatus {
         self.status.snapshot()
+    }
+
+    /// This machine now; blocking (it reads the free disk).
+    pub fn machine(&self, models_dir: &Path) -> Machine {
+        match &self.machine {
+            MachineSource::Probe => probe(models_dir),
+            MachineSource::Fixed(machine) => (**machine).clone(),
+        }
     }
 }
 
@@ -66,8 +116,8 @@ pub fn missing_models(models: &ModelsInfo) -> Missing {
     .collect()
 }
 
-/// The catalog entries for the missing models, or why there are none.
-fn plan(state: &AppState, missing: &Missing) -> ApiResult<Vec<CatalogEntry>> {
+/// Setup mode with downloads on, or why not.
+fn check_can_download(state: &AppState) -> ApiResult<()> {
     if !state.setup {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -75,15 +125,23 @@ fn plan(state: &AppState, missing: &Missing) -> ApiResult<Vec<CatalogEntry>> {
             "the models are already installed; nothing to download",
         ));
     }
-    let downloads = &state.downloads;
-    if !downloads.enabled {
+    if !state.downloads.enabled {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "download_disabled",
             "model download is turned off in config.toml (models.download = false); import the model packs instead",
         ));
     }
-    if missing.is_empty() {
+    Ok(())
+}
+
+/// The catalog entries for the missing models, or why there are none. A
+/// chosen generator other than the configured one may need no download at
+/// all (it is installed already): the run then only writes the config.
+fn plan(state: &AppState, missing: &Missing, choice: Option<&str>) -> ApiResult<Vec<CatalogEntry>> {
+    check_can_download(state)?;
+    let switches = choice.is_some_and(|id| id != state.models.generation);
+    if missing.is_empty() && !switches {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
@@ -92,7 +150,7 @@ fn plan(state: &AppState, missing: &Missing) -> ApiResult<Vec<CatalogEntry>> {
     }
     missing
         .iter()
-        .map(|(id, role)| catalog_entry(&downloads.catalog, id, *role))
+        .map(|(id, role)| catalog_entry(&state.downloads.catalog, id, *role))
         .collect()
 }
 
@@ -114,9 +172,10 @@ fn catalog_entry(catalog: &Catalog, id: &str, role: ModelRole) -> ApiResult<Cata
     Ok(entry.clone())
 }
 
-/// The `download` member of `GET /v1/models`.
-pub fn availability(state: &AppState, missing: &Missing) -> Value {
-    match plan(state, missing) {
+/// The `download` member of `GET /v1/models`: today's availability of the
+/// configured models, plus the generator options for this machine.
+pub fn availability(state: &AppState, missing: &Missing, options: &Options) -> Value {
+    let mut download = match plan(state, missing, None) {
         Ok(entries) => json!({
             "available": true,
             "code": null,
@@ -129,7 +188,12 @@ pub fn availability(state: &AppState, missing: &Missing) -> Value {
             "reason": err.message,
             "bytes": null,
         }),
+    };
+    let choice = serde_json::to_value(options).unwrap_or_else(|_| json!({}));
+    if let (Some(download), Value::Object(choice)) = (download.as_object_mut(), choice) {
+        download.extend(choice);
     }
+    download
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<DownloadStatus> {
@@ -146,14 +210,15 @@ pub async fn cancel(State(state): State<AppState>) -> Json<DownloadStatus> {
     Json(downloads.status())
 }
 
-/// Starts downloading every missing configured model, on a task the server
-/// owns: a page that reloads or leaves neither stops the download nor frees
-/// the one-import permit early.
+/// Starts downloading every missing configured model (with the chosen
+/// generator in place of the configured one), on a task the server owns: a
+/// page that reloads or leaves neither stops the download nor frees the
+/// one-import permit early.
 pub async fn start(
     State(state): State<AppState>,
     body: Bytes,
 ) -> ApiResult<(StatusCode, Json<DownloadStatus>)> {
-    check_empty_body(&body)?;
+    let choice = requested_generator(&body)?;
     let Ok(permit) = state.imports.clone().try_acquire_owned() else {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -161,11 +226,21 @@ pub async fn start(
             "a model download or import is already running; wait for it to finish",
         ));
     };
+    check_can_download(&state)?;
     // The plan is read under the permit: an import that finishes just before
     // this request must not leave it downloading a model now installed.
-    let models = state.models.clone();
-    let missing = blocking(move || Ok(missing_models(&models))).await?;
-    let entries = plan(&state, &missing)?;
+    let models = match &choice {
+        Some(id) => {
+            let read = state.clone();
+            let (_, options) = blocking(move || Ok(machine_options(&read))).await?;
+            check_choice(&options, id)?;
+            with_generator(&state.models, id)
+        }
+        None => (*state.models).clone(),
+    };
+    let wanted = models.clone();
+    let missing = blocking(move || Ok(missing_models(&wanted))).await?;
+    let entries = plan(&state, &missing, choice.as_deref())?;
     let downloads = &state.downloads;
     let job = Job {
         models_dir: state.models.models_dir.clone(),
@@ -176,29 +251,22 @@ pub async fn start(
     job.cancel.store(false, Ordering::SeqCst);
     job.status.set(job.initial_status());
     let started = downloads.status();
+    if let Some(id) = &choice {
+        tracing::info!(generation_model = %id, "model download started with the chosen generator");
+    }
     tokio::spawn(async move {
         let _permit = permit;
         let outcome = run_job(&state, job).await;
-        finish(&state, outcome).await;
+        finish(&state, outcome, &models, choice.as_deref()).await;
     });
     Ok((StatusCode::ACCEPTED, Json(started)))
 }
 
-/// No body or `{}`: the request names nothing, the config decides.
-fn check_empty_body(body: &[u8]) -> ApiResult<()> {
-    if body.iter().all(u8::is_ascii_whitespace) {
-        return Ok(());
-    }
-    match serde_json::from_slice::<Value>(body) {
-        Ok(Value::Object(fields)) if fields.is_empty() => Ok(()),
-        _ => Err(ApiError::invalid(
-            "send no body or {}; the models to download come from config.toml",
-        )),
-    }
-}
-
 /// Runs the download on a blocking thread; shutdown cancels it.
 async fn run_job(state: &AppState, job: Job) -> Result<(), DownloadError> {
+    if job.models.is_empty() {
+        return Ok(()); // the chosen generator is installed already
+    }
     let cancel = job.cancel.clone();
     let downloader = state.downloads.downloader.clone();
     let mut handle = tokio::task::spawn_blocking(move || run(&downloader, &job));
@@ -220,14 +288,29 @@ async fn run_job(state: &AppState, job: Job) -> Result<(), DownloadError> {
 }
 
 /// Records how the run ended; a complete install ends setup like an import.
-async fn finish(state: &AppState, outcome: Result<(), DownloadError>) {
+/// A chosen generator is written into config.toml first, and only then.
+async fn finish(
+    state: &AppState,
+    outcome: Result<(), DownloadError>,
+    models: &ModelsInfo,
+    choice: Option<&str>,
+) {
     let status = &state.downloads.status;
-    match outcome {
+    let outcome = match outcome {
         Ok(()) => {
-            let models = state.models.clone();
+            let models = models.clone();
             let complete = blocking(move || Ok(missing_models(&models).is_empty()))
                 .await
                 .unwrap_or(false);
+            match (complete, choice) {
+                (true, Some(id)) => write_choice(state, id).await.map(|()| complete),
+                _ => Ok(complete),
+            }
+        }
+        Err(err) => Err(err),
+    };
+    match outcome {
+        Ok(complete) => {
             let restart = restart_after(state, complete);
             // Recorded first: a page polling the status sees `done` before
             // the restart closes the connection.
@@ -246,6 +329,35 @@ async fn finish(state: &AppState, outcome: Result<(), DownloadError>) {
     }
 }
 
+/// `generation_model = "<id>"` in config.toml, before any restart.
+async fn write_choice(state: &AppState, id: &str) -> Result<(), DownloadError> {
+    let Some(path) = state.downloads.config_file.clone() else {
+        return Err(DownloadError::internal(
+            "this server does not know its config.toml, so the chosen generator cannot be kept",
+        ));
+    };
+    let model = id.to_string();
+    let written = tokio::task::spawn_blocking(move || set_generation_model(&path, &model))
+        .await
+        .unwrap_or_else(|err| Err(crate::error::OragError::Internal(err.to_string())));
+    match written {
+        Ok(true) => {
+            tracing::info!(generation_model = %id, "chosen generator written into config.toml");
+            Ok(())
+        }
+        Ok(false) => Ok(()),
+        Err(err) => {
+            tracing::error!(error = %err, "could not write the chosen generator into config.toml");
+            Err(DownloadError::new(
+                ErrorCode::Config,
+                format!(
+                    "the models are installed, but config.toml could not be updated ({err}); set generation_model = \"{id}\" there and restart orag"
+                ),
+            ))
+        }
+    }
+}
+
 fn restart_after(state: &AppState, complete: bool) -> Restart {
     match (complete, state.supervised) {
         (false, _) => Restart::None,
@@ -257,18 +369,5 @@ fn restart_after(state: &AppState, complete: bool) -> Restart {
             tracing::info!("models downloaded; restart orag to load them");
             Restart::Manual
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_an_empty_body_or_object_is_accepted() {
-        assert!(check_empty_body(b"").is_ok());
-        assert!(check_empty_body(b" {} ").is_ok());
-        assert!(check_empty_body(b"{\"models\": [\"x\"]}").is_err());
-        assert!(check_empty_body(b"[]").is_err());
     }
 }
