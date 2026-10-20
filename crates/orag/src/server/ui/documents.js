@@ -1,10 +1,11 @@
 // The document list of the selected collection: paged, deletable, and kept
 // up to date while documents are indexed.
-import { $, el, formatSize } from "./dom.js";
+import { $, el } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
 import { displayName, refreshCollections, selectedCollection } from "./collections.js";
 import { confirmAction, toast, toastError } from "./dialog.js";
-import { warningText } from "./format.js";
+import { formatSize, warningText } from "./format.js";
+import { t } from "./i18n.js";
 import { icon } from "./icons.js";
 
 const PAGE_SIZE = 50;
@@ -12,7 +13,7 @@ const POLL_MS = 2000;
 /** Unfinished rows refreshed per tick. */
 const WATCH_LIMIT = 10;
 
-/** A warning as its Turkish label with its pages and reason; the full
+/** A warning as its label with its pages and reason; the full
  * server text is the tooltip. */
 export function warningNode(tag, warning) {
   const node = el(tag, warningText(warning), "warning");
@@ -20,22 +21,17 @@ export function warningNode(tag, warning) {
   return node;
 }
 
-const DOCUMENT_STATUS = {
-  queued: "Sırada",
-  indexing: "İşleniyor",
-  ready: "Hazır",
-  failed: "Hata",
-};
+const DOCUMENT_STATUS = new Set(["queued", "indexing", "ready", "failed"]);
 
 /** A document's display name: JSON text uploads may have no file name. */
 export function documentName(doc) {
-  return doc.filename || doc.title || `Belge #${doc.id}`;
+  return doc.filename || doc.title || t("documents.unnamed", { id: doc.id });
 }
 
 /** Label and badge class of a document status, shared with the upload list. */
 export function documentStatusView(doc) {
   const className = doc.status === "ready" ? "ok" : doc.status === "failed" ? "failed" : "pending";
-  return [DOCUMENT_STATUS[doc.status] || doc.status, className];
+  return [DOCUMENT_STATUS.has(doc.status) ? t(`documents.status.${doc.status}`) : doc.status, className];
 }
 
 /** Cursor of the next page, or null when the list is complete. */
@@ -72,10 +68,11 @@ function fillDocumentRow(row, doc) {
   const name = row.querySelector(".doc-name");
   name.textContent = documentName(doc);
   row.title = documentName(doc);
-  row.querySelector(".doc-delete").setAttribute("aria-label", `Sil: ${documentName(doc)}`);
+  row.querySelector(".doc-delete").setAttribute("aria-label", t("documents.deleteLabel", { name: documentName(doc) }));
   const [label, badgeClass] = documentStatusView(doc);
   const meta = row.querySelector(".doc-meta");
-  const parts = doc.status === "ready" ? `${doc.chunk_count} parça · ${formatSize(doc.size_bytes)}` : formatSize(doc.size_bytes);
+  const size = formatSize(doc.size_bytes);
+  const parts = doc.status === "ready" ? `${t("documents.chunks", { count: doc.chunk_count })} · ${size}` : size;
   meta.replaceChildren(el("span", label, `badge ${badgeClass}`), el("span", parts));
   const notes = row.querySelector(".doc-notes");
   notes.replaceChildren(
@@ -94,6 +91,14 @@ export function updateDocumentRow(collection, doc) {
   if (row) fillDocumentRow(row, doc);
   else if (documentsAfter == null) $("documents").append(documentRow(collection, doc));
   showDocumentsEmpty();
+}
+
+/** Writes every row again in the current language. */
+function relabelRows() {
+  for (const row of $("documents").children) {
+    const doc = rowDocs.get(row);
+    if (doc) fillDocumentRow(row, doc);
+  }
 }
 
 function removeDocumentRow(id) {
@@ -145,7 +150,7 @@ async function loadDocuments(reset) {
     showDocumentsEmpty();
   } catch (err) {
     if (seq === documentsSeq) {
-      $("documents-status").replaceChildren(errorBox(err, "Belge listesi yüklenemedi."));
+      $("documents-status").replaceChildren(errorBox(err, "documents.loadFailed"));
     }
   } finally {
     if (seq === documentsSeq) more.disabled = false;
@@ -182,9 +187,9 @@ async function watchUnfinishedDocuments() {
 async function deleteDocument(collection, row, button) {
   const doc = rowDocs.get(row);
   const confirmed = await confirmAction({
-    title: "Belge silinsin mi?",
-    message: `"${documentName(doc)}" belgesi "${displayName(collection)}" koleksiyonundan kalıcı olarak silinecek.`,
-    confirmLabel: "Belgeyi sil",
+    title: t("documents.deleteQuestion"),
+    message: t("documents.deleteMessage", { name: documentName(doc), collection: displayName(collection) }),
+    confirmLabel: t("documents.deleteConfirm"),
     danger: true,
   });
   if (!confirmed) return;
@@ -194,14 +199,14 @@ async function deleteDocument(collection, row, button) {
   } catch (err) {
     // 404: already deleted elsewhere, which is the wanted result too.
     if (err.status !== 404) {
-      toastError(err, "Belge silinemedi.");
+      toastError(err, "documents.deleteFailed");
       button.disabled = false;
       return;
     }
   }
   // Removed in place, so the pages the user has opened stay open.
   removeDocumentRow(doc.id);
-  toast(`"${documentName(doc)}" silindi.`);
+  toast({ key: "common.deleted", params: { name: documentName(doc) } });
   await refreshCollections(); // new document count
 }
 
@@ -215,5 +220,6 @@ export function initDocuments() {
   document.addEventListener("orag:reindexed", refreshDocuments);
   document.addEventListener("orag:reconnected", refreshDocuments);
   $("documents-more").addEventListener("click", () => loadDocuments(false));
+  window.addEventListener("orag:language", relabelRows);
   watchUnfinishedDocuments();
 }

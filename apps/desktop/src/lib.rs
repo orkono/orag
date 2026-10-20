@@ -5,6 +5,7 @@ pub mod app;
 pub mod contain;
 pub mod fake;
 pub mod home;
+pub mod prefs;
 pub mod sidecar;
 pub mod supervisor;
 pub mod window;

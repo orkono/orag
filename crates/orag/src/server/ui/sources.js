@@ -1,19 +1,29 @@
 // The sources of one answer and the citation links into them. Every answer
 // on screen has its own sources, so anchors carry the answer's id.
-import { el } from "./dom.js";
+// Labels are kept translated (`data-i18n`); page labels are rewritten on a
+// language change.
+import { el, tEl } from "./dom.js";
 import { pageLabel } from "./format.js";
+import { setAttrText, setText } from "./i18n.js";
 import { icon } from "./icons.js";
 
 /** An excerpt, folded to a few lines, with a button that unfolds it. */
 function excerptBlock(text) {
   const quote = el("blockquote", text, "excerpt folded");
-  const toggle = el("button", "Devamını göster", "link-button");
+  const toggle = tEl("button", "sources.more", undefined, "link-button");
   toggle.type = "button";
   toggle.addEventListener("click", () => {
     const folded = quote.classList.toggle("folded");
-    toggle.textContent = folded ? "Devamını göster" : "Kısalt";
+    setText(toggle, folded ? "sources.more" : "sources.less");
   });
   return [quote, toggle];
+}
+
+/** Writes the page labels of the sources under `root` again (a language change). */
+export function relabelPages(root) {
+  for (const node of root.querySelectorAll(".source-pages[data-pages]")) {
+    node.textContent = pageLabel(JSON.parse(node.dataset.pages));
+  }
 }
 
 /** Once shown: an excerpt that fits in its folded height needs no button. */
@@ -31,10 +41,16 @@ function sourceItem(turn, source) {
   item.id = `${turn.id}-source-${source.number}`;
   item.dataset.number = String(source.number);
   const head = el("div", undefined, "source-head");
-  const name = source.filename || source.title || `Belge #${source.document_id}`;
-  head.append(el("span", String(source.number), "source-number"), icon("file"), el("span", name, "source-name"));
+  const name = source.filename || source.title
+    ? el("span", source.filename || source.title, "source-name")
+    : tEl("span", "documents.unnamed", { id: source.document_id }, "source-name");
+  head.append(el("span", String(source.number), "source-number"), icon("file"), name);
   const pages = pageLabel(source.pages);
-  if (pages) head.append(el("span", pages, "source-pages"));
+  if (pages) {
+    const label = el("span", pages, "source-pages");
+    label.dataset.pages = JSON.stringify(source.pages);
+    head.append(label);
+  }
   item.append(head);
   if (source.heading_path && source.heading_path.length > 0) {
     item.append(el("div", source.heading_path.join(" › "), "source-path"));
@@ -50,7 +66,7 @@ export function renderSources(turn, sources) {
   if (sources.length === 0) return;
   const list = el("ol", undefined, "source-list");
   list.append(...sources.map((source) => sourceItem(turn, source)));
-  turn.sources.append(el("h3", `Kaynaklar · ${sources.length}`, "sources-title"), list);
+  turn.sources.append(tEl("h3", "sources.title", { count: sources.length }, "sources-title"), list);
   dropNeedlessFolds(list);
 }
 
@@ -63,7 +79,7 @@ function openSource(turn, number) {
     item.closest("details")?.setAttribute("open", "");
     item.querySelector(".excerpt")?.classList.remove("folded");
     const toggle = item.querySelector(".link-button");
-    if (toggle) toggle.textContent = "Kısalt";
+    if (toggle) setText(toggle, "sources.less");
     item.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
@@ -71,7 +87,7 @@ function openSource(turn, number) {
 /** One citation marker, as written: digits it cites become links to their sources. */
 function citationMarker(turn, text, numbers) {
   const marker = el("span", undefined, "citation-marker");
-  marker.title = `Kaynak ${numbers.join(", ")}`;
+  setAttrText(marker, "title", "sources.citation", { numbers: numbers.join(", ") });
   const cited = new Set(numbers);
   for (const part of text.split(/(\d+)/)) {
     const number = Number(part);
@@ -87,7 +103,7 @@ function citationMarker(turn, text, numbers) {
       marker.append(link);
     } else {
       const missing = el("span", part, "citation-invalid");
-      missing.title = "Bu numarada bir kaynak yok";
+      setAttrText(missing, "title", "sources.missing");
       marker.append(missing);
     }
   }
@@ -127,12 +143,9 @@ export function markCitedSources(turn, citations) {
   if (unused.length === 0) return;
   const others = el("ol", undefined, "source-list");
   others.append(...unused);
-  const label =
-    unused.length === turn.shownSources.size
-      ? `İncelenen ${unused.length} kaynak`
-      : `Yanıtta kullanılmayan ${unused.length} kaynak`;
+  const key = unused.length === turn.shownSources.size ? "sources.reviewed" : "sources.unused";
   const more = el("details", undefined, "more-sources");
-  more.append(el("summary", label), others);
+  more.append(tEl("summary", key, { count: unused.length }), others);
   turn.sources.append(more);
   if (list.children.length === 0) list.remove();
 }

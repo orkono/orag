@@ -3,6 +3,7 @@
 use serde::Serialize;
 use tauri::Url;
 
+use crate::prefs::Choice;
 use crate::supervisor::SidecarEvent;
 
 /// What the local status page (`ui/index.html`) shows.
@@ -36,7 +37,20 @@ pub const SMOKE_SCHEME: &str = "orag-smoke";
 
 /// The script the smoke test runs inside the service page: a same-origin POST
 /// as the page itself sends it, reported through a `orag-smoke:` navigation.
+/// It also picks English on the page's language menu first: the app closes
+/// its window right after the report, well before the next language poll,
+/// so a run shows that the close path saves the last choice (`language` in
+/// the app data folder reads `en <ms>` afterwards). The page-load event can
+/// come while the page's modules are still loading, so it waits for `load`.
 pub const SMOKE_SCRIPT: &str = r#"(async () => {
+  if (document.readyState !== "complete") {
+    await new Promise((resolve) => window.addEventListener("load", resolve, { once: true }));
+  }
+  const menu = document.getElementById("language-select");
+  if (menu) {
+    menu.value = "en";
+    menu.dispatchEvent(new Event("change"));
+  }
   let report;
   try {
     const r = await fetch("/v1/models/import", {
@@ -107,6 +121,49 @@ pub fn status_script(status: &Status) -> String {
         .replace('\u{2028}', "\\u2028")
         .replace('\u{2029}', "\\u2029");
     format!("window.oragStatus && window.oragStatus({json});")
+}
+
+/// The fragment pair both pages keep their language in (`#lang=en`): the app
+/// hands the language over in it and reads the page's choice back from it.
+const LANGUAGE_PAIR: &str = "lang";
+
+/// When the language was chosen (ms since 1970), next to it in the fragment.
+const AT_PAIR: &str = "at";
+
+/// The choice a page's address names in its fragment (`lang=en&at=<ms>`),
+/// or None.
+pub fn language_of(url: &Url) -> Option<Choice> {
+    let pairs: Vec<(&str, &str)> = url
+        .fragment()?
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .collect();
+    let value = |name: &str| pairs.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
+    let language = crate::prefs::parse_language(value(LANGUAGE_PAIR)?)?;
+    let at = value(AT_PAIR).and_then(|at| at.parse::<u64>().ok());
+    Some(Choice { language, at })
+}
+
+/// `url` with its fragment set to `lang=<language>[&at=<ms>]`.
+pub fn with_language(url: &Url, choice: Choice) -> Url {
+    let mut url = url.clone();
+    let fragment = match choice.at {
+        Some(at) => format!("{LANGUAGE_PAIR}={}&{AT_PAIR}={at}", choice.language),
+        None => format!("{LANGUAGE_PAIR}={}", choice.language),
+    };
+    url.set_fragment(Some(&fragment));
+    url
+}
+
+/// The script that hands the choice to the app's own page (its first load
+/// has no fragment to read it from). The language is one of the known ones
+/// and the time a number, never page output.
+pub fn language_script(choice: Choice) -> String {
+    let language = crate::prefs::parse_language(choice.language).unwrap_or("tr");
+    let at = choice
+        .at
+        .map_or_else(|| "null".to_string(), |at| at.to_string());
+    format!("window.oragLanguage && window.oragLanguage(\"{language}\", {at});")
 }
 
 /// Navigation stays on the app's own page or the service page; anything else
@@ -247,6 +304,58 @@ mod tests {
             "error TypeError"
         );
         assert!(smoke_report(&url("http://127.0.0.1:42000/")).is_none());
+    }
+
+    fn choice(language: &'static str, at: Option<u64>) -> Choice {
+        Choice { language, at }
+    }
+
+    #[test]
+    fn the_language_travels_in_the_fragment() {
+        assert_eq!(
+            with_language(&url("http://127.0.0.1:42000/"), choice("en", Some(1700))).as_str(),
+            "http://127.0.0.1:42000/#lang=en&at=1700"
+        );
+        assert_eq!(
+            with_language(
+                &url("http://127.0.0.1:42000/#lang=en&at=1"),
+                choice("tr", None)
+            )
+            .as_str(),
+            "http://127.0.0.1:42000/#lang=tr"
+        );
+        assert_eq!(
+            language_of(&url("http://127.0.0.1:42000/#lang=en&at=1700")),
+            Some(choice("en", Some(1700)))
+        );
+        assert_eq!(
+            language_of(&url("tauri://localhost/index.html#x=1&lang=tr")),
+            Some(choice("tr", None))
+        );
+        assert_eq!(
+            language_of(&url("http://127.0.0.1:42000/#lang=en&at=soon")),
+            Some(choice("en", None))
+        );
+        for bad in [
+            "http://127.0.0.1:42000/",
+            "http://127.0.0.1:42000/#lang=de",
+            "http://127.0.0.1:42000/#lang=EN",
+            "http://127.0.0.1:42000/?lang=en",
+        ] {
+            assert_eq!(language_of(&url(bad)), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_status_page_gets_the_language_as_data() {
+        assert_eq!(
+            language_script(choice("en", Some(1700))),
+            "window.oragLanguage && window.oragLanguage(\"en\", 1700);"
+        );
+        assert_eq!(
+            language_script(choice("tr", None)),
+            "window.oragLanguage && window.oragLanguage(\"tr\", null);"
+        );
     }
 
     #[test]

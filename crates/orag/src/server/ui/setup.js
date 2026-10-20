@@ -2,23 +2,28 @@
 // downloads them from Hugging Face (step 76); a local folder of model packs
 // still works offline. ORAG then restarts, by itself under `orag start`, or by
 // the user otherwise.
-import { $, el } from "./dom.js";
+import { $, el, tEl } from "./dom.js";
 import { errorBox, getJson, request } from "./api.js";
 import {
-  DOWNLOAD_TEXT as T,
+  DOWNLOAD_ERRORS,
   cancelDownload,
   downloadButtonLabel,
   downloadStatus,
+  downloadView,
   settleDownload,
   startDownload,
-  unavailableText,
+  unavailableKey,
   waitUntilReady,
 } from "./download.js";
+import { setAttrText, setText } from "./i18n.js";
 
 const MODELS_POLL_MS = 2000;
 
 let following = false;
 let lastPhase = null;
+/** The last view shown and the size on the start button, drawn again in a new language. */
+let lastView = null;
+let downloadBytes = null;
 
 function isWindows() {
   return /win/i.test(navigator.userAgentData?.platform || navigator.platform || "");
@@ -48,16 +53,16 @@ function lockWork() {
     if (node) node.disabled = true;
   }
   const text = $("ask-text");
-  if (text) text.placeholder = "Soru sormak için önce modelleri kurun.";
+  if (text) setAttrText(text, "placeholder", "setup.askLocked");
 }
 
 function showRestarting() {
-  showStatus(el("p", "ORAG yeniden başlıyor…", "hint"));
+  showStatus(tEl("p", "setup.restarting", undefined, "hint"));
   lastPhase = null; // a download followed again after the restart is announced anew
 }
 
-function showRestartTimeout() {
-  showStatus(el("p", "ORAG bir dakika içinde geri gelmedi. Sunucu penceresindeki iletiyi kontrol edin.", "failed"));
+export function showRestartTimeout() {
+  showStatus(tEl("p", "setup.restartTimeout", undefined, "failed"));
 }
 
 async function waitForRestart() {
@@ -67,7 +72,7 @@ async function waitForRestart() {
 }
 
 async function waitForManualRestart() {
-  showStatus(el("p", "Modeller kuruldu; ORAG'ı kapatıp yeniden başlatın. Yeniden başladığında bu sayfa kendiliğinden yenilenir.", "hint keep"));
+  showStatus(tEl("p", "setup.manualRestart", undefined, "hint keep"));
   for (;;) {
     await sleep(MODELS_POLL_MS);
     try {
@@ -127,10 +132,10 @@ function renderRows(models) {
 
 /** The sentence for a phase, read out once when the phase changes. */
 function announce(view) {
-  if (view.phase === "running") showStatus(el("p", T.running, "hint"));
-  else if (view.phase === "cancelled") showStatus(el("p", T.cancelled, "warning"));
-  else if (view.phase === "done") showStatus(el("p", T.done, "hint"));
-  else if (view.phase === "failed") showStatus(errorBox({ message: view.error.detail }, view.error.text));
+  if (view.phase === "running") showStatus(tEl("p", "download.running", undefined, "hint"));
+  else if (view.phase === "cancelled") showStatus(tEl("p", "download.cancelled", undefined, "warning"));
+  else if (view.phase === "done") showStatus(tEl("p", "download.done", undefined, "hint"));
+  else if (view.phase === "failed") showStatus(errorBox({ message: view.error.detail }, view.error.key));
 }
 
 /** Moves focus to the visible action when the focused button went away. */
@@ -142,24 +147,44 @@ function keepFocus() {
   }
 }
 
-function renderView(view) {
-  if (view.phase === "idle") return showStart();
-  $("setup-download").hidden = true;
-  $("setup-progress").hidden = false;
+/** The progress rows and the overall line: the only language-dependent
+ * parts of the view without a `data-i18n` key. */
+function drawProgress(view) {
   renderRows(view.models);
   fillBar($("setup-progress-bar"), view.overall.received, view.overall.total);
   $("setup-progress-amount").textContent = `${view.overall.amount} · ${view.overall.percent}`;
+}
+
+function renderView(view) {
+  lastView = view.phase === "idle" ? null : view;
+  if (view.phase === "idle") return showStart();
+  $("setup-download").hidden = true;
+  $("setup-progress").hidden = false;
+  drawProgress(view);
   $("setup-download-cancel").hidden = !view.busy;
   const again = $("setup-download-again");
   again.hidden = view.phase !== "failed" && view.phase !== "cancelled";
-  again.textContent = view.phase === "cancelled" ? T.resume : T.retry;
+  setText(again, view.phase === "cancelled" ? "download.resume" : "download.retry");
   $("setup-import").disabled = view.busy;
   if (view.phase !== lastPhase) announce(view);
   lastPhase = view.phase;
   keepFocus();
 }
 
+/**
+ * A language change: only the text of what is on screen is written again.
+ * The sentences, the error, the retry button and every notice carry
+ * `data-i18n` and follow by themselves; which of them is shown (the current
+ * state of the panel) is left exactly as it is. The progress numbers come
+ * from the last status drawn, which is also what they show now.
+ */
+function relabel() {
+  $("setup-download-start").textContent = downloadButtonLabel(downloadBytes);
+  if (lastView && !$("setup-progress").hidden) drawProgress(downloadView(lastView.status));
+}
+
 function showStart() {
+  lastView = null;
   $("setup-download").hidden = false;
   $("setup-progress").hidden = true;
   $("setup-import").disabled = false;
@@ -170,12 +195,12 @@ function setInFlight(busy) {
   for (const id of ["setup-download-start", "setup-download-cancel", "setup-download-again"]) $(id).disabled = busy;
 }
 
-/** No download here: say why and open the offline form. */
-function offlineOnly(text, detail) {
+/** No download here: say why (the key `reason`) and open the offline form. */
+function offlineOnly(reason, detail) {
   $("setup-download").hidden = true;
   $("setup-progress").hidden = true;
   const hint = $("setup-download-reason");
-  hint.replaceChildren(text);
+  hint.replaceChildren(tEl("span", reason));
   if (detail) hint.append(el("span", detail, "detail"));
   hint.hidden = false;
   $("setup-offline").open = true;
@@ -195,14 +220,14 @@ async function startOrJoin() {
 
 function showFailure(err, fallback) {
   if (err.code === "download_disabled" || err.code === "download_unavailable") {
-    offlineOnly(T.byCode[err.code]);
+    offlineOnly(DOWNLOAD_ERRORS[err.code]);
     return;
   }
-  showStatus(errorBox(err, fallback, T.byCode));
+  showStatus(errorBox(err, fallback, DOWNLOAD_ERRORS));
   if (!$("setup-progress").hidden) {
     $("setup-download-cancel").hidden = true;
     const again = $("setup-download-again");
-    again.textContent = T.retry;
+    setText(again, "download.retry");
     again.hidden = false;
   }
   lastPhase = null;
@@ -229,11 +254,11 @@ async function follow(begin) {
   if (following) return;
   following = true;
   setInFlight(true);
-  let fallback = T.startFailed;
+  let fallback = "download.startFailed";
   try {
     const first = await begin();
     setInFlight(false);
-    fallback = T.pollFailed;
+    fallback = "download.pollFailed";
     const outcome = await settleDownload(first, renderView, { onRestarting: showRestarting });
     await settled(outcome, fallback);
   } catch (err) {
@@ -250,7 +275,7 @@ async function cancel() {
   try {
     await cancelDownload(); // the running poll shows the cancelled state
   } catch (err) {
-    showStatus(errorBox(err, T.cancelFailed, T.byCode));
+    showStatus(errorBox(err, "download.cancelFailed", DOWNLOAD_ERRORS));
     lastPhase = null;
     button.disabled = false;
   }
@@ -268,8 +293,9 @@ async function joinRunning() {
 }
 
 function initDownload(download) {
-  if (!download?.available) return offlineOnly(unavailableText(download), download?.reason);
-  $("setup-download-start").textContent = downloadButtonLabel(download.bytes);
+  if (!download?.available) return offlineOnly(unavailableKey(download), download?.reason);
+  downloadBytes = download.bytes;
+  $("setup-download-start").textContent = downloadButtonLabel(downloadBytes);
   $("setup-download-start").addEventListener("click", () => follow(startOrJoin));
   $("setup-download-again").addEventListener("click", () => follow(startOrJoin));
   $("setup-download-cancel").addEventListener("click", cancel);
@@ -285,7 +311,7 @@ async function importPacks(event) {
   if (!path) return;
   const button = $("setup-import");
   button.disabled = true;
-  showImportStatus(el("p", "İçe aktarılıyor… Büyük model dosyaları birkaç dakika sürebilir.", "hint"));
+  showImportStatus(tEl("p", "setup.importing", undefined, "hint"));
   try {
     const response = await request("/v1/models/import", {
       method: "POST",
@@ -300,12 +326,16 @@ async function importPacks(event) {
     const models = await getJson("/v1/models");
     const still = missingIds(models);
     $("setup-missing").textContent = still.join(", ");
-    const imported = result.imported.length ? `İçe aktarıldı: ${result.imported.join(", ")}.` : "Bu klasördeki paketler zaten kurulu.";
-    showImportStatus(el("p", `${imported} Hâlâ eksik: ${still.join(", ")}.`, "warning"));
+    const imported = result.imported.length
+      ? tEl("span", "setup.imported", { ids: result.imported.join(", ") })
+      : tEl("span", "setup.alreadyInstalled");
+    const line = el("p", undefined, "warning");
+    line.append(imported, " ", tEl("span", "setup.stillMissing", { ids: still.join(", ") }));
+    showImportStatus(line);
   } catch (err) {
-    showImportStatus(errorBox(err, "Model paketleri içe aktarılamadı.", {
-      conflict: "Başka bir içe aktarma veya indirme sürüyor; bitmesini bekleyin.",
-      invalid_input: "Bu klasörden model paketi içe aktarılamadı.",
+    showImportStatus(errorBox(err, "setup.importFailed", {
+      conflict: "setup.importConflict",
+      invalid_input: "setup.importInvalid",
     }));
   } finally {
     button.disabled = following;
@@ -322,8 +352,9 @@ export async function initSetup() {
   if (models.mode !== "setup") return;
   $("setup-missing").textContent = missingIds(models).join(", ");
   $("setup-models-dir").textContent = models.models_dir;
-  $("setup-path").placeholder = isWindows() ? "C:\\ORAG-paketleri" : "~/orag-packs";
+  setAttrText($("setup-path"), "placeholder", isWindows() ? "setup.pathWindows" : "setup.pathUnix");
   $("setup-form").addEventListener("submit", importPacks);
+  window.addEventListener("orag:language", relabel);
   $("setup-panel").hidden = false;
   lockWork();
   await initDownload(models.download);

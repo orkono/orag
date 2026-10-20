@@ -1,5 +1,6 @@
 // Small DOM helpers. Document text and names are untrusted: they only ever
 // reach the page through textContent or text nodes.
+import { isMessage, setText } from "./i18n.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -10,15 +11,19 @@ export function el(tag, text, className) {
   return node;
 }
 
-export function formatSize(bytes) {
-  const units = ["bayt", "KB", "MB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} ${units[unit]}`;
+/**
+ * An element showing the message `key` that follows language changes.
+ * `params` must not depend on the language (ids, counts, names).
+ */
+export function tEl(tag, key, params, className) {
+  const node = el(tag, undefined, className);
+  setText(node, key, params);
+  return node;
+}
+
+/** `tEl` for a `{ key, params }` message, `el` for plain text. */
+export function messageEl(tag, message, className) {
+  return isMessage(message) ? tEl(tag, message.key, message.params, className) : el(tag, message, className);
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

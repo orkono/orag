@@ -55,6 +55,16 @@ impl SidecarSpec {
             stop_grace: Duration::from_secs(10),
         }
     }
+
+    /// Asks the service to try `port` first for its page (`ui_bind` on port
+    /// 0), so the page keeps the origin, and the browser storage, it had.
+    pub fn with_ui_port_hint(mut self, port: Option<u16>) -> SidecarSpec {
+        if let Some(port) = port {
+            self.args.push("--ui-port-hint".into());
+            self.args.push(port.to_string().into());
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -356,4 +366,27 @@ fn snapshot(tail: &Mutex<VecDeque<String>>) -> Vec<String> {
         .iter()
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(spec: &SidecarSpec) -> Vec<String> {
+        spec.args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_last_page_port_is_handed_to_the_service() {
+        let spec = SidecarSpec::serve("orag".into(), "/home".into()).with_ui_port_hint(Some(42017));
+        assert_eq!(
+            args(&spec),
+            ["serve", "--exit-on-stdin-close", "--ui-port-hint", "42017"]
+        );
+        let first = SidecarSpec::serve("orag".into(), "/home".into()).with_ui_port_hint(None);
+        assert_eq!(args(&first), ["serve", "--exit-on-stdin-close"]);
+    }
 }

@@ -34,6 +34,9 @@ pub struct ServeOptions {
     pub dev_fake_models: bool,
     /// Stop gracefully when stdin reaches end of file (D-016 sidecar).
     pub exit_on_stdin_close: bool,
+    /// The port to try first when `ui_bind` asks for a free one (port 0):
+    /// the desktop app's last page port, so its origin stays the same.
+    pub ui_port_hint: Option<u16>,
 }
 
 /// Runs `orag serve`; returns the process exit code (`EXIT_RESTART` when an
@@ -64,11 +67,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     // Bound before the model load too, so a busy UI port fails at once.
     let ui_listener = config
         .ui_bind
-        .map(|addr| {
-            bind_listener(addr, || {
-                format!("binding the web UI to {addr} (set ui_bind in config.toml to another port or \"off\")")
-            })
-        })
+        .map(|addr| bind_ui_listener(addr, options.ui_port_hint))
         .transpose()?;
     let store = Arc::new(Store::open(&config.db_path()).context("opening database")?);
     let requeued = store.requeue_running_jobs()?;
@@ -183,6 +182,31 @@ fn bind_listener(
     let listener = std::net::TcpListener::bind(addr).with_context(context)?;
     listener.set_nonblocking(true)?;
     Ok(listener)
+}
+
+/// The web UI listener. For an ephemeral `ui_bind` (port 0) a `hint` port is
+/// tried first, so the page keeps its origin (and the browser storage that
+/// goes with it) across restarts; a taken hint falls back to a free port. A
+/// port set in config.toml always wins.
+fn bind_ui_listener(
+    addr: std::net::SocketAddr,
+    hint: Option<u16>,
+) -> anyhow::Result<std::net::TcpListener> {
+    let context = || {
+        format!(
+            "binding the web UI to {addr} (set ui_bind in config.toml to another port or \"off\")"
+        )
+    };
+    if let Some(port) = hint.filter(|&port| port != 0 && addr.port() == 0) {
+        let hinted = std::net::SocketAddr::new(addr.ip(), port);
+        match bind_listener(hinted, context) {
+            Ok(listener) => return Ok(listener),
+            Err(err) => {
+                tracing::info!(%hinted, error = %err, "the web UI's previous port is taken; using a free one")
+            }
+        }
+    }
+    bind_listener(addr, context)
 }
 
 /// Weak handles to the loaded models: alive only while something still uses them.
@@ -440,5 +464,45 @@ mod tests {
         assert!(watched.any(), "a task still holds the generator");
         drop(detached_task);
         assert!(!watched.any());
+    }
+
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    fn ui_port(addr: &str, hint: Option<u16>) -> u16 {
+        let listener = bind_ui_listener(addr.parse().unwrap(), hint).unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_free_port_hint_is_used_for_an_ephemeral_ui_bind() {
+        let hint = free_port();
+        assert_eq!(ui_port("127.0.0.1:0", Some(hint)), hint);
+    }
+
+    #[test]
+    fn a_taken_port_hint_falls_back_to_a_free_port() {
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let hint = taken.local_addr().unwrap().port();
+        let port = ui_port("127.0.0.1:0", Some(hint));
+        assert_ne!(port, hint);
+        assert_ne!(port, 0);
+    }
+
+    #[test]
+    fn a_configured_ui_port_wins_over_the_hint() {
+        let configured = free_port();
+        let hint = free_port();
+        assert_eq!(
+            ui_port(&format!("127.0.0.1:{configured}"), Some(hint)),
+            configured
+        );
+        assert_ne!(ui_port("127.0.0.1:0", Some(0)), 0);
+        assert_ne!(ui_port("127.0.0.1:0", None), 0);
     }
 }

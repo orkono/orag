@@ -4,9 +4,10 @@
 // selected collection) and `orag:switched` (the user changed context, so the
 // answers on screen no longer apply).
 import { $, el } from "./dom.js";
-import { errorBox, getJson, request } from "./api.js";
+import { clientError, errorBox, getJson, request } from "./api.js";
 import { confirmAction, toast, toastError } from "./dialog.js";
 import { icon } from "./icons.js";
+import { t } from "./i18n.js";
 
 export const DEFAULT_COLLECTION = "default";
 const SELECTED_KEY = "orag.collection";
@@ -43,8 +44,10 @@ export function selectedCollection() {
   return collections.find((c) => c.id === selectedId) || null;
 }
 
-export const displayName = (c) => (c.name === DEFAULT_COLLECTION ? "Varsayılan" : c.name);
-const countLabel = (n) => `${n} belge`;
+export const displayName = (c) => (c.name === DEFAULT_COLLECTION ? t("collections.default") : c.name);
+/** "3 belge" as a message, so it can fill another message's placeholder. */
+const countMessage = (count) => ({ key: "collections.count", params: { count } });
+const countLabel = (count) => t("collections.count", { count });
 
 function renderList() {
   // Rebuilding the buttons must not lose keyboard focus.
@@ -73,7 +76,7 @@ function selectionShown() {
   renderList();
   $("collection-title").textContent = current ? displayName(current) : "ORAG";
   $("collection-meta").textContent = current
-    ? `${countLabel(current.document_count)}${current.name === DEFAULT_COLLECTION ? " · silinemez" : ""}`
+    ? [countLabel(current.document_count), ...(current.name === DEFAULT_COLLECTION ? [t("collections.undeletable")] : [])].join(" · ")
     : "";
   $("collection-delete").disabled = !current || current.name === DEFAULT_COLLECTION;
   $("collection-reindex").disabled = !current || current.document_count === 0;
@@ -107,7 +110,7 @@ export async function refreshCollections() {
   try {
     await loadCollections();
   } catch (err) {
-    $("collection-status").replaceChildren(errorBox(err, "Koleksiyonlar yüklenemedi."));
+    $("collection-status").replaceChildren(errorBox(err, "collections.loadFailed"));
   }
 }
 
@@ -133,12 +136,12 @@ async function createCollection(event) {
     const created = await response.json();
     showForm(false);
     prefer(created.id);
-    toast(`"${created.name}" koleksiyonu oluşturuldu.`);
+    toast({ key: "collections.created", params: { name: created.name } });
   } catch (err) {
     $("collection-status").replaceChildren(
-      errorBox(err, "Koleksiyon oluşturulamadı.", {
-        conflict: "Bu adla bir koleksiyon zaten var (büyük/küçük harf fark etmez).",
-        invalid_input: "Geçersiz ad: en fazla 64 harf, rakam, boşluk, \"_\", \".\" veya \"-\".",
+      errorBox(err, "collections.createFailed", {
+        conflict: "collections.exists",
+        invalid_input: "collections.invalidName",
       }),
     );
   } finally {
@@ -155,19 +158,19 @@ async function deleteCollection() {
   try {
     // The count shown may be old: ask with the current one.
     const latest = (await getJson("/v1/collections")).collections.find((c) => c.id === current.id);
-    if (!latest) throw new Error(`"${current.name}" artık yok.`);
+    if (!latest) throw clientError("collections.gone", { name: current.name });
     const confirmed = await confirmAction({
-      title: "Koleksiyon silinsin mi?",
-      message: `"${latest.name}" koleksiyonu ve içindeki ${countLabel(latest.document_count)} kalıcı olarak silinecek. Bu işlem geri alınamaz.`,
-      confirmLabel: "Koleksiyonu sil",
+      title: t("collections.deleteQuestion"),
+      message: t("collections.deleteMessage", { name: latest.name, count: countLabel(latest.document_count) }),
+      confirmLabel: t("collections.deleteConfirm"),
       danger: true,
     });
     if (!confirmed) return;
     await request(`/v1/collections/${current.id}`, { method: "DELETE" });
     prefer(null);
-    toast(`"${current.name}" silindi.`);
+    toast({ key: "common.deleted", params: { name: current.name } });
   } catch (err) {
-    toastError(err, "Koleksiyon silinemedi.", { conflict: "Varsayılan koleksiyon silinemez." });
+    toastError(err, "collections.deleteFailed", { conflict: "collections.deleteDefault" });
   } finally {
     selectionShown(); // re-enables the button even if the refresh fails
     // After success or failure (e.g. deleted elsewhere): show what exists now.
@@ -179,11 +182,9 @@ async function reindexCollection() {
   const current = selectedCollection();
   if (!current) return;
   const confirmed = await confirmAction({
-    title: "Yeniden indekslensin mi?",
-    message:
-      `"${displayName(current)}" koleksiyonundaki belgeler, saklanan kopyalarından mevcut modelle yeniden işlenecek. ` +
-      "Dosyaları tekrar yüklemeniz gerekmez; bitene kadar yanıtlar eksik olabilir.",
-    confirmLabel: "Yeniden indeksle",
+    title: t("collections.reindexQuestion"),
+    message: t("collections.reindexMessage", { name: displayName(current) }),
+    confirmLabel: t("collection.reindex"),
   });
   if (!confirmed) return;
   const button = $("collection-reindex");
@@ -193,10 +194,10 @@ async function reindexCollection() {
     const result = await response.json();
     document.dispatchEvent(new Event("orag:switched"));
     document.dispatchEvent(new Event("orag:reindexed"));
-    toast(`${countLabel(result.queued_documents)} yeniden indeksleniyor.`);
+    toast({ key: "collections.reindexQueued", params: { count: countMessage(result.queued_documents) } });
   } catch (err) {
-    toastError(err, "Yeniden indeksleme başlatılamadı.", {
-      conflict: "Bu koleksiyonda hâlâ işlenen belgeler var; bitince tekrar deneyin.",
+    toastError(err, "collections.reindexFailed", {
+      conflict: "collections.reindexBusy",
     });
   } finally {
     selectionShown(); // re-enables the button
@@ -213,5 +214,7 @@ export function initCollections() {
   $("collection-delete").addEventListener("click", deleteCollection);
   $("collection-reindex").addEventListener("click", reindexCollection);
   document.addEventListener("orag:reconnected", refreshCollections);
+  // Names, counts and the title bar in the new language.
+  window.addEventListener("orag:language", selectionShown);
   refreshCollections();
 }
