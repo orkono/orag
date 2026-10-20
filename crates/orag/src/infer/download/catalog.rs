@@ -117,6 +117,10 @@ const QWEN3_EMBEDDING_SECTION: &str = "[embedding]\ndimensions = 1024\npooling =
 query_prefix = \"Instruct: Given a search query, retrieve relevant passages that answer the query\\nQuery: \"\n\
 document_prefix = \"\"\nrequire_trailing_eos = true";
 
+/// The generation table of every Qwen3.5 tier (the 4B default and the
+/// setup page's 2B and 9B, step 82): thinking off, the same budget.
+const QWEN35_GENERATION_SECTION: &str = "[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = \"chatml-nothink\"";
+
 #[allow(clippy::too_many_arguments)]
 fn entry(
     id: &str,
@@ -176,7 +180,37 @@ fn builtin_entries() -> Vec<CatalogEntry> {
                 "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
                 11_544,
             ),
-            "[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = \"chatml-nothink\"",
+            QWEN35_GENERATION_SECTION,
+        ),
+        entry(
+            "qwen3.5-2b-q4_k_m",
+            ModelRole::Generation,
+            "unsloth/Qwen3.5-2B-GGUF",
+            "f6d5376be1edb4d416d56da11e5397a961aca8ae",
+            "Qwen3.5-2B-Q4_K_M.gguf",
+            "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+            1_280_835_840,
+            (
+                "https://huggingface.co/Qwen/Qwen3.5-2B/resolve/15852e8c16360a2fea060d615a32b45270f8a8fc/LICENSE",
+                "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+                11_544,
+            ),
+            QWEN35_GENERATION_SECTION,
+        ),
+        entry(
+            "qwen3.5-9b-q4_k_m",
+            ModelRole::Generation,
+            "unsloth/Qwen3.5-9B-GGUF",
+            "3885219b6810b007914f3a7950a8d1b469d598a5",
+            "Qwen3.5-9B-Q4_K_M.gguf",
+            "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+            5_680_522_464,
+            (
+                "https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/LICENSE",
+                "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+                11_544,
+            ),
+            QWEN35_GENERATION_SECTION,
         ),
         entry(
             "qwen3-4b-instruct-2507-q4_k_m",
@@ -249,7 +283,7 @@ mod tests {
     fn the_catalog_pins_exactly_what_the_pack_script_pins() {
         let presets = script_presets();
         let catalog = Catalog::builtin();
-        assert_eq!(catalog.entries().len(), 3);
+        assert_eq!(catalog.entries().len(), 5);
         for entry in catalog.entries() {
             let script = presets
                 .get(&entry.id)
