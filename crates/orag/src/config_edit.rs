@@ -4,7 +4,9 @@
 //! every other line stay as the user left them (toml_edit). The new file is
 //! checked like a start reads it, then written atomically: a temporary file
 //! in the same folder, fsync, rename over the old one (replace semantics on
-//! Windows). On any failure the old file is untouched.
+//! Windows). On any failure the old file is untouched. A config.toml that is
+//! a symbolic link (to a managed file) stays a link: its target is the file
+//! replaced. The file's line endings (LF or CRLF) are kept.
 
 use std::io::Write;
 use std::path::Path;
@@ -21,7 +23,8 @@ const KEY: &str = "generation_model";
 /// written: `false` when the key already names `id`.
 pub fn set_generation_model(path: &Path, id: &str) -> Result<bool> {
     let at = |err: OragError| at_path(err, path);
-    let old = match std::fs::read_to_string(path) {
+    let file = write_target(path).map_err(|err| at(err.into()))?;
+    let old = match std::fs::read_to_string(&file) {
         Ok(text) => Some(text),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(err) => return Err(at(err.into())),
@@ -37,8 +40,35 @@ pub fn set_generation_model(path: &Path, id: &str) -> Result<bool> {
             config.generation_model
         ))));
     }
-    write_atomically(path, &text).map_err(|err| at(err.into()))?;
+    write_atomically(&file, &text).map_err(|err| at(err.into()))?;
     Ok(true)
+}
+
+/// The file to replace: `path` itself, or the file a symbolic link at
+/// `path` points to (resolved fully, so a chain of links or a linked folder
+/// on Windows ends at the real file). Replacing the link instead would cut
+/// the managed file off. A link that points nowhere is an error.
+fn write_target(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => std::fs::canonicalize(path).map_err(|err| {
+            std::io::Error::new(
+                err.kind(),
+                format!("config.toml is a link that cannot be followed: {err}"),
+            )
+        }),
+        _ => Ok(path.to_path_buf()),
+    }
+}
+
+/// `out` (toml_edit writes LF) in the line ending style of `original`:
+/// CRLF when most of its line breaks are CRLF.
+fn with_line_endings(out: String, original: &str) -> String {
+    let crlf = original.matches("\r\n").count();
+    let lf = original.matches('\n').count() - crlf;
+    if crlf == 0 || crlf < lf {
+        return out;
+    }
+    out.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
 /// `text` with the key set to `id`, or `None` when it already is.
@@ -58,13 +88,13 @@ fn edited(text: &str, id: &str) -> Result<Option<String>> {
     // Replaced in place, so the key keeps its own leading comments and lines.
     if let Some(item) = doc.get_mut(KEY) {
         *item = new;
-        return Ok(Some(doc.to_string()));
+        return Ok(Some(with_line_endings(doc.to_string(), text)));
     }
-    if let Some(text) = below_commented_default(text, id) {
-        return Ok(Some(text));
+    if let Some(edited) = below_commented_default(text, id) {
+        return Ok(Some(edited));
     }
     doc.insert(KEY, new);
-    Ok(Some(doc.to_string()))
+    Ok(Some(with_line_endings(doc.to_string(), text)))
 }
 
 /// A missing key goes right under its commented-out default
@@ -229,6 +259,85 @@ mod tests {
         assert!(set_generation_model(&path, LARGE).unwrap());
         let config = Config::load(path.parent().unwrap()).unwrap();
         assert_eq!(config.generation_model, LARGE);
+    }
+
+    /// Every line break of `text` is CRLF.
+    fn all_crlf(text: &str) -> bool {
+        text.matches('\n').count() == text.matches("\r\n").count()
+    }
+
+    #[test]
+    fn updating_a_key_keeps_crlf_line_endings() {
+        let (_dir, path) = home();
+        let before = "# mine\r\ngeneration_model = \"qwen3.5-4b-q4_k_m\" # hand\r\n\r\n[models]\r\ndownload = true\r\n";
+        std::fs::write(&path, before).unwrap();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        assert_eq!(read(&path), before.replace("qwen3.5-4b-q4_k_m", LARGE));
+    }
+
+    #[test]
+    fn inserting_without_a_commented_default_keeps_crlf_line_endings() {
+        let (_dir, path) = home();
+        std::fs::write(
+            &path,
+            "# mine\r\nlog_level = \"warn\"\r\n\r\n[models]\r\ndownload = true\r\n",
+        )
+        .unwrap();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        let after = read(&path);
+        assert!(all_crlf(&after), "{after:?}");
+        assert!(
+            after.contains(&format!("generation_model = \"{LARGE}\"\r\n")),
+            "{after:?}"
+        );
+        assert_eq!(
+            Config::load(path.parent().unwrap())
+                .unwrap()
+                .generation_model,
+            LARGE
+        );
+    }
+
+    #[test]
+    fn a_created_file_uses_the_template_line_endings() {
+        let (_dir, path) = home();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        let created = read(&path);
+        assert!(!created.contains('\r'), "LF like the template: {created:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_config_is_edited_through_the_link() {
+        let (dir, path) = home();
+        let managed = dir.path().join("managed").join("managed.toml");
+        std::fs::create_dir(managed.parent().unwrap()).unwrap();
+        std::fs::write(&managed, "# managed\nlog_level = \"warn\"\n").unwrap();
+        std::os::unix::fs::symlink(&managed, &path).unwrap();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        assert!(
+            std::fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the link stays a link"
+        );
+        assert_eq!(std::fs::read_link(&path).unwrap(), managed);
+        let target = read(&managed);
+        assert_eq!(
+            target,
+            format!("# managed\nlog_level = \"warn\"\ngeneration_model = \"{LARGE}\"\n")
+        );
+        // The temporary file was made next to the target, and is gone.
+        let beside: Vec<_> = std::fs::read_dir(managed.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(beside, ["managed.toml"]);
+        assert!(
+            !set_generation_model(&path, LARGE).unwrap(),
+            "unchanged now"
+        );
     }
 
     #[test]
