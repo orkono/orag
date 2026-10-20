@@ -109,6 +109,35 @@ pub fn status_script(status: &Status) -> String {
     format!("window.oragStatus && window.oragStatus({json});")
 }
 
+/// The fragment pair both pages keep their language in (`#lang=en`): the app
+/// hands the language over in it and reads the page's choice back from it.
+const LANGUAGE_PAIR: &str = "lang";
+
+/// The language a page's address names in its fragment, or None.
+pub fn language_of(url: &Url) -> Option<&'static str> {
+    url.fragment()?.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        (name == LANGUAGE_PAIR)
+            .then(|| crate::prefs::parse_language(value))
+            .flatten()
+    })
+}
+
+/// `url` with its fragment set to `lang=<language>`.
+pub fn with_language(url: &Url, language: &str) -> Url {
+    let mut url = url.clone();
+    url.set_fragment(Some(&format!("{LANGUAGE_PAIR}={language}")));
+    url
+}
+
+/// The script that hands the language to the app's own page (its first load
+/// has no fragment to read it from). `language` is a known language, never
+/// page output.
+pub fn language_script(language: &str) -> String {
+    let language = crate::prefs::parse_language(language).unwrap_or("tr");
+    format!("window.oragLanguage && window.oragLanguage(\"{language}\");")
+}
+
 /// Navigation stays on the app's own page or the service page; anything else
 /// opens in the system browser.
 pub fn navigation_allowed(url: &Url, local: &Url, service: Option<&Url>) -> bool {
@@ -247,6 +276,42 @@ mod tests {
             "error TypeError"
         );
         assert!(smoke_report(&url("http://127.0.0.1:42000/")).is_none());
+    }
+
+    #[test]
+    fn the_language_travels_in_the_fragment() {
+        assert_eq!(
+            with_language(&url("http://127.0.0.1:42000/"), "en").as_str(),
+            "http://127.0.0.1:42000/#lang=en"
+        );
+        assert_eq!(
+            with_language(&url("http://127.0.0.1:42000/#lang=en"), "tr").as_str(),
+            "http://127.0.0.1:42000/#lang=tr"
+        );
+        assert_eq!(
+            language_of(&url("http://127.0.0.1:42000/#lang=en")),
+            Some("en")
+        );
+        assert_eq!(
+            language_of(&url("tauri://localhost/index.html#x=1&lang=tr")),
+            Some("tr")
+        );
+        for bad in [
+            "http://127.0.0.1:42000/",
+            "http://127.0.0.1:42000/#lang=de",
+            "http://127.0.0.1:42000/#lang=EN",
+            "http://127.0.0.1:42000/?lang=en",
+        ] {
+            assert_eq!(language_of(&url(bad)), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_status_page_gets_the_language_as_data() {
+        assert_eq!(
+            language_script("en"),
+            "window.oragLanguage && window.oragLanguage(\"en\");"
+        );
     }
 
     #[test]

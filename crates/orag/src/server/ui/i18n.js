@@ -4,6 +4,8 @@
 // textContent and attributes only.
 
 const STORAGE_KEY = "orag.lang";
+/** The URL fragment pair the desktop app hands the language over in. */
+const HASH_KEY = "lang";
 const LANGUAGES = ["tr", "en"];
 const DEFAULT_LANGUAGE = "tr";
 const LOCALES = { tr: "tr-TR", en: "en-US" };
@@ -477,8 +479,25 @@ export const MESSAGES = { tr, en };
 
 const isLanguage = (lang) => LANGUAGES.includes(lang);
 
-/** The stored choice if it is a known language, otherwise Turkish. */
+/** The language a `#lang=tr|en` fragment names, or null. */
+export function languageFromHash(hash) {
+  for (const pair of String(hash ?? "").replace(/^#/, "").split("&")) {
+    const [name, value] = pair.split("=");
+    if (name === HASH_KEY && isLanguage(value)) return value;
+  }
+  return null;
+}
+
+const currentHash = () => globalThis.location?.hash ?? "";
+
+/**
+ * The language to open in: one handed over in the URL fragment (the desktop
+ * app does that, its page origin may change between launches), else the
+ * stored choice, else Turkish.
+ */
 export function initialLanguage() {
+  const handed = languageFromHash(currentHash());
+  if (handed) return handed;
   try {
     const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
     if (isLanguage(stored)) return stored;
@@ -488,6 +507,12 @@ export function initialLanguage() {
   return DEFAULT_LANGUAGE;
 }
 
+/**
+ * Opened with a `#lang=` fragment (by the desktop app): the fragment then
+ * follows the menu, which is how the app reads the choice back. A page
+ * opened without one never gets a fragment.
+ */
+const followsFragment = languageFromHash(currentHash()) !== null;
 let current = initialLanguage();
 
 export const getLanguage = () => current;
@@ -596,6 +621,16 @@ function store(lang) {
   }
 }
 
+/** Writes `#lang=<lang>` into the address without a navigation. */
+function writeFragment(lang) {
+  const loc = globalThis.location;
+  try {
+    globalThis.history?.replaceState(globalThis.history.state ?? null, "", `${loc.pathname}${loc.search}#${HASH_KEY}=${lang}`);
+  } catch {
+    // The app then reads the choice it handed over.
+  }
+}
+
 /** Shows the page in `lang` without storing it. */
 function apply(lang) {
   current = lang;
@@ -615,12 +650,17 @@ function apply(lang) {
 export function setLanguage(lang) {
   if (!isLanguage(lang)) return current;
   store(lang);
+  if (followsFragment) writeFragment(lang);
   apply(lang);
   return current;
 }
 
-/** Translates the page into the starting language and wires the menu. */
+/**
+ * Translates the page into the starting language and wires the menu; a
+ * language handed over in the fragment is stored as the choice.
+ */
 export function initLanguage(select) {
+  if (followsFragment) store(current);
   apply(current);
   if (!select) return;
   select.value = current;

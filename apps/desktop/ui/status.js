@@ -2,7 +2,8 @@
 // window.oragStatus(status), called again after every load of this page.
 // Every value is set with textContent, so service output is never parsed as HTML.
 // Turkish or English like the web page (step 77): the page opens in Turkish
-// unless English was chosen (localStorage "orag.lang").
+// unless English was chosen (localStorage "orag.lang"); the app also hands it
+// the language last chosen on the service page (window.oragLanguage).
 "use strict";
 
 const STORAGE_KEY = "orag.lang";
@@ -75,6 +76,13 @@ function setLanguage(lang) {
   } catch {
     // Not remembered; the page still switches now.
   }
+  // The app reads the choice back from the address (src/app.rs) and hands it
+  // to the service page, whose own storage is on another origin.
+  try {
+    history.replaceState(history.state, "", `${location.pathname}${location.search}#lang=${lang}`);
+  } catch {
+    // The app keeps the language it handed over.
+  }
   applyLanguage();
 }
 
@@ -82,3 +90,5 @@ document.getElementById("language-select").addEventListener("change", (event) =>
 applyLanguage();
 
 window.oragStatus = render;
+// The app hands over the language last chosen on either page after each load.
+window.oragLanguage = setLanguage;
