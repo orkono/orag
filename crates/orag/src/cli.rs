@@ -34,6 +34,10 @@ pub enum Command {
         /// stop signal for its sidecar, D-016).
         #[arg(long, hide = true)]
         exit_on_stdin_close: bool,
+        /// Try this port first when `ui_bind` uses port 0 (the desktop app
+        /// keeps its page origin, and so the page's stored settings).
+        #[arg(long, hide = true)]
+        ui_port_hint: Option<u16>,
     },
     /// Write a consistent copy of the database (safe while the server runs).
     Backup { dest: std::path::PathBuf },
@@ -177,12 +181,14 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
         Command::Serve {
             dev_fake_models,
             exit_on_stdin_close,
+            ui_port_hint,
         } => {
             let code = crate::app::run_server(
                 load_config()?,
                 crate::app::ServeOptions {
                     dev_fake_models,
                     exit_on_stdin_close,
+                    ui_port_hint,
                 },
             )?;
             exit_with(i32::from(code))
