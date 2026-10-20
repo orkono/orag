@@ -36,6 +36,8 @@ jobs:
         run: rustup component add llvm-tools
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: scripts/check-version.sh
+      # The release checksum list (scripts/write-checksums.sh), on every OS.
+      - run: scripts/test-write-checksums.sh
       # The page's pure logic (crates/orag/src/server/ui/format.js); Node's
       # built-in runner, no dependencies. The runner image ships Node.
       # The Windows pack script pins exactly what the bash one pins.
