@@ -207,7 +207,12 @@ input[type="text"]:focus { outline: none; border-color: var(--accent); box-shado
 .topbar-title { min-width: 0; }
 .topbar h1 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-meta { color: var(--muted); font-size: 13px; }
-.topbar-actions { display: flex; gap: 4px; }
+.topbar-actions { display: flex; align-items: center; gap: 4px; }
+.language-select {
+  margin-left: 4px; padding: 5px 6px; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--muted); background: transparent; border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer;
+}
+.language-select:hover { color: var(--text); border-color: var(--subtle); }
 .setup-panel { margin: 16px 28px 0; padding: 16px 18px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface, transparent); }
 .setup-panel h2 { margin: 0 0 8px; font-size: 17px; }
 .setup-panel p { margin: 0 0 8px; }

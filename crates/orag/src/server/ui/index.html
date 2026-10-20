@@ -11,28 +11,28 @@
 </head>
 <body>
 <div class="app">
-  <aside id="sidebar" class="sidebar" aria-label="Koleksiyonlar ve belgeler">
+  <aside id="sidebar" class="sidebar" aria-label="Koleksiyonlar ve belgeler" data-i18n-aria-label="sidebar.label">
     <div class="brand">
       <img src="/favicon.svg" alt="" width="30" height="30">
       <div>
         <div class="brand-name">ORAG</div>
-        <div class="brand-tag">Yerel belge asistanı</div>
+        <div class="brand-tag" data-i18n="brand.tag">Yerel belge asistanı</div>
       </div>
     </div>
 
     <section class="side-section" aria-labelledby="collections-title">
       <div class="side-head">
-        <h2 id="collections-title">Koleksiyonlar</h2>
-        <button id="collection-new" class="icon-button" type="button" data-icon="plus" title="Yeni koleksiyon" aria-label="Yeni koleksiyon"></button>
+        <h2 id="collections-title" data-i18n="collections.title">Koleksiyonlar</h2>
+        <button id="collection-new" class="icon-button" type="button" data-icon="plus" title="Yeni koleksiyon" aria-label="Yeni koleksiyon" data-i18n-title="collections.new" data-i18n-aria-label="collections.new"></button>
       </div>
       <form id="collection-form" class="inline-form" hidden>
-        <label for="collection-name" class="visually-hidden">Yeni koleksiyon adı</label>
-        <input id="collection-name" type="text" maxlength="64" required placeholder="Koleksiyon adı" autocomplete="off">
+        <label for="collection-name" class="visually-hidden" data-i18n="collections.nameLabel">Yeni koleksiyon adı</label>
+        <input id="collection-name" type="text" maxlength="64" required placeholder="Koleksiyon adı" data-i18n-placeholder="collections.namePlaceholder" autocomplete="off">
         <div class="inline-actions">
-          <button id="collection-cancel" type="button" class="button ghost small">Vazgeç</button>
-          <button id="collection-create" type="submit" class="button primary small">Oluştur</button>
+          <button id="collection-cancel" type="button" class="button ghost small" data-i18n="common.cancel">Vazgeç</button>
+          <button id="collection-create" type="submit" class="button primary small" data-i18n="collections.create">Oluştur</button>
         </div>
-        <p class="field-hint">En fazla 64 karakter: harf, rakam, boşluk, "_", "." veya "-".</p>
+        <p class="field-hint" data-i18n="collections.nameHint">En fazla 64 karakter: harf, rakam, boşluk, "_", "." veya "-".</p>
       </form>
       <div id="collection-status"></div>
       <nav aria-labelledby="collections-title">
@@ -42,25 +42,25 @@
 
     <section class="side-section documents-section" aria-labelledby="documents-title">
       <div class="side-head">
-        <h2 id="documents-title">Belgeler</h2>
+        <h2 id="documents-title" data-i18n="documents.title">Belgeler</h2>
         <span id="documents-count" class="count"></span>
       </div>
       <input id="upload-file" class="visually-hidden" type="file" name="file" multiple accept=".txt,.md,.markdown,.docx,.pdf">
       <label id="dropzone" class="dropzone" for="upload-file">
         <span class="dropzone-icon" data-icon="upload"></span>
-        <span class="dropzone-title">Dosya yükle</span>
-        <span class="dropzone-hint">Sürükleyip bırakın veya seçin · TXT, MD, DOCX, PDF<span id="upload-limit"></span></span>
+        <span class="dropzone-title" data-i18n="upload.title">Dosya yükle</span>
+        <span class="dropzone-hint"><span data-i18n="upload.hint">Sürükleyip bırakın veya seçin · TXT, MD, DOCX, PDF</span><span id="upload-limit"></span></span>
       </label>
       <ul id="upload-list" class="upload-list"></ul>
-      <button id="upload-clear" type="button" class="button ghost small" hidden>Tamamlananları temizle</button>
-      <ul id="documents" class="doc-list" aria-label="Seçili koleksiyondaki belgeler"></ul>
-      <p id="documents-empty" class="side-empty" hidden>Bu koleksiyonda henüz belge yok.</p>
-      <button id="documents-more" type="button" class="button ghost small" hidden>Daha fazla göster</button>
+      <button id="upload-clear" type="button" class="button ghost small" data-i18n="upload.clear" hidden>Tamamlananları temizle</button>
+      <ul id="documents" class="doc-list" aria-label="Seçili koleksiyondaki belgeler" data-i18n-aria-label="documents.listLabel"></ul>
+      <p id="documents-empty" class="side-empty" data-i18n="documents.empty" hidden>Bu koleksiyonda henüz belge yok.</p>
+      <button id="documents-more" type="button" class="button ghost small" data-i18n="documents.more" hidden>Daha fazla göster</button>
       <div id="documents-status"></div>
     </section>
 
     <footer class="side-foot">
-      <button id="help-open" type="button" class="button ghost small" data-icon="help">Nasıl kullanılır?</button>
+      <button id="help-open" type="button" class="button ghost small" data-icon="help" data-i18n="help.open">Nasıl kullanılır?</button>
       <div id="app-info" class="app-info"></div>
     </footer>
   </aside>
@@ -72,44 +72,48 @@
         <p id="collection-meta" class="topbar-meta"></p>
       </div>
       <div class="topbar-actions">
-        <button id="collection-reindex" type="button" class="button ghost" data-icon="refresh" title="Belgeleri saklanan kopyalarından mevcut modelle yeniden işler">Yeniden indeksle</button>
-        <button id="collection-delete" type="button" class="button ghost danger" data-icon="trash" title="Koleksiyonu ve belgelerini siler">Sil</button>
+        <button id="collection-reindex" type="button" class="button ghost" data-icon="refresh" title="Belgeleri saklanan kopyalarından mevcut modelle yeniden işler" data-i18n-title="collection.reindexTitle" data-i18n="collection.reindex">Yeniden indeksle</button>
+        <button id="collection-delete" type="button" class="button ghost danger" data-icon="trash" title="Koleksiyonu ve belgelerini siler" data-i18n-title="collection.deleteTitle" data-i18n="collection.delete">Sil</button>
+        <select id="language-select" class="language-select" aria-label="Dil" data-i18n-aria-label="language.label">
+          <option value="tr">TR</option>
+          <option value="en">EN</option>
+        </select>
       </div>
     </header>
     <div id="offline-banner" class="banner" role="alert" hidden>
       <span data-icon="alert"></span>
-      <span>ORAG'a ulaşılamıyor. Sunucu kapalı ya da yeniden başlıyor olabilir; geri geldiğinde sayfa kendiliğinden devam eder.</span>
+      <span data-i18n="offline.banner">ORAG'a ulaşılamıyor. Sunucu kapalı ya da yeniden başlıyor olabilir; geri geldiğinde sayfa kendiliğinden devam eder.</span>
     </div>
 
     <section id="setup-panel" class="setup-panel" aria-labelledby="setup-title" hidden>
-      <h2 id="setup-title">Modelleri kur</h2>
-      <p>ORAG'ın çalışması için şu modeller gerekiyor: <strong id="setup-missing"></strong>.</p>
+      <h2 id="setup-title" data-i18n="setup.title">Modelleri kur</h2>
+      <p><span data-i18n="setup.missing">ORAG'ın çalışması için şu modeller gerekiyor:</span> <strong id="setup-missing"></strong>.</p>
       <div id="setup-download" class="setup-download" hidden>
-        <button id="setup-download-start" type="button" class="button primary large">Modelleri indir</button>
-        <p class="hint">Modeller bir kez Hugging Face'ten indirilir; sonrasında ORAG internetsiz çalışır.</p>
+        <button id="setup-download-start" type="button" class="button primary large" data-i18n="download.button">Modelleri indir</button>
+        <p class="hint" data-i18n="setup.downloadHint">Modeller bir kez Hugging Face'ten indirilir; sonrasında ORAG internetsiz çalışır.</p>
       </div>
       <p id="setup-download-reason" class="hint" hidden></p>
-      <div id="setup-progress" class="setup-progress" role="group" aria-label="İndirme ilerlemesi" hidden>
+      <div id="setup-progress" class="setup-progress" role="group" aria-label="İndirme ilerlemesi" data-i18n-aria-label="setup.progressLabel" hidden>
         <ul id="setup-progress-models" class="setup-progress-models"></ul>
         <div class="setup-progress-total">
-          <label for="setup-progress-bar">Toplam</label>
+          <label for="setup-progress-bar" data-i18n="setup.total">Toplam</label>
           <progress id="setup-progress-bar" max="1" value="0"></progress>
           <span id="setup-progress-amount" class="setup-amount"></span>
         </div>
         <div class="setup-actions">
-          <button id="setup-download-cancel" type="button" class="button">Durdur</button>
-          <button id="setup-download-again" type="button" class="button primary" hidden>Tekrar dene</button>
+          <button id="setup-download-cancel" type="button" class="button" data-i18n="common.stop">Durdur</button>
+          <button id="setup-download-again" type="button" class="button primary" data-i18n="download.retry" hidden>Tekrar dene</button>
         </div>
       </div>
       <div id="setup-status" aria-live="polite"></div>
       <details id="setup-offline" class="setup-offline">
-        <summary>Model paketlerim var (çevrimdışı kurulum)</summary>
-        <p class="hint">Model paketlerini internete bağlı bir bilgisayarda <code>fetch-model-pack</code> ile hazırlayın, klasörü bu bilgisayara kopyalayın ve yolunu aşağıya yazın. Paketler <span id="setup-models-dir"></span> klasörüne kurulur.</p>
+        <summary data-i18n="setup.offline.summary">Model paketlerim var (çevrimdışı kurulum)</summary>
+        <p class="hint"><span data-i18n="setup.offline.hint1">Model paketlerini internete bağlı bir bilgisayarda </span><code>fetch-model-pack</code><span data-i18n="setup.offline.hint2"> ile hazırlayın, klasörü bu bilgisayara kopyalayın ve yolunu aşağıya yazın. Paketler </span><span id="setup-models-dir"></span><span data-i18n="setup.offline.hint3"> klasörüne kurulur.</span></p>
         <form id="setup-form" class="setup-form">
-          <label for="setup-path">Model paketleri klasörü</label>
+          <label for="setup-path" data-i18n="setup.pathLabel">Model paketleri klasörü</label>
           <div class="setup-row">
             <input id="setup-path" type="text" required autocomplete="off" spellcheck="false">
-            <button id="setup-import" type="submit" class="button primary">İçe aktar</button>
+            <button id="setup-import" type="submit" class="button primary" data-i18n="setup.import">İçe aktar</button>
           </div>
         </form>
         <div id="setup-import-status" aria-live="polite"></div>
@@ -119,22 +123,22 @@
     <div id="conversation" class="conversation">
       <div id="welcome" class="welcome">
         <img src="/favicon.svg" alt="" width="56" height="56">
-        <h2>Belgelerinize soru sorun</h2>
-        <p>Yanıtlar yalnızca seçili koleksiyondaki belgelerden yazılır ve her bilgi kaynağına bağlanır.</p>
-        <p id="ask-empty" class="welcome-empty" hidden>Bu koleksiyonda henüz belge yok. Başlamak için soldan bir dosya yükleyin.</p>
-        <button id="welcome-help" type="button" class="button ghost small" data-icon="help">Nasıl kullanılır?</button>
+        <h2 data-i18n="welcome.title">Belgelerinize soru sorun</h2>
+        <p data-i18n="welcome.lead">Yanıtlar yalnızca seçili koleksiyondaki belgelerden yazılır ve her bilgi kaynağına bağlanır.</p>
+        <p id="ask-empty" class="welcome-empty" data-i18n="welcome.empty" hidden>Bu koleksiyonda henüz belge yok. Başlamak için soldan bir dosya yükleyin.</p>
+        <button id="welcome-help" type="button" class="button ghost small" data-icon="help" data-i18n="help.open">Nasıl kullanılır?</button>
       </div>
-      <ol id="turns" class="turns" aria-live="polite" aria-label="Sorular ve yanıtlar"></ol>
+      <ol id="turns" class="turns" aria-live="polite" aria-label="Sorular ve yanıtlar" data-i18n-aria-label="turns.label"></ol>
     </div>
 
     <form id="ask-form" class="composer">
       <div class="composer-box">
-        <label for="ask-text" class="visually-hidden">Sorunuz</label>
-        <textarea id="ask-text" rows="1" maxlength="2000" required placeholder="Bir soru yazın…"></textarea>
-        <button id="ask-stop" type="button" class="button ghost" data-icon="stop" hidden>Durdur</button>
-        <button id="ask-button" type="submit" class="button primary" data-icon="send">Gönder</button>
+        <label for="ask-text" class="visually-hidden" data-i18n="ask.label">Sorunuz</label>
+        <textarea id="ask-text" rows="1" maxlength="2000" required placeholder="Bir soru yazın…" data-i18n-placeholder="ask.placeholder"></textarea>
+        <button id="ask-stop" type="button" class="button ghost" data-icon="stop" data-i18n="common.stop" hidden>Durdur</button>
+        <button id="ask-button" type="submit" class="button primary" data-icon="send" data-i18n="ask.send">Gönder</button>
       </div>
-      <p class="composer-hint"><strong id="ask-target"></strong> koleksiyonunda aranır · Enter gönderir, Shift + Enter yeni satır</p>
+      <p class="composer-hint"><span data-i18n="ask.hint.before"></span><strong id="ask-target"></strong><span data-i18n="ask.hint.after"> koleksiyonunda aranır · Enter gönderir, Shift + Enter yeni satır</span></p>
     </form>
   </main>
 </div>
@@ -142,7 +146,7 @@
 <div id="drop-overlay" class="drop-overlay" hidden>
   <div class="drop-overlay-box">
     <span data-icon="upload"></span>
-    <strong>Dosyaları bırakın</strong>
+    <strong data-i18n="drop.title">Dosyaları bırakın</strong>
     <span id="drop-target"></span>
   </div>
 </div>
@@ -153,8 +157,8 @@
     <h2 id="confirm-title"></h2>
     <p id="confirm-message"></p>
     <div class="dialog-actions">
-      <button type="submit" value="cancel" class="button ghost">Vazgeç</button>
-      <button id="confirm-ok" type="submit" value="ok" class="button primary">Onayla</button>
+      <button type="submit" value="cancel" class="button ghost" data-i18n="common.cancel">Vazgeç</button>
+      <button id="confirm-ok" type="submit" value="ok" class="button primary" data-i18n="common.confirm">Onayla</button>
     </div>
   </form>
 </dialog>
@@ -164,51 +168,51 @@
     <div class="help-head">
       <img src="/favicon.svg" alt="" width="40" height="40">
       <div>
-        <h2 id="help-title">ORAG'a hoş geldiniz</h2>
-        <p class="help-lead">Kendi belgelerinize soru sorabildiğiniz, tamamen bu bilgisayarda çalışan bir belge asistanı.</p>
+        <h2 id="help-title" data-i18n="help.title">ORAG'a hoş geldiniz</h2>
+        <p class="help-lead" data-i18n="help.lead">Kendi belgelerinize soru sorabildiğiniz, tamamen bu bilgisayarda çalışan bir belge asistanı.</p>
       </div>
     </div>
 
-    <p>ORAG yüklediğiniz belgeleri okur, sorduğunuz soruyu bu belgelerde arar ve yanıtı yalnızca bulduğu bilgilerle yazar. Her bilginin hangi belgeden geldiğini gösterir; belgelerde yanıt yoksa bunu açıkça söyler.</p>
+    <p data-i18n="help.intro">ORAG yüklediğiniz belgeleri okur, sorduğunuz soruyu bu belgelerde arar ve yanıtı yalnızca bulduğu bilgilerle yazar. Her bilginin hangi belgeden geldiğini gösterir; belgelerde yanıt yoksa bunu açıkça söyler.</p>
 
     <div class="help-privacy">
       <span data-icon="lock"></span>
-      <p><strong>Her şey bu bilgisayarda kalır.</strong> Belgeler, sorular ve yanıtlar internete gönderilmez; ORAG internet bağlantısı olmadan çalışır.</p>
+      <p><strong data-i18n="help.privacy.title">Her şey bu bilgisayarda kalır.</strong> <span data-i18n="help.privacy.text">Belgeler, sorular ve yanıtlar internete gönderilmez; ORAG internet bağlantısı olmadan çalışır.</span></p>
     </div>
 
-    <h3>Nasıl kullanılır?</h3>
+    <h3 data-i18n="help.steps">Nasıl kullanılır?</h3>
     <ol class="help-steps">
       <li>
-        <strong>Koleksiyon seçin</strong>
-        <span>Belgeleri konulara göre ayırın (örneğin Sözleşmeler, İnsan Kaynakları). Soldaki "+" ile yeni koleksiyon oluşturun. Sorular yalnızca seçili koleksiyonda aranır.</span>
+        <strong data-i18n="help.step1.title">Koleksiyon seçin</strong>
+        <span data-i18n="help.step1.text">Belgeleri konulara göre ayırın (örneğin Sözleşmeler, İnsan Kaynakları). Soldaki "+" ile yeni koleksiyon oluşturun. Sorular yalnızca seçili koleksiyonda aranır.</span>
       </li>
       <li>
-        <strong>Dosya yükleyin</strong>
-        <span>TXT, Markdown, DOCX veya PDF dosyalarını soldaki "Dosya yükle" alanına bırakın ya da tıklayıp seçin. Durumu "Hazır" olan belgeler aranabilir.</span>
+        <strong data-i18n="help.step2.title">Dosya yükleyin</strong>
+        <span data-i18n="help.step2.text">TXT, Markdown, DOCX veya PDF dosyalarını soldaki "Dosya yükle" alanına bırakın ya da tıklayıp seçin. Durumu "Hazır" olan belgeler aranabilir.</span>
       </li>
       <li>
-        <strong>Soru sorun</strong>
-        <span>Sorunuzu alttaki kutuya yazıp Enter'a basın. Yanıttaki [1] gibi numaralara tıklayarak bilginin geldiği kaynağı görün.</span>
+        <strong data-i18n="help.step3.title">Soru sorun</strong>
+        <span data-i18n="help.step3.text">Sorunuzu alttaki kutuya yazıp Enter'a basın. Yanıttaki [1] gibi numaralara tıklayarak bilginin geldiği kaynağı görün.</span>
       </li>
     </ol>
 
-    <h3>İpuçları</h3>
+    <h3 data-i18n="help.tips">İpuçları</h3>
     <ul class="help-tips">
-      <li>Taranmış (fotoğraf) PDF'lerin metni okunamaz; metin içeren PDF kullanın.</li>
-      <li>Yanıtlar belgelerden üretilir ama hata yapabilir; önemli kararlarda kaynağı kontrol edin.</li>
-      <li>Model değiştiyse koleksiyonu "Yeniden indeksle" ile güncelleyin; dosyaları tekrar yüklemeniz gerekmez.</li>
+      <li data-i18n="help.tip1">Taranmış (fotoğraf) PDF'lerin metni okunamaz; metin içeren PDF kullanın.</li>
+      <li data-i18n="help.tip2">Yanıtlar belgelerden üretilir ama hata yapabilir; önemli kararlarda kaynağı kontrol edin.</li>
+      <li data-i18n="help.tip3">Model değiştiyse koleksiyonu "Yeniden indeksle" ile güncelleyin; dosyaları tekrar yüklemeniz gerekmez.</li>
     </ul>
 
-    <h3>Kısayollar</h3>
+    <h3 data-i18n="help.keys">Kısayollar</h3>
     <dl class="help-keys">
-      <dt><kbd>Enter</kbd></dt><dd>Soruyu gönderir</dd>
-      <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>Yeni satır</dd>
-      <dt><kbd>Esc</kbd></dt><dd>Bu pencereyi kapatır</dd>
+      <dt><kbd>Enter</kbd></dt><dd data-i18n="help.key.send">Soruyu gönderir</dd>
+      <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd data-i18n="help.key.newline">Yeni satır</dd>
+      <dt><kbd>Esc</kbd></dt><dd data-i18n="help.key.close">Bu pencereyi kapatır</dd>
     </dl>
 
     <div class="dialog-actions">
-      <span class="help-later">Bu pencereyi sol alttaki "Nasıl kullanılır?" ile yeniden açabilirsiniz.</span>
-      <button id="help-close" type="submit" class="button primary">Başlayalım</button>
+      <span class="help-later" data-i18n="help.later">Bu pencereyi sol alttaki "Nasıl kullanılır?" ile yeniden açabilirsiniz.</span>
+      <button id="help-close" type="submit" class="button primary" data-i18n="help.start">Başlayalım</button>
     </div>
   </form>
 </dialog>

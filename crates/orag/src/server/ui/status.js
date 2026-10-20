@@ -3,6 +3,7 @@
 import { $, el } from "./dom.js";
 import { versionInfo } from "./api.js";
 import { toast } from "./dialog.js";
+import { setAttrText, t } from "./i18n.js";
 
 const HEALTH_MS = 10000;
 const HEALTH_DOWN_MS = 2000;
@@ -11,7 +12,7 @@ let down = false;
 
 function showVersion(info) {
   const models = el("div", `${info.config.generation_model} · ${info.config.embedding_model}`, "app-models");
-  models.title = "Yanıt modeli · arama modeli";
+  setAttrText(models, "title", "status.models");
   $("app-info").replaceChildren(el("div", `ORAG ${info.version}`), models);
 }
 
@@ -33,7 +34,7 @@ async function watchHealth() {
   } else if (ok && down) {
     down = false;
     $("offline-banner").hidden = true;
-    toast("Bağlantı geri geldi.");
+    toast(t("status.reconnected"));
     versionInfo(true).catch(() => {});
     document.dispatchEvent(new Event("orag:reconnected"));
   }

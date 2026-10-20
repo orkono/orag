@@ -2,15 +2,17 @@
 import { $, el } from "./dom.js";
 import { errorSentence } from "./api.js";
 import { icon } from "./icons.js";
+import { setAttrText, t } from "./i18n.js";
 
 const TOAST_MS = 4500;
 
 /**
  * Asks before an action; resolves to true only for the confirm button.
- * Escape or "Vazgeç" resolve to false. For a destructive action the focus
- * starts on "Vazgeç", so Enter never deletes by accident.
+ * Escape or the cancel button resolve to false. For a destructive action the
+ * focus starts on cancel, so Enter never deletes by accident. The texts are
+ * already translated (the open dialog blocks the language menu).
  */
-export function confirmAction({ title, message, confirmLabel = "Onayla", danger = false }) {
+export function confirmAction({ title, message, confirmLabel = t("common.confirm"), danger = false }) {
   const dialog = $("confirm-dialog");
   // One question at a time: a second one while the first is open is refused,
   // so a single click can never confirm two actions.
@@ -37,7 +39,7 @@ export function toast(text, kind = "ok", detail = "") {
   if (detail) body.append(el("span", detail, "toast-detail"));
   const close = el("button", undefined, "icon-button small");
   close.type = "button";
-  close.setAttribute("aria-label", "Kapat");
+  setAttrText(close, "aria-label", "common.close");
   close.append(icon("x"));
   item.append(icon(kind === "error" ? "alert" : "check"), body, close);
   const remove = () => {
@@ -49,7 +51,8 @@ export function toast(text, kind = "ok", detail = "") {
   $("toasts").append(item);
 }
 
-/** An API error as a toast: the Turkish sentence, with the API message below. */
+/** An API error as a toast: the sentence (`fallback` and `byCode` are keys),
+ * with the API message below. */
 export function toastError(err, fallback, byCode) {
   toast(errorSentence(err, fallback, byCode), "error", err.message || "");
 }

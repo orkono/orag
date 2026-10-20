@@ -384,12 +384,13 @@ fn the_page_offers_a_reindex_of_the_selected_collection() {
     assert!(all_js().contains("/reindex`"));
     // A 409 reindex_required points the user to the button.
     let js = all_js();
-    let hint = js
-        .split("reindex_required:")
-        .nth(1)
-        .expect("a message for reindex_required");
-    let near: String = hint.chars().take(300).collect();
-    assert!(near.contains("Yeniden indeksle"), "{hint}");
+    // Both languages name the button as the page labels it.
+    let hints: Vec<&str> = js.split("\"error.reindex_required\":").skip(1).collect();
+    assert_eq!(hints.len(), 2, "a Turkish and an English message");
+    for (hint, button) in hints.iter().zip(["Yeniden indeksle", "Reindex"]) {
+        let near: String = hint.chars().take(300).collect();
+        assert!(near.contains(&format!("\\\"{button}\\\"")), "{near}");
+    }
 }
 
 #[test]

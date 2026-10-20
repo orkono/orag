@@ -14,6 +14,7 @@ import {
   percentText,
   startDownload,
 } from "../download.js";
+import { setLanguage } from "../i18n.js";
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
@@ -185,4 +186,26 @@ test("an unavailable download is explained in Turkish by its code", () => {
   assert.match(unavailableText({ code: "conflict" }), /kurulu|indiremiyor/);
   assert.match(unavailableText({ code: "toString" }), /indiremiyor/);
   assert.match(unavailableText(undefined), /indiremiyor/);
+});
+
+test("the download view and its sentences follow the language", () => {
+  setLanguage("en");
+  try {
+    assert.equal(downloadButtonLabel(3.1 * GB), "Download models (3.1 GB)");
+    assert.equal(downloadButtonLabel(null), "Download models");
+    const view = downloadView({
+      state: "failed",
+      models: [{ id: "gen", state: "downloading", received: 1.2 * GB, total: 2.7 * GB }],
+      error: { code: "disk", message: "x" },
+    });
+    assert.equal(view.models[0].stateText, "Downloading");
+    assert.equal(view.models[0].amount, "1.2 GB / 2.7 GB");
+    assert.equal(view.models[0].percent, "44%");
+    assert.equal(view.error.key, "download.error.disk");
+    assert.match(view.error.text, /disk space/);
+    assert.match(unavailableText({ code: "download_disabled" }), /turned off/);
+  } finally {
+    setLanguage("tr");
+  }
+  assert.equal(downloadButtonLabel(3.1 * GB), "Modelleri indir (3,1 GB)");
 });

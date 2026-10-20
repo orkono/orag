@@ -1,20 +1,20 @@
 // Questions and answers: each question gets a card that stays on screen
 // while the collection stays selected; the newest answer streams in, then
 // its citations link to its sources.
-import { $, el } from "./dom.js";
+// Every label is kept translated (`data-i18n`), so the cards on screen follow
+// a language change; the question and the answer text stay as written.
+import { $, el, tEl } from "./dom.js";
 import { errorBox, request } from "./api.js";
 import { displayName, selectedCollection } from "./collections.js";
 import { toast } from "./dialog.js";
 import { icon } from "./icons.js";
-import { answerNotice, retryAfterMs } from "./format.js";
+import { answerNoticeKeys, retryAfterMs } from "./format.js";
+import { setText, t } from "./i18n.js";
 import { sseEvents } from "./sse.js";
-import { linkCitations, markCitedSources, renderSources } from "./sources.js";
+import { linkCitations, markCitedSources, relabelPages, renderSources } from "./sources.js";
 
-// The server answers 429 only after waiting for the slot itself, so the
-// retry is a single, last attempt.
-const BUSY = "Başka bir yanıt üretiliyor; bir kez daha denenecek.";
-const LOST = "Bağlantı kesildi; yanıt tamamlanmadı.";
-const STOPPED = "Yanıt durduruldu.";
+/** The abort reason of the stop button (not shown: the notice is translated). */
+const STOPPED = "stopped";
 const MAX_COMPOSER_PX = 200;
 
 /** The question being answered; aborted when the answers are cleared. */
@@ -31,12 +31,12 @@ function newTurn(query) {
   const card = el("article", undefined, "answer-card");
   const head = el("div", undefined, "answer-head");
   const label = el("span", undefined, "answer-label");
-  label.append(icon("sparkle"), el("span", "Yanıt"));
-  turn.status = el("span", "Belgelerde aranıyor…", "answer-status");
+  label.append(icon("sparkle"), tEl("span", "ask.answer"));
+  turn.status = tEl("span", "ask.searching", undefined, "answer-status");
   turn.copy = el("button", undefined, "button ghost small");
   turn.copy.type = "button";
   turn.copy.hidden = true;
-  turn.copy.append(icon("copy"), el("span", "Kopyala"));
+  turn.copy.append(icon("copy"), tEl("span", "ask.copy"));
   turn.copy.addEventListener("click", () => copyAnswer(turn));
   head.append(label, turn.status, turn.copy);
   turn.answer = el("p", undefined, "answer pending");
@@ -52,14 +52,18 @@ function newTurn(query) {
   return turn;
 }
 
-function showNotice(turn, text) {
-  turn.notice.textContent = text;
-  turn.notice.hidden = false;
+/** Adds the notices `keys` (one sentence each) under the answer. */
+function showNotice(turn, ...keys) {
+  for (const key of keys) {
+    if (turn.notice.childNodes.length > 0) turn.notice.append(" ");
+    turn.notice.append(tEl("span", key));
+  }
+  turn.notice.hidden = turn.notice.childNodes.length === 0;
 }
 
-function settle(turn, status = "") {
+function settle(turn) {
   turn.answer.classList.remove("pending");
-  turn.status.textContent = status;
+  setText(turn.status, null);
 }
 
 /** Clears the answers and stops a streaming one, so an answer from a
@@ -77,7 +81,7 @@ function handleEvent(turn, { event, data }) {
   switch (event) {
     case "sources":
       renderSources(turn, data.sources);
-      turn.status.textContent = data.sources.length > 0 ? "Yanıt yazılıyor…" : "";
+      setText(turn.status, data.sources.length > 0 ? "ask.writing" : null);
       return false;
     case "token":
       turn.answer.append(document.createTextNode(data.text));
@@ -88,12 +92,12 @@ function handleEvent(turn, { event, data }) {
       markCitedSources(turn, data.citations || []);
       settle(turn);
       turn.copy.hidden = false;
-      if (answerNotice(data)) showNotice(turn, answerNotice(data));
+      showNotice(turn, ...answerNoticeKeys(data));
       return true;
     case "error": {
       const err = new Error(`${data.error.message} (${data.error.code})`);
       err.code = data.error.code;
-      turn.error.replaceChildren(errorBox(err, "Yanıt tamamlanamadı."));
+      turn.error.replaceChildren(errorBox(err, "ask.incomplete"));
       return true;
     }
     default:
@@ -132,11 +136,11 @@ function pause(ms, signal) {
   });
 }
 
-/** A *Tekrar sor* button that asks the same question again. */
+/** An *ask again* button that asks the same question again. */
 function retryButton(query) {
   const button = el("button", undefined, "button ghost small");
   button.type = "button";
-  button.append(icon("refresh"), el("span", "Tekrar sor"));
+  button.append(icon("refresh"), tEl("span", "ask.retry"));
   button.addEventListener("click", () => {
     if (activeQuery) return;
     // Asks through the form, then puts back whatever was being typed.
@@ -159,7 +163,7 @@ async function ask(event) {
   const collection = selectedCollection();
   if (!query || activeQuery) return;
   if (!collection) {
-    toast("Önce soldan bir koleksiyon seçin.", "error");
+    toast(t("ask.pickCollection"), "error");
     return;
   }
   input.value = "";
@@ -175,28 +179,30 @@ async function ask(event) {
     } catch (err) {
       // The answer slot is taken: wait as long as the server asks, once.
       if (err.code !== "busy" || controller.signal.aborted) throw err;
-      turn.status.textContent = BUSY;
+      // The server answers 429 only after waiting for the slot itself, so
+      // the retry is a single, last attempt.
+      setText(turn.status, "ask.busy");
       await pause(retryAfterMs(err.headers ?? new Headers()), controller.signal);
       if (controller.signal.aborted) return;
-      turn.status.textContent = "Belgelerde aranıyor…";
+      setText(turn.status, "ask.searching");
       complete = await streamAnswer(turn, collection, query, controller);
     }
     if (!complete && !controller.signal.aborted) {
-      const lost = new Error(LOST);
+      const lost = new Error(t("ask.lost"));
       lost.code = "lost";
       throw lost;
     }
   } catch (err) {
     if (!controller.signal.aborted) {
-      const box = errorBox(err, "Soru yanıtlanamadı.", { lost: LOST });
+      const box = errorBox(err, "ask.failed", { lost: "ask.lost" });
       // A dropped connection or a server that went away can be asked again.
       const again = err.code === "lost" || err.code === "unreachable" || err.code === "busy";
       turn.error.replaceChildren(box, ...(again ? [retryButton(query)] : []));
     }
   } finally {
     settle(turn);
-    // "Durdur" keeps the partial answer; clearing the answers removes it.
-    if (controller.signal.reason === STOPPED) showNotice(turn, STOPPED);
+    // Stopping keeps the partial answer; clearing the answers removes it.
+    if (controller.signal.reason === STOPPED) showNotice(turn, "ask.stopped");
     // Clearing already reset the buttons, and a newer question may own them.
     if (activeQuery === controller) {
       activeQuery = null;
@@ -210,13 +216,11 @@ async function copyAnswer(turn) {
   const label = turn.copy.querySelector("span");
   try {
     await navigator.clipboard.writeText(turn.text);
-    label.textContent = "Kopyalandı";
+    setText(label, "ask.copied");
   } catch {
-    label.textContent = "Kopyalanamadı";
+    setText(label, "ask.copyFailed");
   }
-  setTimeout(() => {
-    label.textContent = "Kopyala";
-  }, 1500);
+  setTimeout(() => setText(label, "ask.copy"), 1500);
 }
 
 /** The question box grows with its text, up to a few lines. */
@@ -241,6 +245,7 @@ export function initAsk() {
   });
   $("ask-stop").addEventListener("click", () => activeQuery?.abort(STOPPED));
   document.addEventListener("orag:switched", clearTurns);
+  window.addEventListener("orag:language", () => relabelPages($("turns")));
   document.addEventListener("orag:collections", ({ detail: current }) => {
     $("ask-target").textContent = current ? displayName(current) : "";
     $("ask-empty").hidden = !current || current.document_count > 0;

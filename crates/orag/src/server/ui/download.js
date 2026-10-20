@@ -2,6 +2,10 @@
 // the pure logic that turns a status body into what the setup panel shows.
 // No DOM access, so `node --test` covers it (`test/download.test.mjs`).
 import { getJson, request } from "./api.js";
+import { byteText, percentText } from "./format.js";
+import { t } from "./i18n.js";
+
+export { byteText, percentText };
 
 const ENDPOINT = "/v1/models/download";
 const MODELS_ENDPOINT = "/v1/models";
@@ -9,83 +13,39 @@ const POLL_MS = 1000;
 const RESTART_POLL_MS = 1000;
 const RESTART_LIMIT_MS = 60000;
 
-/** Every user-visible sentence of the download, in one place. */
-export const DOWNLOAD_TEXT = {
-  button: "Modelleri indir",
-  running: "Modeller indiriliyor… Bu sayfayı kapatsanız da indirme sürer.",
-  cancelled: "İndirme durduruldu. Kaldığı yerden devam edebilirsiniz.",
-  done: "Modeller indirildi ve doğrulandı.",
-  retry: "Tekrar dene",
-  resume: "Devam et",
-  installed: "Modeller zaten kurulu; indirilecek bir şey yok.",
-  unavailable: "Bu sunucu modelleri kendisi indiremiyor; model paketlerini aşağıdan çevrimdışı kurun.",
-  startFailed: "İndirme başlatılamadı.",
-  cancelFailed: "İndirme durdurulamadı.",
-  pollFailed: "İndirmenin durumu okunamadı.",
-  byCode: {
-    conflict: "Başka bir indirme veya içe aktarma sürüyor; bitmesini bekleyin.",
-    download_disabled: "Model indirme bu kurulumda kapatılmış (config.toml: models.download). Çevrimdışı kurulumu kullanın.",
-    download_unavailable: "Bu modeller ORAG içinden indirilemiyor. Çevrimdışı kurulumu kullanın.",
-  },
+/** The keys of the sentences for refused requests, by error code. */
+export const DOWNLOAD_ERRORS = {
+  conflict: "download.conflict",
+  download_disabled: "download.disabled",
+  download_unavailable: "download.notDownloadable",
 };
 
-const STATE_TEXT = new Map([
-  ["waiting", "Sırada"],
-  ["downloading", "İndiriliyor"],
-  ["verifying", "Doğrulanıyor"],
-  ["installed", "Kuruldu"],
-  ["failed", "Başarısız"],
-]);
-
-/** What a failed download's `error.code` means for the user. */
-const ERROR_TEXT = new Map([
-  ["network", "Hugging Face'e bağlanılamadı. İnternet bağlantınızı ve varsa proxy (vekil sunucu) ayarını kontrol edip tekrar deneyin."],
-  ["http", "Hugging Face isteği kabul etmedi. Biraz sonra tekrar deneyin."],
-  ["checksum", "İndirilen dosya bozuk çıktı ve silindi. Tekrar deneyin."],
-  ["disk", "Diskte yeterli boş alan yok. Yer açıp tekrar deneyin."],
-  ["cancelled", "İndirme durduruldu."],
-  ["internal", "Sunucuda bir hata oluştu; ayrıntılar sunucu günlüğünde."],
-]);
-const ERROR_FALLBACK = "Modeller indirilemedi. Tekrar deneyin.";
-
+const STATES = new Set(["waiting", "downloading", "verifying", "installed", "failed"]);
+/** The failed-download codes that have their own sentence. */
+const ERROR_CODES = new Set(["network", "http", "checksum", "disk", "cancelled", "internal"]);
 const PHASES = new Set(["idle", "running", "done", "failed", "cancelled"]);
-const UNITS = ["bayt", "KB", "MB", "GB", "TB"];
 
 const isCount = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
-/** A byte count with Turkish units and a decimal comma: `3,2 GB`. */
-export function byteText(bytes) {
-  if (!isCount(bytes)) return "?";
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  const rounded = unit === 0 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${String(rounded).replace(".", ",")} ${UNITS[unit]}`;
-}
-
-/** `%45`; rounded down so a file is at `%100` only when it is all there. */
-export function percentText(received, total) {
-  if (!isCount(received) || !isCount(total) || total === 0) return "%0";
-  return `%${Math.floor((Math.min(received, total) / total) * 100)}`;
-}
-
 export function downloadButtonLabel(bytes) {
-  return isCount(bytes) ? `${DOWNLOAD_TEXT.button} (${byteText(bytes)})` : DOWNLOAD_TEXT.button;
+  return isCount(bytes) ? t("download.buttonSize", { size: byteText(bytes) }) : t("download.button");
 }
 
-/** Why there is no download, in Turkish; the server's English reason is detail. */
-export function unavailableText(download) {
+/** The key of why there is no download; the server's English reason is detail. */
+export function unavailableKey(download) {
   const code = download?.code;
-  if (code === "conflict") return DOWNLOAD_TEXT.installed;
-  return (Object.hasOwn(DOWNLOAD_TEXT.byCode, code) && DOWNLOAD_TEXT.byCode[code]) || DOWNLOAD_TEXT.unavailable;
+  if (code === "conflict") return "download.installed";
+  return Object.hasOwn(DOWNLOAD_ERRORS, code) ? DOWNLOAD_ERRORS[code] : "download.unavailable";
 }
 
-export function downloadErrorText(code) {
-  return ERROR_TEXT.get(code) || ERROR_FALLBACK;
+export const unavailableText = (download) => t(unavailableKey(download));
+
+/** The key of what a failed download's `error.code` means for the user. */
+export function downloadErrorKey(code) {
+  return ERROR_CODES.has(code) ? `download.error.${code}` : "download.error.fallback";
 }
+
+export const downloadErrorText = (code) => t(downloadErrorKey(code));
 
 function amount(received, total) {
   return { amount: `${byteText(received)} / ${byteText(total)}`, percent: percentText(received, total) };
@@ -97,29 +57,36 @@ function modelRow(model) {
   return {
     id: String(model.id),
     state: model.state,
-    stateText: STATE_TEXT.get(model.state) || "",
+    stateText: STATES.has(model.state) ? t(`download.state.${model.state}`) : "",
     received,
     total,
     ...amount(received, total),
   };
 }
 
-/** A status body as the panel's view: phase, rows, overall line, error. */
+function failure(error) {
+  const code = error?.code ?? null;
+  return { code, key: downloadErrorKey(code), text: downloadErrorText(code), detail: error?.message || "" };
+}
+
+/**
+ * A status body as the panel's view, in the current language: phase, rows,
+ * overall line, error, and the status itself (to show it again after a
+ * language change).
+ */
 export function downloadView(status) {
   const phase = PHASES.has(status?.state) ? status.state : "idle";
   const models = Array.isArray(status?.models) ? status.models.map(modelRow) : [];
   const received = models.reduce((sum, m) => sum + m.received, 0);
   const total = models.reduce((sum, m) => sum + m.total, 0);
-  const error = phase === "failed"
-    ? { code: status.error?.code ?? null, text: downloadErrorText(status.error?.code), detail: status.error?.message || "" }
-    : null;
   return {
     phase,
     busy: phase === "running",
     models,
     overall: { received, total, ...amount(received, total) },
-    error,
+    error: phase === "failed" ? failure(status.error) : null,
     restart: status?.restart ?? null,
+    status,
   };
 }
 

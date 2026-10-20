@@ -1,30 +1,48 @@
 // Uploads: drop files anywhere on the page or choose them; each gets a line
-// that follows its indexing.
-import { $, el, formatSize } from "./dom.js";
+// that follows its indexing. Each line keeps how to draw itself, so it is
+// drawn again in a new language.
+import { $, el, tEl } from "./dom.js";
 import { errorBox, getJson, request, serverLimits } from "./api.js";
 import { displayName, refreshCollections, selectedCollection } from "./collections.js";
 import { documentStatusView, followedIds, updateDocumentRow, warningNode } from "./documents.js";
+import { formatSize } from "./format.js";
+import { setText, t } from "./i18n.js";
 
 const POLL_MS = 1000;
 /** A finished upload's line leaves after this; the document list keeps it. */
 const DONE_LINGER_MS = 5000;
 
+/** Each line's file and its current `render()` → [badge label, detail nodes]. */
+const lines = new WeakMap();
+
+function paint(item) {
+  const line = lines.get(item);
+  if (!line) return;
+  item.title = `${line.file.name} · ${formatSize(line.file.size)}`;
+  const [label, details] = line.render();
+  item.querySelector(".badge").textContent = label;
+  item.querySelector(".upload-detail").replaceChildren(...details);
+}
+
 function uploadItem(file) {
   const item = el("li", undefined, "upload-item");
   const head = el("div", undefined, "upload-head");
-  head.append(el("span", file.name, "upload-name"), el("span", "Bekliyor", "badge pending"));
+  head.append(el("span", file.name, "upload-name"), el("span", undefined, "badge pending"));
   item.append(head, el("div", undefined, "progress"), el("div", undefined, "upload-detail"));
-  item.title = `${file.name} · ${formatSize(file.size)}`;
+  lines.set(item, { file, render: () => [t("upload.waiting"), []] });
+  paint(item);
   $("upload-list").prepend(item);
   return item;
 }
 
-/** Sets a line's badge and details; `ok` and `failed` mark it finished. */
-function setState(item, label, badgeClass, details = []) {
-  const badge = item.querySelector(".badge");
-  badge.textContent = label;
-  badge.className = `badge ${badgeClass}`;
-  item.querySelector(".upload-detail").replaceChildren(...details);
+/**
+ * Sets a line's state: `render()` gives its badge label and details in the
+ * current language; `ok` and `failed` mark it finished.
+ */
+function setState(item, render, badgeClass) {
+  lines.get(item).render = render;
+  paint(item);
+  item.querySelector(".badge").className = `badge ${badgeClass}`;
   item.toggleAttribute("data-done", badgeClass === "ok" || badgeClass === "failed");
   // Failures and notes (a duplicate) stay until cleared; a plain success is
   // also in the document list.
@@ -44,20 +62,25 @@ function removeLine(item) {
 }
 
 function fail(item, err, fallback) {
-  setState(item, "Hata", "failed", [errorBox(err, fallback)]);
+  setState(item, () => [t("documents.status.failed"), [errorBox(err, fallback)]], "failed");
 }
 
 /** Shows a document's state on its line; returns true once it is final. */
 function renderProgress(item, doc, note) {
   const finished = doc.status === "ready" || doc.status === "failed";
-  const [label, badgeClass] = documentStatusView(doc);
+  const badgeClass = documentStatusView(doc)[1];
+  setState(item, () => [documentStatusView(doc)[0], progressDetails(doc, note)], badgeClass);
+  return finished;
+}
+
+/** The notes under a line: duplicate, chunks, error and warnings. */
+function progressDetails(doc, note) {
   const details = [];
-  if (note) details.push(el("p", note, "hint keep"));
-  if (doc.status === "ready") details.push(el("p", `${doc.chunk_count} parça indekslendi.`, "hint"));
+  if (note) details.push(el("p", t(note), "hint keep"));
+  if (doc.status === "ready") details.push(el("p", t("upload.indexed", { count: doc.chunk_count }), "hint"));
   if (doc.error) details.push(el("p", doc.error, "failed"));
   for (const warning of doc.warnings || []) details.push(warningNode("p", warning));
-  setState(item, label, badgeClass, details);
-  return finished;
+  return details;
 }
 
 /** Uploaded documents being indexed: document id → {item, collection, note, failures}. */
@@ -69,7 +92,7 @@ const MAX_POLL_FAILURES = 60;
 let ticking = false;
 
 function track(item, collection, accepted) {
-  const note = accepted.duplicate ? "Bu dosya bu koleksiyonda zaten vardı." : "";
+  const note = accepted.duplicate ? "upload.duplicate" : "";
   tracked.set(accepted.document_id, { item, collection, note, failures: 0 });
   followedIds.add(accepted.document_id);
   if (!ticking) {
@@ -105,11 +128,11 @@ async function tick() {
       }
     } else if (result.reason.status === 404) {
       // Deleted while indexing (the delete button): not an upload failure.
-      setState(entry.item, "Silindi", "ok");
+      setState(entry.item, () => [t("upload.removed"), []], "ok");
       untrack(id);
       finished = true;
     } else if (++entry.failures >= MAX_POLL_FAILURES) {
-      fail(entry.item, result.reason, "Durum izlenemedi; belge listesine bakın.");
+      fail(entry.item, result.reason, "upload.lostTrack");
       untrack(id);
     }
   });
@@ -126,7 +149,7 @@ async function uploadFiles(files) {
   const collection = selectedCollection();
   if (files.length === 0) return;
   if (!collection) {
-    const item = el("li", "Önce bir koleksiyon seçin.", "failed");
+    const item = tEl("li", "upload.noCollection", undefined, "failed");
     item.toggleAttribute("data-done", true);
     $("upload-list").prepend(item);
     $("upload-clear").hidden = false;
@@ -136,11 +159,11 @@ async function uploadFiles(files) {
   for (const file of files) {
     const item = uploadItem(file);
     if (limits && file.size > limits.maxBytes) {
-      const why = `Dosya ${formatSize(file.size)}; sınır ${limits.maxMb} MB (config.toml: max_document_mb).`;
-      setState(item, "Hata", "failed", [el("p", why, "failed")]);
+      const why = () => t("upload.tooLarge", { size: formatSize(file.size), max: limits.maxMb });
+      setState(item, () => [t("documents.status.failed"), [el("p", why(), "failed")]], "failed");
       continue;
     }
-    setState(item, "Gönderiliyor", "pending");
+    setState(item, () => [t("upload.sending"), []], "pending");
     try {
       const form = new FormData();
       form.append("file", file, file.name);
@@ -151,7 +174,7 @@ async function uploadFiles(files) {
       track(item, collection, await response.json());
       await refreshCollections(); // the new document counts at once
     } catch (err) {
-      fail(item, err, "Dosya yüklenemedi.");
+      fail(item, err, "upload.failed");
     }
   }
 }
@@ -168,7 +191,7 @@ function initDropAnywhere() {
     event.preventDefault();
     depth += 1;
     const current = selectedCollection();
-    $("drop-target").textContent = current ? `"${displayName(current)}" koleksiyonuna eklenecek` : "";
+    $("drop-target").textContent = current ? t("drop.target", { name: displayName(current) }) : "";
     overlay.hidden = false;
   });
   window.addEventListener("dragleave", (event) => {
@@ -200,7 +223,10 @@ export function initUpload() {
     for (const item of $("upload-list").querySelectorAll("[data-done]")) item.remove();
     showClear();
   });
+  window.addEventListener("orag:language", () => {
+    for (const item of $("upload-list").children) paint(item);
+  });
   document.addEventListener("orag:version", ({ detail }) => {
-    $("upload-limit").textContent = ` · en fazla ${detail.config.max_document_mb} MB`;
+    setText($("upload-limit"), "upload.limit", { max: detail.config.max_document_mb });
   });
 }

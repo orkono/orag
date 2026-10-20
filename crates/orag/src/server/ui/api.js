@@ -1,5 +1,6 @@
 // Calls to the ORAG API and readable errors for them.
-import { el } from "./dom.js";
+import { el, tEl } from "./dom.js";
+import { t } from "./i18n.js";
 
 /**
  * An Error for a failed response, with the API's `{error:{code,message}}`
@@ -44,35 +45,40 @@ export async function getJson(path) {
   return (await request(path, { headers: { Accept: "application/json" } })).json();
 }
 
-/** What each error code means for the user; the API message stays as detail. */
-const MESSAGES = {
-  unreachable: "Sunucuya ulaşılamıyor. orag serve çalışıyor mu?",
-  reindex_required:
-    "Bu koleksiyon başka bir modelle indekslenmiş. Üst çubuktaki " +
-    "\"Yeniden indeksle\" ile belgeleri mevcut modelle yeniden işleyin.",
-  unsupported_format: "Bu dosya türü desteklenmiyor. TXT, Markdown, DOCX veya PDF yükleyin.",
-  too_large: "Dosya boyut sınırını aşıyor.",
-  upload_timeout: "Dosya zamanında gönderilemedi; tekrar deneyin.",
-  busy: "Sunucu şu an meşgul. Birkaç saniye sonra tekrar deneyin.",
-  shutting_down: "Sunucu kapanıyor.",
-  not_found: "Bulunamadı; başka bir yerden silinmiş olabilir.",
-  internal: "Sunucuda bir hata oluştu; ayrıntılar sunucu günlüğünde.",
-  models_missing: "Modeller henüz kurulu değil. Önce yukarıdaki \"Modelleri kur\" bölümünden modelleri indirin.",
-};
+/** The error codes with a sentence of their own (`error.<code>` in i18n.js). */
+const ERROR_CODES = new Set([
+  "unreachable",
+  "reindex_required",
+  "unsupported_format",
+  "too_large",
+  "upload_timeout",
+  "busy",
+  "shutting_down",
+  "not_found",
+  "internal",
+  "models_missing",
+]);
 
 /**
- * An error as a short Turkish sentence with the technical detail below.
- * `byCode` gives sentences that depend on what was being done (a `conflict`
- * means different things for different actions); `fallback` covers the rest.
+ * The key of an error's short sentence; the API message stays as detail.
+ * `byCode` gives keys that depend on what was being done (a `conflict`
+ * means different things for different actions); `fallback` (a key) covers
+ * the rest.
  */
-export function errorSentence(err, fallback, byCode = {}) {
-  return byCode[err.code] || MESSAGES[err.code] || fallback;
+export function errorSentenceKey(err, fallback, byCode = {}) {
+  if (Object.hasOwn(byCode, err.code)) return byCode[err.code];
+  return ERROR_CODES.has(err.code) ? `error.${err.code}` : fallback;
 }
 
+export function errorSentence(err, fallback, byCode = {}) {
+  return t(errorSentenceKey(err, fallback, byCode));
+}
+
+/** The sentence (kept translated) with the technical detail below. */
 export function errorBox(err, fallback, byCode = {}) {
   const box = el("div", undefined, "error-box");
   box.setAttribute("role", "alert");
-  box.append(el("strong", errorSentence(err, fallback, byCode)));
+  box.append(tEl("strong", errorSentenceKey(err, fallback, byCode)));
   if (err.message) box.append(el("div", err.message, "detail"));
   return box;
 }
