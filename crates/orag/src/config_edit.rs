@@ -60,12 +60,17 @@ fn write_target(path: &Path) -> std::io::Result<std::path::PathBuf> {
     }
 }
 
-/// `out` (toml_edit writes LF) in the line ending style of `original`:
-/// CRLF when most of its line breaks are CRLF.
+/// The line ending style of `text`, read from its existing line breaks:
+/// CRLF when most of them are CRLF, else LF (also for a file without any).
+fn line_ending(text: &str) -> &'static str {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count() - crlf;
+    if crlf > 0 && crlf >= lf { "\r\n" } else { "\n" }
+}
+
+/// `out` (toml_edit writes LF) in the line ending style of `original`.
 fn with_line_endings(out: String, original: &str) -> String {
-    let crlf = original.matches("\r\n").count();
-    let lf = original.matches('\n').count() - crlf;
-    if crlf == 0 || crlf < lf {
+    if line_ending(original) == "\n" {
         return out;
     }
     out.replace("\r\n", "\n").replace('\n', "\r\n")
@@ -109,8 +114,8 @@ fn below_commented_default(text: &str, id: &str) -> Option<String> {
         at += line.len();
         let commented = line.trim_start().strip_prefix('#').map(str::trim_start);
         if commented.is_some_and(|rest| rest.starts_with(&format!("{KEY} ="))) {
-            // The file's own line ending (CRLF on a file edited on Windows).
-            let eol = if line.ends_with("\r\n") { "\r\n" } else { "\n" };
+            // The file's own style, also when this last line has no break.
+            let eol = line_ending(text);
             let lead = if line.ends_with('\n') { "" } else { eol };
             let quoted = value(id).as_value()?.to_string();
             let added = format!("{lead}{KEY} = {}{eol}", quoted.trim());
@@ -337,6 +342,24 @@ mod tests {
         assert!(
             !set_generation_model(&path, LARGE).unwrap(),
             "unchanged now"
+        );
+    }
+
+    #[test]
+    fn a_crlf_file_whose_commented_default_ends_it_keeps_crlf() {
+        let (_dir, path) = home();
+        std::fs::write(&path, "# mine\r\n# generation_model = \"old\"").unwrap();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        assert_eq!(
+            read(&path),
+            format!("# mine\r\n# generation_model = \"old\"\r\ngeneration_model = \"{LARGE}\"\r\n")
+        );
+        // The same file with LF endings stays LF.
+        std::fs::write(&path, "# mine\n# generation_model = \"old\"").unwrap();
+        assert!(set_generation_model(&path, LARGE).unwrap());
+        assert_eq!(
+            read(&path),
+            format!("# mine\n# generation_model = \"old\"\ngeneration_model = \"{LARGE}\"\n")
         );
     }
 
