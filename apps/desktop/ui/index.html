@@ -19,11 +19,21 @@
   pre { background: var(--box); padding: 12px; border-radius: 6px; overflow: auto;
         max-height: 40vh; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
   [hidden] { display: none; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
+  .head h1 { margin: 0; }
+  #language-select { font: inherit; font-size: 13px; color: var(--muted); background: transparent;
+                     border: 1px solid var(--muted); border-radius: 6px; padding: 3px 6px; }
 </style>
 </head>
 <body>
   <main id="main">
-    <h1>ORAG</h1>
+    <div class="head">
+      <h1>ORAG</h1>
+      <select id="language-select" aria-label="Dil">
+        <option value="tr">TR</option>
+        <option value="en">EN</option>
+      </select>
+    </div>
     <p id="status">Hizmet başlatılıyor…</p>
     <p id="message" hidden></p>
     <pre id="details" hidden></pre>
