@@ -10,9 +10,11 @@ mod fetch;
 mod guard;
 pub mod http;
 mod install;
+pub mod options;
 pub mod status;
 #[cfg(test)]
 mod tests;
+pub mod tiers;
 #[cfg(test)]
 mod tls_tests;
 mod verify;
@@ -24,10 +26,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use catalog::{Catalog, CatalogEntry};
 pub use http::HttpSettings;
+pub use install::free_bytes;
+pub use options::{Options, Verdict};
 pub use status::{
     DownloadError, DownloadStatus, ErrorCode, ModelProgress, ModelState, Restart, RunState,
     SharedStatus,
 };
+pub use tiers::{SpeedHint, Tier, TierSize, builtin_tiers};
 
 use crate::infer::download::fetch::{Fetch, fetch};
 use crate::infer::download::install::{check_free_space, install, part_path};
