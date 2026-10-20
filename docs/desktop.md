@@ -22,9 +22,13 @@ provenance to check a download with; see `docs/signing.md`.
 The app starts the service in **setup mode** until the two models are
 installed. Its page shows **Bu bilgisayar** (memory, processor, cores, GPU,
 free disk) and the answer models that fit this computer: *Standart*
-(`qwen3.5-4b-q4_k_m`, about 3.1 GB with the embedder, 6.5 GB RAM) and
-*Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB, 9 GB RAM; slower and uses more
-memory). *Standart* is the recommended one whenever it fits; a model set by
+(`qwen3.5-4b-q4_k_m`, about 3.1 GB with the embedder; at least 7 GiB RAM,
+8 GiB recommended) and *Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB; at least
+11 GiB, 12 GiB recommended; slower and uses more memory). Below the
+recommended memory a model can still be picked, with a warning that answers
+may be slow. Without an Apple GPU the page shows the median answer time
+measured on a 4-vCPU GitHub test machine (about 108 s for *Standart*); a
+given PC can be faster or slower. *Standart* is the recommended one whenever it fits; a model set by
 hand in `config.toml` is listed first as *Şu anki*. One that does not fit is greyed out with the reason; a computer
 nothing fits is told so. Pick one and press **Modelleri indir**: the two
 models download and are checked, the choice is written as `generation_model`

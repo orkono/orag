@@ -527,18 +527,24 @@ choice. Rules agreed by muse and gpt-6-astra, owner decisions marked:
   `qwen3.5-4b-q4_k_m` (default) and `qwen3.5-9b-q4_k_m` (large). The 2B
   (small) failed the step 81 quality rule (abstention recall 0.200) and is
   not offered; it stays in the catalog and the pack scripts for a hand-set
-  `generation_model`. A tier's need is the whole process's measured peak RSS
-  + 2 GiB (the larger of the Mac and Linux CPU figures;
-  `.docs/benchmarks/v0.5-model-tiers.md`).
+  `generation_model`. Each tier has two RAM thresholds from the whole
+  process's measured peak RSS, the larger of the Mac and the Linux CPU runs
+  (4B 5.66 GiB, 9B 9.71 GiB; `.docs/benchmarks/v0.5-model-tiers.md`): a hard
+  floor of peak + 1 GiB and a recommended RAM of peak + 2 GiB, both rounded
+  up to 0.5 GiB (4B 7 / 8 GiB, 9B 11 / 12 GiB). The CPU speed hint is the
+  median on a 4-vCPU GitHub-hosted runner, shown as a reference measurement,
+  not a promise for any PC.
 - One place decides (`infer::download::options`), for the list and for the
-  request alike: a tier fits when total RAM >= its need and free disk >=
-  embedder (if missing) + tier (if missing) + 512 MiB; unknown facts never
+  request alike: a tier is selectable when total RAM >= its hard floor and
+  free disk >= what the embedder and the tier still have to fetch + 512 MiB;
+  below the recommended RAM it stays selectable with a
+  `below_recommended_ram` warning; unknown facts never
   block; the default tier is recommended (and preselected unless the
   configured generator fits) whenever it fits, and the large tier never is
   (slower, more memory; no quality claim); little available RAM only warns.
   A configured `generation_model` that is a catalog generator but not an
   offered tier (the hand-set 4B instruct model, or the withdrawn 2B) is
-  listed first as the current option, judged by its own tier's need or else
+  listed first as the current option, judged by its own tier's thresholds or else
   the default tier's, and accepted when it fits; an id outside the catalog
   is not offered. On Windows, an x86-64 CPU without AVX2/FMA/F16C/BMI2 (the
   Windows binary's floor) is `unsupported` (`cpu_unsupported`); on other

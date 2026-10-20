@@ -73,8 +73,10 @@ the Start menu; or unzip `orag-<version>-x86_64-pc-windows-msvc.zip` anywhere
 you can write to and run `orag.exe start`. The page opens at
 <http://127.0.0.1:2442> in setup mode until the models are installed. The page
 shows this computer (*Bu bilgisayar*) and the answer models that fit it: the
-recommended `qwen3.5-4b-q4_k_m` (6.5 GB RAM) and, with 9 GB RAM or more,
-`qwen3.5-9b-q4_k_m` (slower, uses more memory). Pick one and press *Modelleri indir*;
+recommended `qwen3.5-4b-q4_k_m` (at least 7 GiB RAM, 8 GiB recommended) and
+`qwen3.5-9b-q4_k_m` (at least 11 GiB, 12 GiB recommended; slower, uses more
+memory). Below the recommended memory a model can still be picked, with a
+warning that answers may be slow. Pick one and press *Modelleri indir*;
 the embedder and that model download (about 3.1 GB for the default), the
 choice is written as `generation_model` into `config.toml`, and ORAG
 restarts by itself. The Start menu also has
