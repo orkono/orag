@@ -9,6 +9,11 @@ const HASH_KEY = "lang";
 /** When the choice was made (ms since 1970), in storage and the fragment. */
 const AT_STORAGE_KEY = "orag.lang.at";
 const AT_KEY = "at";
+/**
+ * Where the page reports a choice to the desktop app: a navigation the app
+ * cancels and reads (apps/desktop/src/window.rs `language_report`).
+ */
+const REPORT_URL = "orag-lang://choice";
 const LANGUAGES = ["tr", "en"];
 const DEFAULT_LANGUAGE = "tr";
 const LOCALES = { tr: "tr-TR", en: "en-US" };
@@ -534,12 +539,21 @@ const initialChoice = () => chooseLanguage(choiceFromHash(currentHash()), stored
 
 export const initialLanguage = () => initialChoice().language;
 
+/** The choice the fragment hands over (the desktop app's, or a reload's), or null. */
+const handedChoice = choiceFromHash(currentHash());
 /**
- * Opened with a `#lang=` fragment (by the desktop app): the fragment then
- * follows the menu, which is how the app reads the choice back. A page
+ * Opened with a `#lang=` fragment: the page then keeps its own choice in it,
+ * so a reload opens in that choice even when storage is blocked. A page
  * opened without one never gets a fragment.
  */
-const followsFragment = choiceFromHash(currentHash()) !== null;
+const followsFragment = handedChoice !== null;
+/**
+ * Inside the desktop app: its window marks every page before the page's own
+ * scripts run (apps/desktop/src/window.rs DESKTOP_MARKER_SCRIPT). Only then
+ * is a choice reported to the app (`reportChoice`); a fragment alone never
+ * enables it, so a plain browser never navigates to the app's report scheme.
+ */
+const inDesktopApp = globalThis.__ORAG_DESKTOP__ === true;
 let chosen = initialChoice();
 let current = chosen.language;
 
@@ -651,14 +665,32 @@ function store({ language, at }) {
   }
 }
 
-/** Writes `#lang=<language>[&at=<ms>]` into the address without a navigation. */
+/**
+ * Writes `#lang=<language>[&at=<ms>]` into the page's own address without a
+ * navigation: page state for a reload only, the app never reads it.
+ */
 function writeFragment({ language, at }) {
   const loc = globalThis.location;
   const fragment = `${HASH_KEY}=${language}${at === null ? "" : `&${AT_KEY}=${at}`}`;
   try {
     globalThis.history?.replaceState(globalThis.history.state ?? null, "", `${loc.pathname}${loc.search}#${fragment}`);
   } catch {
-    // The app then reads the choice it handed over.
+    // A reload then opens in the stored choice.
+  }
+}
+
+/**
+ * Tells the desktop app about a timed choice the moment it stands, by a
+ * navigation to `orag-lang://choice?lang=<tr|en>&at=<ms>` that the app
+ * cancels: the page stays as it is (no unload; requests keep running). Only
+ * in the app (`inDesktopApp`); an untimed choice is never reported.
+ */
+function reportChoice({ language, at }) {
+  if (!inDesktopApp || at === null || !globalThis.location) return;
+  try {
+    globalThis.location.href = `${REPORT_URL}?${HASH_KEY}=${language}&${AT_KEY}=${at}`;
+  } catch {
+    // The app keeps the choice it knew.
   }
 }
 
@@ -692,20 +724,22 @@ export function setLanguage(lang) {
   chosen = { language: lang, at: nextTime(chosen) };
   store(chosen);
   if (followsFragment) writeFragment(chosen);
+  reportChoice(chosen);
   apply(lang);
   return current;
 }
 
 /**
- * Translates the page into the starting language and wires the menu. In
- * the desktop app (a fragment) the standing choice is stored and written
- * back into the address, so the app learns when the page's own choice was
- * newer than the one it handed over.
+ * Translates the page into the starting language and wires the menu. Opened
+ * with a fragment, the standing choice is stored and written back into it,
+ * and reported to the app when it is not the one handed over: the page's
+ * own choice was newer.
  */
 export function initLanguage(select) {
   if (followsFragment) {
     store(chosen);
     writeFragment(chosen);
+    if (chosen.language !== handedChoice.language || chosen.at !== handedChoice.at) reportChoice(chosen);
   }
   apply(current);
   if (!select) return;

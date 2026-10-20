@@ -61,7 +61,8 @@ Install `ORAG_<version>_aarch64.dmg` (macOS), `ORAG_<version>_x64-setup.exe`
 (Windows) or the `.AppImage` / `.deb` (Linux) from the release and open
 **ORAG**: it starts the service and shows the page in its own window, with its
 own data folder. See `docs/desktop.md` for the first start, the data folder
-and the unsigned-app prompts.
+and the unsigned-app prompts, and `docs/signing.md` to check a download
+(`SHA256SUMS`, `gh attestation verify`).
 
 ## Windows
 

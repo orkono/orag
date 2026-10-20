@@ -10,8 +10,9 @@ use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow};
 use crate::prefs::Choice;
 use crate::supervisor::{SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
-    Action, SMOKE_SCRIPT, Status, action_for, external_allowed, language_of, language_script,
-    local_origin, navigation_allowed, smoke_report, status_script, with_language,
+    Action, DESKTOP_MARKER_SCRIPT, SMOKE_SCRIPT, Status, action_for, external_allowed,
+    is_language_report, language_report, language_script, local_origin, navigation_allowed,
+    smoke_report, status_script, with_language,
 };
 
 /// Set in a smoke test: the app writes `<ui url> <child pid>` here on Ready.
@@ -38,21 +39,18 @@ struct Pages {
     /// (`prefs`); None until it is known.
     data: Mutex<Option<PathBuf>>,
     /// The language last chosen on either page, with when it was chosen.
-    /// Both pages keep it in their address (`#lang=en&at=<ms>`), which is
-    /// read back when the window leaves a page, closes or the app quits (and
-    /// every few seconds), and handed to the next page shown.
+    /// Each page reports a choice the moment it is made (`orag-lang:`, see
+    /// `window::language_report`); the app saves it at once and hands it to
+    /// the next page shown. The webview's address is never read for it.
     language: Mutex<Choice>,
 }
 
 impl Pages {
-    /// Takes over the choice the shown page names in its address when it is
-    /// newer (`Choice::prefer`), and remembers it for the next launch.
-    fn capture_language(&self, window: &WebviewWindow) {
-        let Some(seen) = window.url().ok().as_ref().and_then(language_of) else {
-            return;
-        };
+    /// Takes over a choice a page reported when it is newer
+    /// (`Choice::prefer`), and remembers it for the next launch at once.
+    fn take_language(&self, reported: Choice) {
         let current = locked(&self.language);
-        let chosen = Choice::prefer(current, seen);
+        let chosen = Choice::prefer(current, reported);
         if chosen == current {
             return;
         }
@@ -105,59 +103,16 @@ pub fn run() {
         .manage(Sidecar::default())
         .setup(|app| {
             let window = build_window(app.handle())?;
-            save_language_on_close(app.state::<Arc<Pages>>().inner().clone(), &window);
-            watch_language(app.state::<Arc<Pages>>().inner().clone(), window.clone());
             start_sidecar(app.handle(), window);
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("the ORAG desktop app failed to start");
-    app.run(|handle, event| match event {
-        // A quit without closing the window first (Cmd+Q, app.exit): the
-        // window still shows its page here, so its choice is read now.
-        RunEvent::ExitRequested { .. } => save_language(handle),
-        RunEvent::Exit => {
-            save_language(handle);
+    // The language is saved when it is chosen, so closing or quitting has
+    // nothing to read from the window (whose address WKWebView may not have).
+    app.run(|handle, event| {
+        if let RunEvent::Exit = event {
             stop_sidecar(handle);
-        }
-        _ => {}
-    });
-}
-
-/// Reads the shown page's choice into the language file, if a page is shown.
-fn save_language(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        app.state::<Arc<Pages>>().capture_language(&window);
-    }
-}
-
-/// The window's close: its page still shows the last choice, read before
-/// the window (and then the app and its sidecar) goes. Runs on the main
-/// thread, where tauri-runtime-wry 2.12 answers `url()` in place: it calls
-/// close handlers with no borrow of its window list held and drops the
-/// webview only after them (`on_close_requested`).
-fn save_language_on_close(pages: Arc<Pages>, window: &WebviewWindow) {
-    let closing = window.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { .. } = event {
-            pages.capture_language(&closing);
-        }
-    });
-}
-
-/// How often the shown page's choice is read back while the app runs: the
-/// last word for an app that is killed or crashes, which closes nothing.
-const LANGUAGE_POLL: std::time::Duration = std::time::Duration::from_secs(2);
-
-/// Reads the language from the shown page's address now and then.
-fn watch_language(pages: Arc<Pages>, window: WebviewWindow) {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(LANGUAGE_POLL);
-            if window.url().is_err() {
-                return; // the window is gone
-            }
-            pages.capture_language(&window);
         }
     });
 }
@@ -171,7 +126,15 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .title("ORAG")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 400.0)
+        .initialization_script(DESKTOP_MARKER_SCRIPT)
         .on_navigation(move |url| {
+            // A page reporting a language choice: kept, never followed.
+            if is_language_report(url) {
+                if let Some(choice) = language_report(url) {
+                    nav_pages.take_language(choice);
+                }
+                return false;
+            }
             if let Some(report) = smoke_report(url) {
                 record_smoke(&nav_app, &nav_pages, &report);
                 return false;
@@ -282,7 +245,6 @@ fn handle_event(app: &AppHandle, window: &WebviewWindow, event: &SidecarEvent) {
         Action::Open(url) => {
             let pages = app.state::<Arc<Pages>>();
             // A choice made on the status page goes along to the service page.
-            pages.capture_language(window);
             pages.on_local.store(false, Ordering::SeqCst);
             set(&pages.service, Some(url.clone()));
             pages.remember_ui_port(&url);
@@ -297,8 +259,8 @@ fn handle_event(app: &AppHandle, window: &WebviewWindow, event: &SidecarEvent) {
 /// that page is up, otherwise by its page-load hook after a fresh load.
 fn show(app: &AppHandle, window: &WebviewWindow, status: Status) {
     let pages = app.state::<Arc<Pages>>();
-    // Leaving the service page: its language goes along to the status page.
-    pages.capture_language(window);
+    // Leaving the service page: its language (reported when chosen) goes
+    // along to the status page (`page_loaded`).
     set(&pages.service, None);
     set(&pages.status, status.clone());
     if pages.on_local.load(Ordering::SeqCst) {

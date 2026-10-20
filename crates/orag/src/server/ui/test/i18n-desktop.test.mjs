@@ -1,12 +1,15 @@
 // The desktop app hands the language to the page in the URL fragment
-// (`#lang=en`, step 77 review P2-2) and reads it back from there: the page
-// adopts a valid value, stores it, and keeps the fragment in step.
-import { test } from "node:test";
+// (`#lang=en`, step 77 review P2-2); the page adopts a valid value, stores
+// it, keeps it in its own fragment (so a reload keeps it), and, in the app
+// only (its `__ORAG_DESKTOP__` marker), reports every choice the moment it is
+// made, as a navigation to `orag-lang://choice?lang=<tr|en>&at=<ms>` that the
+// app cancels (apps/desktop/src/window.rs `language_report`).
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { installPage, memoryStorage } from "./fake-dom.mjs";
 
 const storage = memoryStorage({ "orag.lang": "tr" });
-const doc = installPage({ storage, hash: "#lang=en&at=1000" });
+const doc = installPage({ storage, hash: "#lang=en&at=1000", desktop: true });
 const i18n = await import("../i18n.js");
 
 test("a timed fragment wins over an older stored choice and is stored", () => {
@@ -16,16 +19,27 @@ test("a timed fragment wins over an older stored choice and is stored", () => {
   assert.equal(storage.items.get("orag.lang"), "en");
   assert.equal(storage.items.get("orag.lang.at"), "1000");
   assert.equal(location.hash, "#lang=en&at=1000");
+  assert.deepEqual(location.navigations, [], "the app's own hand-over is not reported back");
   assert.equal(doc.documentElement.lang, "en");
   assert.equal(doc.getElementById("language-select").value, "en");
   assert.equal(doc.getElementById("setup-title").textContent, "Install models");
 });
 
-test("a page opened with the fragment keeps it in step with the menu", () => {
-  i18n.setLanguage("tr");
-  assert.match(location.hash, /^#lang=tr&at=\d+$/);
+test("a page opened with the fragment reports every menu choice to the app at once", () => {
+  location.navigations.length = 0;
+  const select = doc.getElementById("language-select");
+  select.value = "tr";
+  select.dispatchEvent(new Event("change"));
+  const trAt = storage.items.get("orag.lang.at");
+  assert.deepEqual(location.navigations, [`orag-lang://choice?lang=tr&at=${trAt}`]);
   i18n.setLanguage("en");
-  assert.match(location.hash, /^#lang=en&at=\d+$/);
+  const enAt = storage.items.get("orag.lang.at");
+  assert.deepEqual(location.navigations, [`orag-lang://choice?lang=tr&at=${trAt}`, `orag-lang://choice?lang=en&at=${enAt}`]);
+  assert.match(location.navigations[1], /^orag-lang:\/\/choice\?lang=en&at=[1-9]\d*$/);
+  assert.ok(Number(enAt) > Number(trAt), "a new choice is always after the standing one");
+  assert.equal(location.hash, `#lang=en&at=${enAt}`, "the page's own address follows the menu");
+  i18n.setLanguage("de");
+  assert.equal(location.navigations.length, 2, "an unknown language is not reported");
 });
 
 test("the fragment carries when the choice was made", () => {
@@ -53,12 +67,14 @@ test("a later choice wins; a hand-over without a time never overrides a stored c
   assert.deepEqual(choose(null, null), c("tr"));
 });
 
-test("a choice on the page is stored and written with its time", () => {
-  const before = Date.now();
+test("a choice on the page is stored and written with its time", (t) => {
+  // A fixed clock, well after the earlier tests' choices: the time is now.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 60_000 });
+  const now = Date.now();
   i18n.setLanguage("en");
-  const at = Number(storage.items.get("orag.lang.at"));
-  assert.ok(at >= before && at <= Date.now(), String(at));
-  assert.equal(location.hash, `#lang=en&at=${at}`);
+  assert.equal(storage.items.get("orag.lang.at"), String(now));
+  assert.equal(location.hash, `#lang=en&at=${now}`);
+  assert.equal(location.navigations.at(-1), `orag-lang://choice?lang=en&at=${now}`);
 });
 
 test("the fragment is read strictly", () => {
@@ -83,20 +99,21 @@ test("the fragment is read strictly", () => {
 // Last: it installs a second page (new globals).
 test("a stale fragment does not downgrade a newer stored choice, and is corrected", async () => {
   const newer = memoryStorage({ "orag.lang": "en", "orag.lang.at": "2000" });
-  const page = installPage({ storage: newer, hash: "#lang=tr&at=1500" });
+  const page = installPage({ storage: newer, hash: "#lang=tr&at=1500", desktop: true });
   const fresh = await import("../i18n.js?stale-fragment"); // a second page load
   fresh.initLanguage(page.getElementById("language-select"));
   assert.equal(fresh.getLanguage(), "en");
   assert.equal(page.getElementById("setup-title").textContent, "Install models");
   assert.equal(newer.items.get("orag.lang"), "en");
-  // The address now tells the desktop app the page's (newer) choice.
+  // The desktop app is told the page's (newer) choice, and the address shows it.
+  assert.deepEqual(location.navigations, ["orag-lang://choice?lang=en&at=2000"]);
   assert.equal(location.hash, "#lang=en&at=2000");
 });
 
 test("a choice made after the clock moved back still beats the standing one", async () => {
   const future = Date.now() + 3_600_000; // chosen while the clock was an hour fast
   const storage = memoryStorage({ "orag.lang": "en", "orag.lang.at": String(future) });
-  const page = installPage({ storage, hash: `#lang=en&at=${future}` });
+  const page = installPage({ storage, hash: `#lang=en&at=${future}`, desktop: true });
   const fresh = await import("../i18n.js?clock-back");
   const select = page.getElementById("language-select");
   fresh.initLanguage(select);
@@ -104,5 +121,32 @@ test("a choice made after the clock moved back still beats the standing one", as
   select.dispatchEvent(new Event("change"));
   const at = Number(storage.items.get("orag.lang.at"));
   assert.ok(at > future, `${at} must be after ${future}`);
-  assert.equal(location.hash, `#lang=tr&at=${at}`);
+  assert.equal(location.navigations.at(-1), `orag-lang://choice?lang=tr&at=${at}`);
+});
+
+test("with storage blocked, a reload keeps the choice made on the page", async () => {
+  const blocked = {
+    getItem() {
+      throw new Error("SecurityError");
+    },
+    setItem() {
+      throw new Error("SecurityError");
+    },
+    removeItem() {
+      throw new Error("SecurityError");
+    },
+  };
+  const page = installPage({ storage: blocked, hash: "#lang=tr&at=1000", desktop: true });
+  const first = await import("../i18n.js?blocked-1");
+  const select = page.getElementById("language-select");
+  first.initLanguage(select);
+  select.value = "en";
+  select.dispatchEvent(new Event("change"));
+  const kept = location.hash;
+  assert.match(kept, /^#lang=en&at=\d+$/);
+  // The reload: the same address, nothing stored, nothing new from the app.
+  const reloaded = installPage({ storage: blocked, hash: kept, desktop: true });
+  const second = await import("../i18n.js?blocked-2");
+  second.initLanguage(reloaded.getElementById("language-select"));
+  assert.equal(second.getLanguage(), "en");
 });

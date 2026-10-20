@@ -294,9 +294,10 @@ export function memoryStorage(initial = {}) {
 
 /**
  * Installs `document`, `window`, `localStorage` and `location` built from the
- * page's index.html; returns the document.
+ * page's index.html, with the desktop app's marker when `desktop`; returns
+ * the document.
  */
-export function installPage({ storage = memoryStorage(), hash = "" } = {}) {
+export function installPage({ storage = memoryStorage(), hash = "", desktop = false } = {}) {
   const doc = new FakeDocument();
   build(doc, readFileSync(new URL("../index.html", import.meta.url), "utf8"));
   const win = new EventTarget();
@@ -304,6 +305,14 @@ export function installPage({ storage = memoryStorage(), hash = "" } = {}) {
     hash,
     pathname: "/",
     search: "",
+    /** Every address the page navigated to (`location.href = …`), in order. */
+    navigations: [],
+    get href() {
+      return `http://127.0.0.1:42000${this.pathname}${this.search}${this.hash}`;
+    },
+    set href(url) {
+      this.navigations.push(String(url));
+    },
     reload() {},
   };
   const history = {
@@ -318,6 +327,9 @@ export function installPage({ storage = memoryStorage(), hash = "" } = {}) {
   globalThis.localStorage = storage;
   globalThis.location = location;
   globalThis.history = history;
+  // The desktop app's marker (apps/desktop/src/window.rs DESKTOP_MARKER_SCRIPT).
+  delete globalThis.__ORAG_DESKTOP__;
+  if (desktop) Object.defineProperty(globalThis, "__ORAG_DESKTOP__", { value: true, configurable: true });
   return doc;
 }
 

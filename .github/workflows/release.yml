@@ -98,8 +98,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
+      # macOS signing and notarization turn on only when the owner has added
+      # the secrets (docs/signing.md); without them the app is built unsigned,
+      # exactly as before. Tauri reads the APPLE_* variables itself. The secrets
+      # get a value on the macOS runner only, never on Linux or Windows.
       - name: Desktop bundle
+        env:
+          SIGN_APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          SIGN_APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          SIGN_APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          SIGN_APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          SIGN_APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          SIGN_APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         run: |
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$SIGN_APPLE_CERTIFICATE" ]; then
+            for v in CERTIFICATE CERTIFICATE_PASSWORD SIGNING_IDENTITY ID PASSWORD TEAM_ID; do
+              src="SIGN_APPLE_$v"
+              [ -n "${!src}" ] || { echo "secret APPLE_$v is missing; see docs/signing.md" >&2; exit 1; }
+              export "APPLE_$v=${!src}"
+              unset "$src"
+            done
+            echo "macOS: signing and notarizing as $APPLE_SIGNING_IDENTITY"
+          else
+            echo "no signing secrets: the desktop app is built unsigned"
+          fi
           cargo install tauri-cli --version 2.12.3 --locked
           scripts/stage-sidecar.sh
           scripts/check-binary-deps.sh apps/desktop/binaries/orag-*$EXE --release-floor
@@ -132,11 +154,25 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      # Build provenance: GitHub signs a statement that each file was built by
+      # this workflow from this tag (`gh attestation verify`, docs/signing.md).
+      id-token: write
+      attestations: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
+      - name: Checksums
+        run: |
+          scripts/write-checksums.sh dist
+          cat dist/SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -147,4 +183,4 @@ jobs:
             exit 1
           fi
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft \
-            --title "ORAG ${TAG#v}" --notes "Draft for ${TAG}: see CHANGELOG.md. Published by the owner."
+            --title "ORAG ${TAG#v}" --notes "Draft for ${TAG}: see CHANGELOG.md. Check a download with SHA256SUMS or \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\` (docs/signing.md)."

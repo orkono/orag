@@ -14,7 +14,8 @@ data folder are its own.
 | Linux x86-64 (glibc 2.35+) | `ORAG_<version>_amd64.AppImage` (85 MB) or `.deb` (11 MB) | The AppImage runs after `chmod +x`; the `.deb` installs with `sudo apt install ./ORAG_<version>_amd64.deb`. Needs WebKitGTK 4.1 (present on Ubuntu 22.04+ and Debian 12+). |
 
 The models are not in these files; the two default packs need about 3.1 GB
-more (see *First start*).
+more (see *First start*). Every release also has `SHA256SUMS` and GitHub build
+provenance to check a download with; see `docs/signing.md`.
 
 ## First start
 
