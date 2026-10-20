@@ -45,6 +45,8 @@ export function selectedCollection() {
 }
 
 export const displayName = (c) => (c.name === DEFAULT_COLLECTION ? t("collections.default") : c.name);
+/** "3 belge" as a message, so it can fill another message's placeholder. */
+const countMessage = (count) => ({ key: "collections.count", params: { count } });
 const countLabel = (count) => t("collections.count", { count });
 
 function renderList() {
@@ -134,7 +136,7 @@ async function createCollection(event) {
     const created = await response.json();
     showForm(false);
     prefer(created.id);
-    toast(t("collections.created", { name: created.name }));
+    toast({ key: "collections.created", params: { name: created.name } });
   } catch (err) {
     $("collection-status").replaceChildren(
       errorBox(err, "collections.createFailed", {
@@ -166,7 +168,7 @@ async function deleteCollection() {
     if (!confirmed) return;
     await request(`/v1/collections/${current.id}`, { method: "DELETE" });
     prefer(null);
-    toast(t("common.deleted", { name: current.name }));
+    toast({ key: "common.deleted", params: { name: current.name } });
   } catch (err) {
     toastError(err, "collections.deleteFailed", { conflict: "collections.deleteDefault" });
   } finally {
@@ -192,7 +194,7 @@ async function reindexCollection() {
     const result = await response.json();
     document.dispatchEvent(new Event("orag:switched"));
     document.dispatchEvent(new Event("orag:reindexed"));
-    toast(t("collections.reindexQueued", { count: countLabel(result.queued_documents) }));
+    toast({ key: "collections.reindexQueued", params: { count: countMessage(result.queued_documents) } });
   } catch (err) {
     toastError(err, "collections.reindexFailed", {
       conflict: "collections.reindexBusy",

@@ -1,6 +1,6 @@
 // The page's own confirmation dialog and short notifications (toasts).
-import { $, el } from "./dom.js";
-import { errorSentence } from "./api.js";
+import { $, el, messageEl } from "./dom.js";
+import { errorSentenceKey } from "./api.js";
 import { icon } from "./icons.js";
 import { setAttrText, t } from "./i18n.js";
 
@@ -30,13 +30,17 @@ export function confirmAction({ title, message, confirmLabel = t("common.confirm
   });
 }
 
-/** A short message in the corner; `kind` is "ok" or "error". */
+/**
+ * A short message in the corner; `kind` is "ok" or "error". `text` and
+ * `detail` are `{ key, params }` messages, which follow a language change
+ * while the toast is up, or plain text (a server's own words).
+ */
 export function toast(text, kind = "ok", detail = "") {
   const item = el("div", undefined, `toast ${kind}`);
   item.setAttribute("role", kind === "error" ? "alert" : "status");
   const body = el("div", undefined, "toast-body");
-  body.append(el("strong", text));
-  if (detail) body.append(el("span", detail, "toast-detail"));
+  body.append(messageEl("strong", text));
+  if (detail) body.append(messageEl("span", detail, "toast-detail"));
   const close = el("button", undefined, "icon-button small");
   close.type = "button";
   setAttrText(close, "aria-label", "common.close");
@@ -54,5 +58,5 @@ export function toast(text, kind = "ok", detail = "") {
 /** An API error as a toast: the sentence (`fallback` and `byCode` are keys),
  * with the API message below. */
 export function toastError(err, fallback, byCode) {
-  toast(errorSentence(err, fallback, byCode), "error", err.message || "");
+  toast({ key: errorSentenceKey(err, fallback, byCode) }, "error", err.message || "");
 }

@@ -504,14 +504,23 @@ function lookup(lang, key, params) {
 /** Whether `key` is a message (the fallback language has every key). */
 export const hasMessage = (key) => Object.hasOwn(MESSAGES[DEFAULT_LANGUAGE], key);
 
+/** A `{ key, params }` message, as `toast` and placeholder values take it. */
+export const isMessage = (value) => typeof value === "object" && value !== null && typeof value.key === "string";
+
+function fill(value) {
+  return isMessage(value) ? t(value.key, value.params) : String(value);
+}
+
 /**
  * The string for `key` in the current language with `{name}` placeholders
- * filled from `params`; falls back to Turkish, then to the key itself.
+ * filled from `params`; falls back to Turkish, then to the key itself. A
+ * placeholder value may itself be a `{ key, params }` message, translated
+ * in the same language (so stored params never pin an older language).
  */
 export function t(key, params) {
   const text = lookup(current, key, params) ?? lookup(DEFAULT_LANGUAGE, key, params) ?? key;
   if (!params) return text;
-  return text.replace(/\{(\w+)\}/g, (whole, name) => (Object.hasOwn(params, name) ? String(params[name]) : whole));
+  return text.replace(/\{(\w+)\}/g, (whole, name) => (Object.hasOwn(params, name) ? fill(params[name]) : whole));
 }
 
 function argsOf(node) {

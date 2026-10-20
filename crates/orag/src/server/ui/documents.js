@@ -206,7 +206,7 @@ async function deleteDocument(collection, row, button) {
   }
   // Removed in place, so the pages the user has opened stay open.
   removeDocumentRow(doc.id);
-  toast(t("common.deleted", { name: documentName(doc) }));
+  toast({ key: "common.deleted", params: { name: documentName(doc) } });
   await refreshCollections(); // new document count
 }
 

@@ -163,7 +163,7 @@ async function ask(event) {
   const collection = selectedCollection();
   if (!query || activeQuery) return;
   if (!collection) {
-    toast(t("ask.pickCollection"), "error");
+    toast({ key: "ask.pickCollection" }, "error");
     return;
   }
   input.value = "";

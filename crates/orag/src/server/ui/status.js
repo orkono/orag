@@ -3,7 +3,7 @@
 import { $, el } from "./dom.js";
 import { versionInfo } from "./api.js";
 import { toast } from "./dialog.js";
-import { setAttrText, t } from "./i18n.js";
+import { setAttrText } from "./i18n.js";
 
 const HEALTH_MS = 10000;
 const HEALTH_DOWN_MS = 2000;
@@ -34,7 +34,7 @@ async function watchHealth() {
   } else if (ok && down) {
     down = false;
     $("offline-banner").hidden = true;
-    toast(t("status.reconnected"));
+    toast({ key: "status.reconnected" });
     versionInfo(true).catch(() => {});
     document.dispatchEvent(new Event("orag:reconnected"));
   }
