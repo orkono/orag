@@ -1,5 +1,5 @@
 // Server-sent events over a fetch body (EventSource cannot POST).
-import { t } from "./i18n.js";
+import { clientError } from "./api.js";
 
 /**
  * Splits an SSE byte stream into `{event, data}` records. Stopping early (a
@@ -23,8 +23,7 @@ async function* sseRecords(reader) {
     } catch (err) {
       // Stopping aborts the fetch: that is not a lost connection.
       if (err?.name === "AbortError") throw err;
-      const lost = new Error(t("ask.lost"));
-      lost.code = "lost";
+      const lost = clientError("ask.lost", undefined, "lost");
       lost.cause = err;
       throw lost;
     }

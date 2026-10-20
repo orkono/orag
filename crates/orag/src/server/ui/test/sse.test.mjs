@@ -31,6 +31,7 @@ test("a body that fails mid-stream is a lost connection", async () => {
   });
   await assert.rejects(
     (async () => { for await (const _ of sseEvents(body)); })(),
-    (err) => err.code === "lost",
+    // The page's own sentence travels as a key, so it is shown translated.
+    (err) => err.code === "lost" && err.messageKey === "ask.lost",
   );
 });

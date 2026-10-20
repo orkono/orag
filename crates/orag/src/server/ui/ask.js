@@ -4,12 +4,12 @@
 // Every label is kept translated (`data-i18n`), so the cards on screen follow
 // a language change; the question and the answer text stay as written.
 import { $, el, tEl } from "./dom.js";
-import { errorBox, request } from "./api.js";
+import { clientError, errorBox, request } from "./api.js";
 import { displayName, selectedCollection } from "./collections.js";
 import { toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { answerNoticeKeys, retryAfterMs } from "./format.js";
-import { setText, t } from "./i18n.js";
+import { setText } from "./i18n.js";
 import { sseEvents } from "./sse.js";
 import { linkCitations, markCitedSources, relabelPages, renderSources } from "./sources.js";
 
@@ -188,9 +188,7 @@ async function ask(event) {
       complete = await streamAnswer(turn, collection, query, controller);
     }
     if (!complete && !controller.signal.aborted) {
-      const lost = new Error(t("ask.lost"));
-      lost.code = "lost";
-      throw lost;
+      throw clientError("ask.lost", undefined, "lost");
     }
   } catch (err) {
     if (!controller.signal.aborted) {

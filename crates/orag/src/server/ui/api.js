@@ -1,5 +1,5 @@
 // Calls to the ORAG API and readable errors for them.
-import { el, tEl } from "./dom.js";
+import { el, messageEl, tEl } from "./dom.js";
 import { t } from "./i18n.js";
 
 /**
@@ -74,12 +74,38 @@ export function errorSentence(err, fallback, byCode = {}) {
   return t(errorSentenceKey(err, fallback, byCode));
 }
 
+/**
+ * An Error the page raises itself: its sentence travels as `messageKey`
+ * (and `messageParams`), so wherever it is shown it is translated and
+ * follows a language change; `message` is that sentence now, for logs.
+ */
+export function clientError(key, params, code) {
+  const err = new Error(t(key, params));
+  err.messageKey = key;
+  err.messageParams = params;
+  if (code) err.code = code;
+  return err;
+}
+
+/**
+ * An error's detail line: the page's own sentence as a message, a server's
+ * or the browser's words as they are; "" for none.
+ */
+export function errorDetail(err) {
+  if (err.messageKey) return { key: err.messageKey, params: err.messageParams };
+  return err.message || "";
+}
+
 /** The sentence (kept translated) with the technical detail below. */
 export function errorBox(err, fallback, byCode = {}) {
   const box = el("div", undefined, "error-box");
   box.setAttribute("role", "alert");
-  box.append(tEl("strong", errorSentenceKey(err, fallback, byCode)));
-  if (err.message) box.append(el("div", err.message, "detail"));
+  const key = errorSentenceKey(err, fallback, byCode);
+  box.append(tEl("strong", key));
+  const detail = errorDetail(err);
+  // The page's own sentence as the heading already says it all.
+  const repeated = err.messageKey === key && !err.messageParams;
+  if (detail && !repeated) box.append(messageEl("div", detail, "detail"));
   return box;
 }
 

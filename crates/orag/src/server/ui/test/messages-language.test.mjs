@@ -38,6 +38,33 @@ test("a visible toast changes language", () => {
   }
 });
 
+test("a client-side error's own sentence follows the language; server detail does not", async () => {
+  const { clientError, errorBox } = await import("../api.js");
+  const gone = clientError("collections.gone", { name: "HR" });
+  assert.equal(gone.messageKey, "collections.gone");
+  assert.equal(gone.message, '"HR" artık yok.');
+  const box = errorBox(gone, "collections.deleteFailed");
+  const server = errorBox({ code: "internal", message: "HTTP 500: disk on fire (internal)" }, "documents.loadFailed");
+  // The heading is not repeated as the detail.
+  const lost = errorBox(clientError("ask.lost", undefined, "lost"), "ask.failed", { lost: "ask.lost" });
+  doc.body.append(box, server, lost); // on screen, as the page shows them
+  assert.equal(box.textContent, 'Koleksiyon silinemedi."HR" artık yok.');
+  assert.equal(lost.textContent, "Bağlantı kesildi; yanıt tamamlanmadı.");
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    toastError(clientError("collections.gone", { name: "HR" }), "collections.deleteFailed");
+    const shown = lastToast();
+    setLanguage("en");
+    assert.equal(box.textContent, 'Could not delete the collection."HR" no longer exists.');
+    assert.equal(lost.textContent, "The connection dropped; the answer is incomplete.");
+    assert.equal(server.textContent, "Something went wrong on the server; see the server log for details.HTTP 500: disk on fire (internal)");
+    assert.match(shown.textContent, /"HR" no longer exists\./);
+  } finally {
+    setLanguage("tr");
+    mock.timers.reset();
+  }
+});
+
 test("t() fills a placeholder with a message in the current language", () => {
   const count = { key: "collections.count", params: { count: 3 } };
   assert.equal(t("collections.reindexQueued", { count }), "3 belge yeniden indeksleniyor.");

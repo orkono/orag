@@ -4,7 +4,7 @@
 // selected collection) and `orag:switched` (the user changed context, so the
 // answers on screen no longer apply).
 import { $, el } from "./dom.js";
-import { errorBox, getJson, request } from "./api.js";
+import { clientError, errorBox, getJson, request } from "./api.js";
 import { confirmAction, toast, toastError } from "./dialog.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
@@ -158,7 +158,7 @@ async function deleteCollection() {
   try {
     // The count shown may be old: ask with the current one.
     const latest = (await getJson("/v1/collections")).collections.find((c) => c.id === current.id);
-    if (!latest) throw new Error(t("collections.gone", { name: current.name }));
+    if (!latest) throw clientError("collections.gone", { name: current.name });
     const confirmed = await confirmAction({
       title: t("collections.deleteQuestion"),
       message: t("collections.deleteMessage", { name: latest.name, count: countLabel(latest.document_count) }),

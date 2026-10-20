@@ -1,6 +1,6 @@
 // The page's own confirmation dialog and short notifications (toasts).
 import { $, el, messageEl } from "./dom.js";
-import { errorSentenceKey } from "./api.js";
+import { errorDetail, errorSentenceKey } from "./api.js";
 import { icon } from "./icons.js";
 import { setAttrText, t } from "./i18n.js";
 
@@ -58,5 +58,5 @@ export function toast(text, kind = "ok", detail = "") {
 /** An API error as a toast: the sentence (`fallback` and `byCode` are keys),
  * with the API message below. */
 export function toastError(err, fallback, byCode) {
-  toast({ key: errorSentenceKey(err, fallback, byCode) }, "error", err.message || "");
+  toast({ key: errorSentenceKey(err, fallback, byCode) }, "error", errorDetail(err));
 }
