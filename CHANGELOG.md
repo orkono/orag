@@ -5,6 +5,11 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.4.1-alpha.1] - 2026-10-20
+
+- **Turkish and English web UI (step 78).** Every UI string lives in one dictionary (`ui/i18n.js`, Turkish and English with the same keys); a TR/EN menu in the top bar switches the page live, including the setup and download progress views, and the choice is kept in the browser (`orag.lang`). The page always opens in Turkish unless English was chosen; the browser language is not used (owner decision). Sizes and percentages follow the language ("3,1 GB", "%45" / "3.1 GB", "45%"). The desktop status page gets the same menu. Server responses and the API are unchanged; tests check that both languages have the same keys and placeholders and that no Turkish text is left outside the dictionary.
+- The v0.4.0 desktop installer was checked by the owner on a real Windows PC: *Modelleri indir* downloaded both models and ORAG came up ready by itself.
+
 ## [0.4.0] - 2026-10-19
 
 - **ORAG v0.4.0.** The setup page downloads the models with one button (step 76): pinned Hugging Face revisions, SHA-256 checked, resumable, with progress, cancel and a free-space check; ORAG restarts by itself under `orag start` and in the desktop app, so a new install needs no hand-made model packs. Offline packs still work, and `models.download = false` turns the download off. Five code-review rounds (gpt-6-astra) hardened cancel, links in the models folder, proxies and TLS time limits.
