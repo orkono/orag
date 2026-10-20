@@ -3253,6 +3253,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "toml 1.1.6+spec-1.1.0",
+ "toml_edit 0.25.15+spec-1.1.0",
  "tower",
  "tracing",
  "tracing-subscriber",
@@ -5256,6 +5257,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

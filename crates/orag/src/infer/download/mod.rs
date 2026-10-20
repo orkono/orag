@@ -10,9 +10,11 @@ mod fetch;
 mod guard;
 pub mod http;
 mod install;
+pub mod options;
 pub mod status;
 #[cfg(test)]
 mod tests;
+pub mod tiers;
 #[cfg(test)]
 mod tls_tests;
 mod verify;
@@ -24,10 +26,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use catalog::{Catalog, CatalogEntry};
 pub use http::HttpSettings;
+pub use install::free_bytes;
+pub use options::{Options, Verdict};
 pub use status::{
     DownloadError, DownloadStatus, ErrorCode, ModelProgress, ModelState, Restart, RunState,
     SharedStatus,
 };
+pub use tiers::{SpeedHint, Tier, TierSize, builtin_tiers};
 
 use crate::infer::download::fetch::{Fetch, fetch};
 use crate::infer::download::install::{check_free_space, install, part_path};
@@ -158,18 +163,32 @@ pub fn run(downloader: &Downloader, job: &Job) -> Result<(), DownloadError> {
 fn still_needed(job: &Job, work: &Path) -> u64 {
     job.models
         .iter()
-        .flat_map(|entry| {
-            let dir = work.join(&entry.id);
-            entry.files().map(move |file| {
-                let have = part_path(&dir, &file.name)
-                    .and_then(|part| guard::existing(&part))
-                    .ok()
-                    .flatten()
-                    .map_or(0, |meta| meta.len());
-                file.size.saturating_sub(have)
-            })
+        .map(|entry| remaining_in(work, entry))
+        .sum()
+}
+
+/// Bytes `entry` still has to fetch into the download folder `work`.
+fn remaining_in(work: &Path, entry: &CatalogEntry) -> u64 {
+    let dir = work.join(&entry.id);
+    entry
+        .files()
+        .iter()
+        .map(|file| {
+            let have = part_path(&dir, &file.name)
+                .and_then(|part| guard::existing(&part))
+                .ok()
+                .flatten()
+                .map_or(0, |meta| meta.len());
+            file.size.saturating_sub(have)
         })
         .sum()
+}
+
+/// Bytes a download of `entry` into `models_dir` still has to fetch, with
+/// the `.part` files of an earlier run counted as the download's own
+/// free-space check counts them (the setup page's disk verdict, step 82).
+pub fn remaining_bytes(models_dir: &Path, entry: &CatalogEntry) -> u64 {
+    remaining_in(&models_dir.join(DOWNLOAD_DIR), entry)
 }
 
 fn download_model(

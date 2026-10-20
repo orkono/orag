@@ -7,7 +7,7 @@ set -euo pipefail
 preset="${1:-}"
 out_parent="${2:-}"
 if [ -z "$preset" ] || [ -z "$out_parent" ]; then
-  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m|bge-m3-q8_0|multilingual-e5-large-instruct-q8_0> <output-dir>" >&2
+  echo "usage: $0 <qwen3-embedding-0.6b-q8_0|qwen3.5-4b-q4_k_m|qwen3.5-2b-q4_k_m|qwen3.5-9b-q4_k_m|qwen3-4b-instruct-2507-q4_k_m|bge-m3-q8_0|multilingual-e5-large-instruct-q8_0> <output-dir>" >&2
   exit 1
 fi
 
@@ -30,6 +30,28 @@ case "$preset" in
     file="Qwen3.5-4B-Q4_K_M.gguf"
     sha="00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
     license_url="https://huggingface.co/Qwen/Qwen3.5-4B/resolve/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a/LICENSE"
+    license_sha="bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a"
+    role_section=$'[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = "chatml-nothink"'
+    role="generation"
+    ;;
+  # Setup-page generator tier (step 81, .docs/benchmarks/v0.5-model-tiers.md).
+  qwen3.5-2b-q4_k_m)
+    repo="unsloth/Qwen3.5-2B-GGUF"
+    revision="f6d5376be1edb4d416d56da11e5397a961aca8ae"
+    file="Qwen3.5-2B-Q4_K_M.gguf"
+    sha="aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223"
+    license_url="https://huggingface.co/Qwen/Qwen3.5-2B/resolve/15852e8c16360a2fea060d615a32b45270f8a8fc/LICENSE"
+    license_sha="bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a"
+    role_section=$'[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = "chatml-nothink"'
+    role="generation"
+    ;;
+  # Setup-page generator tier (step 81, .docs/benchmarks/v0.5-model-tiers.md).
+  qwen3.5-9b-q4_k_m)
+    repo="unsloth/Qwen3.5-9B-GGUF"
+    revision="3885219b6810b007914f3a7950a8d1b469d598a5"
+    file="Qwen3.5-9B-Q4_K_M.gguf"
+    sha="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+    license_url="https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/LICENSE"
     license_sha="bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a"
     role_section=$'[generation]\ncontext_tokens = 8192\nmax_output_tokens = 1024\nprompt_format = "chatml-nothink"'
     role="generation"

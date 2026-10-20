@@ -1,0 +1,67 @@
+name: tier-cpu
+# CPU cost of the setup-page generator tiers (step 81,
+# .docs/benchmarks/v0.5-model-tiers.md): the release build answers the v02 dev
+# probes with each offered generator on GitHub's x86-64 runner (4 vCPU, 16 GB),
+# recording peak resident memory and answer times. A measurement, not a
+# per-push check: run by pushing a `tier-bench/**` branch (deleted after the run).
+on:
+  workflow_dispatch:
+  push:
+    branches: ["tier-bench/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo build --release --locked
+      - name: Fetch and install the embedder and the tiers
+        run: |
+          set -euo pipefail
+          packs="$RUNNER_TEMP/packs"
+          for preset in qwen3-embedding-0.6b-q8_0 qwen3.5-4b-q4_k_m qwen3.5-9b-q4_k_m; do
+            scripts/fetch-model-pack.sh "$preset" "$packs"
+          done
+          for gen in qwen3.5-4b-q4_k_m qwen3.5-9b-q4_k_m; do
+            home="$RUNNER_TEMP/home-$gen"
+            mkdir -p "$home"
+            for preset in qwen3-embedding-0.6b-q8_0 "$gen"; do
+              ORAG_HOME="$home" target/release/orag models import "$packs/$preset"
+            done
+            printf 'bind = "127.0.0.1:0"\nui_bind = "off"\ngeneration_model = "%s"\n' "$gen" > "$home/config.toml"
+          done
+          python3 -c "
+          import json
+          out = open('$RUNNER_TEMP/dev.jsonl', 'w')
+          for line in open('eval/datasets/v02-answers.jsonl'):
+              if json.loads(line)['split'] == 'dev':
+                  out.write(line)
+          "
+      - name: Machine
+        run: |
+          {
+            echo "## Machine"
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)'
+            free -g | head -2
+            target/release/orag --version
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Dev answers per tier
+        run: |
+          set -euo pipefail
+          for gen in qwen3.5-4b-q4_k_m qwen3.5-9b-q4_k_m; do
+            echo "## $gen: v02 dev answers" | tee -a "$GITHUB_STEP_SUMMARY"
+            ORAG_HOME="$RUNNER_TEMP/home-$gen" /usr/bin/time -v target/release/orag eval answers \
+              --corpus eval/corpus/v02 --dataset "$RUNNER_TEMP/dev.jsonl" \
+              --out "$RUNNER_TEMP/answers-$gen.json" 2> "$RUNNER_TEMP/time-$gen.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+            grep -E 'Maximum resident set size|Elapsed \(wall' "$RUNNER_TEMP/time-$gen.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          done

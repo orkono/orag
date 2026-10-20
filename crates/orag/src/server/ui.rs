@@ -14,7 +14,7 @@ use crate::server::AppState;
 pub const INDEX_HTML: &str = include_str!("ui/index.html");
 pub const APP_CSS: &str = include_str!("ui/app.css");
 /// The page's script modules (`app.js` is the entry point), served at `/<name>`.
-pub const SCRIPTS: [(&str, &str); 17] = [
+pub const SCRIPTS: [(&str, &str); 19] = [
     ("app.js", include_str!("ui/app.js")),
     ("api.js", include_str!("ui/api.js")),
     ("ask.js", include_str!("ui/ask.js")),
@@ -29,8 +29,10 @@ pub const SCRIPTS: [(&str, &str); 17] = [
     ("icons.js", include_str!("ui/icons.js")),
     ("sources.js", include_str!("ui/sources.js")),
     ("setup.js", include_str!("ui/setup.js")),
+    ("setup-choice.js", include_str!("ui/setup-choice.js")),
     ("sse.js", include_str!("ui/sse.js")),
     ("status.js", include_str!("ui/status.js")),
+    ("tiers.js", include_str!("ui/tiers.js")),
     ("upload.js", include_str!("ui/upload.js")),
 ];
 /// The project icon (`assets/orag-icon.svg`), so the browser asks for no

@@ -42,6 +42,26 @@ $Presets = [ordered]@{
     role = 'generation'
     role_section = '[generation]`ncontext_tokens = 8192`nmax_output_tokens = 1024`nprompt_format = "chatml-nothink"'
   }
+  'qwen3.5-2b-q4_k_m' = @{
+    repo = 'unsloth/Qwen3.5-2B-GGUF'
+    revision = 'f6d5376be1edb4d416d56da11e5397a961aca8ae'
+    file = 'Qwen3.5-2B-Q4_K_M.gguf'
+    sha = 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223'
+    license_url = 'https://huggingface.co/Qwen/Qwen3.5-2B/resolve/15852e8c16360a2fea060d615a32b45270f8a8fc/LICENSE'
+    license_sha = 'bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a'
+    role = 'generation'
+    role_section = '[generation]`ncontext_tokens = 8192`nmax_output_tokens = 1024`nprompt_format = "chatml-nothink"'
+  }
+  'qwen3.5-9b-q4_k_m' = @{
+    repo = 'unsloth/Qwen3.5-9B-GGUF'
+    revision = '3885219b6810b007914f3a7950a8d1b469d598a5'
+    file = 'Qwen3.5-9B-Q4_K_M.gguf'
+    sha = '03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8'
+    license_url = 'https://huggingface.co/Qwen/Qwen3.5-9B/resolve/c202236235762e1c871ad0ccb60c8ee5ba337b9a/LICENSE'
+    license_sha = 'bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a'
+    role = 'generation'
+    role_section = '[generation]`ncontext_tokens = 8192`nmax_output_tokens = 1024`nprompt_format = "chatml-nothink"'
+  }
   'qwen3-4b-instruct-2507-q4_k_m' = @{
     repo = 'unsloth/Qwen3-4B-Instruct-2507-GGUF'
     revision = 'a06e946bb6b655725eafa393f4a9745d460374c9'

@@ -1,5 +1,6 @@
 //! Loopback HTTP API (D-013, D-014).
 
+pub mod choice;
 pub mod collections;
 pub mod documents;
 pub mod download;

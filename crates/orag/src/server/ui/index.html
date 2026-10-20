@@ -88,6 +88,17 @@
     <section id="setup-panel" class="setup-panel" aria-labelledby="setup-title" hidden>
       <h2 id="setup-title" data-i18n="setup.title">Modelleri kur</h2>
       <p><span data-i18n="setup.missing">ORAG'ın çalışması için şu modeller gerekiyor:</span> <strong id="setup-missing"></strong>.</p>
+      <section id="setup-machine" class="setup-machine" aria-labelledby="setup-machine-title" hidden>
+        <h3 id="setup-machine-title" data-i18n="setup.machine.title">Bu bilgisayar</h3>
+        <dl id="setup-machine-facts" class="setup-facts"></dl>
+      </section>
+      <p id="setup-unsupported" class="warning" role="alert" hidden></p>
+      <fieldset id="setup-tiers" class="setup-tiers" hidden>
+        <legend data-i18n="setup.tiers.legend">Yanıt modeli</legend>
+        <p id="setup-choice-note" class="hint" hidden></p>
+        <div id="setup-tier-list" class="setup-tier-list"></div>
+        <div id="setup-choice-warnings" aria-live="polite"></div>
+      </fieldset>
       <div id="setup-download" class="setup-download" hidden>
         <button id="setup-download-start" type="button" class="button primary large" data-i18n="download.button">Modelleri indir</button>
         <p class="hint" data-i18n="setup.downloadHint">Modeller bir kez Hugging Face'ten indirilir; sonrasında ORAG internetsiz çalışır.</p>

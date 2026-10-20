@@ -18,11 +18,13 @@ export const DOWNLOAD_ERRORS = {
   conflict: "download.conflict",
   download_disabled: "download.disabled",
   download_unavailable: "download.notDownloadable",
+  unknown_model: "download.unknownModel",
+  model_not_eligible: "download.notEligible",
 };
 
 const STATES = new Set(["waiting", "downloading", "verifying", "installed", "failed"]);
 /** The failed-download codes that have their own sentence. */
-const ERROR_CODES = new Set(["network", "http", "checksum", "disk", "cancelled", "internal"]);
+const ERROR_CODES = new Set(["network", "http", "checksum", "disk", "cancelled", "internal", "config"]);
 const PHASES = new Set(["idle", "running", "done", "failed", "cancelled"]);
 
 const isCount = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -90,13 +92,23 @@ export function downloadView(status) {
   };
 }
 
-async function call(method) {
-  const options = { method, headers: { Accept: "application/json" } };
+async function call(method, body) {
+  const headers = { Accept: "application/json" };
+  const options = { method, headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
   return (await request(ENDPOINT, options)).json();
 }
 
-/** Starts (or resumes) the download; 202 returns the first status. */
-export const startDownload = () => call("POST");
+/**
+ * Starts (or resumes) the download; 202 returns the first status. With
+ * `generationModel` (a tier the page offered) that generator is downloaded
+ * instead of the configured one and written into config.toml (step 82).
+ */
+export const startDownload = (generationModel) =>
+  call("POST", generationModel ? { generation_model: generationModel } : undefined);
 export const downloadStatus = () => call("GET");
 /** Cancels; the `.part` files stay so the next start resumes. */
 export const cancelDownload = () => call("DELETE");

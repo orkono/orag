@@ -34,6 +34,9 @@ pub enum ErrorCode {
     Disk,
     Cancelled,
     Internal,
+    /// The models are installed, but the chosen generator could not be
+    /// written into config.toml (step 82).
+    Config,
 }
 
 /// Why a download stopped; `message` is plain English naming the host or file.

@@ -32,6 +32,9 @@ thiserror = "2.0.21"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 tokio-stream = "0.1.19"
 toml = "1.1.6"
+# The setup page writes only `generation_model` into config.toml (step 82),
+# keeping the user's comments and order. Pinned: it shares toml's parser crates.
+toml_edit = { version = "=0.25.15", default-features = false, features = ["parse", "display"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "=0.1.25"
@@ -60,5 +63,7 @@ libc = "0.2.189"
 [target.'cfg(windows)'.dependencies]
 # Already in the tree (via tokio/mio); job objects contain the parser child,
 # Console sends Ctrl-Break in the installer smoke test (examples/ctrl_break.rs),
-# and Storage_FileSystem reports free disk space before a model download.
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# Storage_FileSystem reports free disk space before a model download, and
+# SystemInformation and LibraryLoader (dxgi.dll at run time) feed the setup
+# page's machine probe (step 82).
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_Threading"] }

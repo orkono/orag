@@ -515,6 +515,57 @@ a dead end. The page now offers *Modelleri indir*, backed by
   download talks only to Hugging Face (and the CDN it redirects to) for the
   files of the missing configured models.
 
+**Amendment (step 82, 2026-10-20, owner request).** The setup page measures
+the machine and offers the generators that fit it; the embedder is not a
+choice. Rules agreed by muse and gpt-6-astra, owner decisions marked:
+- The probe (`crate::probe`) reads total and available RAM, cores, the CPU's
+  name and, on x86-64, AVX2/FMA/F16C/BMI2 with CPUID, Apple Silicon (Metal),
+  free disk in the models folder, and the GPU as information only. No
+  subprocess and no network; it is shown on the page and in
+  `GET /v1/models` `machine`, and is never sent anywhere.
+- The tiers are catalog generators of the same family (Qwen3.5 Q4_K_M):
+  `qwen3.5-4b-q4_k_m` (default) and `qwen3.5-9b-q4_k_m` (large). The 2B
+  (small) failed the step 81 quality rule (abstention recall 0.200) and is
+  not offered; it stays in the catalog and the pack scripts for a hand-set
+  `generation_model`. Each tier has two RAM thresholds from the whole
+  process's measured peak RSS, the larger of the Mac and the Linux CPU runs
+  (4B 5.66 GiB, 9B 9.71 GiB; `.docs/benchmarks/v0.5-model-tiers.md`): a hard
+  floor of peak + 1 GiB and a recommended RAM of peak + 2 GiB, both rounded
+  up to 0.5 GiB (4B 7 / 8 GiB, 9B 11 / 12 GiB). The CPU speed hint is the
+  median on a 4-vCPU GitHub-hosted runner, shown as a reference measurement,
+  not a promise for any PC.
+- One place decides (`infer::download::options`), for the list and for the
+  request alike: a tier is selectable when total RAM >= its hard floor and
+  free disk >= what the embedder and the tier still have to fetch + 512 MiB;
+  below the recommended RAM it stays selectable with a
+  `below_recommended_ram` warning; unknown facts never
+  block; the default tier is recommended (and preselected unless the
+  configured generator fits) whenever it fits, and the large tier never is
+  (slower, more memory; no quality claim); little available RAM only warns.
+  A configured `generation_model` that is a catalog generator but not an
+  offered tier (the hand-set 4B instruct model, or the withdrawn 2B) is
+  listed first as the current option, judged by its own tier's thresholds or else
+  the default tier's, and accepted when it fits; an id outside the catalog
+  is not offered. On Windows, an x86-64 CPU without AVX2/FMA/F16C/BMI2 (the
+  Windows binary's floor) is `unsupported` (`cpu_unsupported`); on other
+  systems it is a `slow_cpu` warning, never a block. Owner decision: where only one tier
+  fits it is offered with a `single_option` warning; where none fits the
+  machine is `unsupported` (`no_tier_fits`) and the page offers no download.
+- `POST /v1/models/download` may name the generator
+  (`{"generation_model": "<id>"}`); the server checks it again (400
+  `unknown_model`, 409 `model_not_eligible`) and downloads it in place of the
+  configured one. Every guarantee above still holds.
+- The config write (amends D-019, which reads `config.toml` once at start and
+  never writes it after the first start): only after every file passed
+  SHA-256 and was installed, the server sets the one key `generation_model`
+  in `<home>/config.toml` with toml_edit (comments, order and line endings
+  kept; a missing key goes under its commented default), checks the result
+  loads like a start reads it, and replaces the file atomically (temporary
+  file in the same folder, fsync, rename), before the restart. Any failure
+  leaves the old file byte-identical and ends the run as `failed` with code
+  `config`, without a restart. A key that already names the model is not
+  written. Nothing else in `config.toml` is ever written by ORAG.
+
 ## D-013 — Local API access: no authentication, loopback only (owner decision, 2026-10-01)
 
 **Decision.** The API has **no authentication**: no token and no

@@ -3,6 +3,7 @@
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod config_edit;
 pub mod domain;
 pub mod error;
 pub mod eval;
@@ -10,6 +11,7 @@ mod exit;
 pub mod infer;
 pub mod ingest;
 pub mod launcher;
+pub mod probe;
 pub mod retrieval;
 pub mod server;
 pub mod store;

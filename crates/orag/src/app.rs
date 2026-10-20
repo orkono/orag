@@ -120,7 +120,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
         let local_addr = listener.local_addr()?;
         let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes())
             .with_models(models, setup, supervised)
-            .with_downloads(Downloads::production(config.models.download));
+            .with_downloads(Downloads::production(config.models.download).with_config_file(config.config_path()));
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0
         let ui_listener = ui_listener.map(TcpListener::from_std).transpose()?;

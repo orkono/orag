@@ -109,6 +109,7 @@ Every error, including unknown routes, has the same shape:
 | 400 | `invalid_input` | Bad JSON, unknown field, empty or too long query, bad path or query value, a `.docx`/`.pdf` sent as JSON, a multipart body without a `file` field, bytes that do not match the format (a renamed `.xlsx` as `.docx`, a non-PDF as `.pdf`) |
 | 400 | `invalid_multipart` | A multipart body that cannot be parsed (500 with the same code if the server could not read the body stream) |
 | 400 | `download_unavailable` | `POST /v1/models/download` while a missing configured model is not in the download catalog |
+| 400 | `unknown_model` | `POST /v1/models/download` names a `generation_model` that is not one of the offered generator tiers |
 | 403 | `forbidden_host` | `Host` is not a loopback address |
 | 403 | `forbidden_origin` | A browser cross-origin request |
 | 403 | `download_disabled` | `POST /v1/models/download` while `models.download = false` |
@@ -116,6 +117,7 @@ Every error, including unknown routes, has the same shape:
 | 405 | `method_not_allowed` | The route exists, the method does not (`Allow` header lists methods) |
 | 408 | `upload_timeout` | The upload body did not arrive within 60 s |
 | 409 | `conflict` | E.g. deleting the default collection |
+| 409 | `model_not_eligible` | `POST /v1/models/download` names an offered generator this machine cannot take now (RAM, disk or CPU) |
 | 409 | `reindex_required` | The collection was indexed in a different embedding space: another embedding model, or a release that changed the chunker (see below) |
 | 413 | `too_large` | Document over `max_document_mb`, or a request body over its limit |
 | 415 | `unsupported_format` | A document type ORAG does not support |
@@ -281,22 +283,65 @@ models (D-012 amendment): `available`; when it is `false`, a `code`
 and `bytes`, the total size of the missing models' files (`null` when
 nothing can be downloaded).
 
+**The generator choice (step 82).** `machine` is what the server measured on
+this computer, without spawning anything or using the network (the fixed
+facts once per process, available RAM and free disk on every call):
+
+| Field | Meaning |
+|---|---|
+| `os`, `arch` | `macos`/`linux`/`windows`, `aarch64`/`x86_64` |
+| `total_ram_bytes`, `available_ram_bytes` | Physical RAM and what is free now (`null` when unknown) |
+| `logical_cores`, `physical_cores` | CPU threads and cores (`null` when unknown) |
+| `cpu_model` | The CPU's name, e.g. `Apple M5 Max` |
+| `cpu_features` | On x86-64 `{"avx2","fma","f16c","bmi2"}` booleans (read with CPUID); `"not_applicable"` elsewhere |
+| `apple_silicon`, `metal` | An Apple Silicon Mac, where llama.cpp runs on the GPU through Metal |
+| `free_disk_bytes` | Free space where the models are installed |
+| `gpu` | Information only, never used to decide: `{"name","memory_bytes"}` (Windows: DXGI; Linux: `/sys/class/drm`), or `null` (always on macOS, where `metal` says it) |
+
+`download` then also carries the generator tiers the setup page offers:
+
+| Field | Meaning |
+|---|---|
+| `options[]` | Each offered tier, smallest first: `id`, `size` (`default`, `large`), `current`, `label_key` (the page's dictionary key), `bytes` (the pack), `installed`, `min_ram_bytes` (the hard floor: the whole process's measured peak RSS + 1 GiB, rounded up to 0.5 GiB), `recommended_ram_bytes` (peak + 2 GiB, rounded up to 0.5 GiB; the peak is the larger of the Mac and Linux CPU runs), `speed` (`metal_p50_answer_s`: median answer seconds on an Apple M5 Max; `cpu_p50_answer_s`: median on a 4-vCPU GitHub-hosted Linux runner, a reference machine and not a promise for a given PC; `null` when not measured), `download_bytes` (what a download still fetches: 0 when installed, less after an interrupted run), `verdict` and `warnings`. When the configured `generation_model` is a catalog generator but not an offered tier (e.g. a hand-set `qwen3-4b-instruct-2507-q4_k_m`), it comes first as the current option: `current: true`, `size: null`, `label_key` `setup.tier.current`, its own tier's thresholds or else the default tier's. A configured id outside the catalog is not listed |
+| `verdict` | `recommended` (the default tier, whenever it fits; the large tier is never recommended: it is slower and uses more memory), `fits`, `too_big_ram` (total RAM below `min_ram_bytes`) or `too_big_disk` (free disk below what the embedder and the option still have to fetch + 512 MiB); unknown RAM or disk never blocks |
+| `options[].warnings` | `below_recommended_ram` when total RAM is at or above `min_ram_bytes` but below `recommended_ram_bytes` (selectable; answers may be slow); `low_available_memory` when less RAM is free right now than `recommended_ram_bytes`. Warnings never block |
+| `support` | `{"status": "supported" \| "unsupported", "code", "missing_cpu_features"}`; `code` is `cpu_unsupported` (Windows only: an x86-64 CPU without AVX2, FMA, F16C and BMI2, which the Windows binary is built for) or `no_tier_fits` (no option fits). `missing_cpu_features` lists the missing instructions on any x86-64 system |
+| `warnings` | `single_option` when only one option fits; `slow_cpu` on an x86-64 CPU without that floor outside Windows (it runs, more slowly) |
+| `selected` | The option the page starts with: the configured `generation_model` if it is an option that fits, else the recommended one; `null` when unsupported |
+| `embedding_bytes` | Bytes of the embedder still to download (0 when installed; `.part` files of an interrupted run count as downloaded) |
+| `configured_downloadable` | Whether the configured models are eligible for a `POST` without a body. `true` only when `available` is `true` for the configured models; it does not account for a download or import already running, which makes any `POST` answer `409 conflict` until it ends. `false` whenever that `POST` would be refused for the models themselves: outside setup mode or with the models installed (`409 conflict`), with `models.download = false` (`403 download_disabled`; `available` is `false` too), or when a configured model is not in the download catalog (`400 download_unavailable`). Only in that last case can `available` still be `true`: when the selected option (and a missing embedder) can be downloaded, `bytes` is the embedder plus that option, and choosing it writes `generation_model` |
+
+The small tier (`qwen3.5-2b-q4_k_m`) failed the quality rule and is not
+offered (`.docs/benchmarks/v0.5-model-tiers.md`); it stays downloadable only as
+a hand-set `generation_model`.
+
 ```bash
 curl -s http://127.0.0.1:7613/v1/models
 ```
 
 ```text
 HTTP/1.1 200 OK
-{"download":{"available":true,"bytes":3380111382,"code":null,"reason":null},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"mode":"setup","models_dir":"/home/u/.orag/models"}
+{"download":{"available":true,"bytes":3380111382,"code":null,"embedding_bytes":639161950,"options":[{"bytes":2740949432,"id":"qwen3.5-4b-q4_k_m","installed":false,"current":false,"label_key":"setup.tier.default","min_ram_bytes":7516192768,"recommended_ram_bytes":8589934592,"size":"default","speed":{"cpu_p50_answer_s":108.0,"metal_p50_answer_s":0.9},"verdict":"recommended","warnings":[]},{"bytes":5680534008,"id":"qwen3.5-9b-q4_k_m","installed":false,"current":false,"label_key":"setup.tier.large","min_ram_bytes":11811160064,"recommended_ram_bytes":12884901888,"size":"large","speed":{"cpu_p50_answer_s":194.0,"metal_p50_answer_s":2.5},"verdict":"fits","warnings":[]}],"reason":null,"selected":"qwen3.5-4b-q4_k_m","support":{"code":null,"missing_cpu_features":[],"status":"supported"},"warnings":[]},"embedding":{"id":"qwen3-embedding-0.6b-q8_0","installed":false},"generation":{"id":"qwen3.5-4b-q4_k_m","installed":false},"machine":{"apple_silicon":true,"arch":"aarch64","available_ram_bytes":86288089088,"cpu_features":"not_applicable","cpu_model":"Apple M5 Max","free_disk_bytes":662947000320,"gpu":null,"logical_cores":18,"metal":true,"os":"macos","physical_cores":18,"total_ram_bytes":137438953472},"mode":"setup","models_dir":"/home/u/.orag/models"}
 ```
 
 ### `POST /v1/models/download`
 
 Setup mode only. Downloads every missing configured model from Hugging Face
-and installs it, as `orag models import` would. No body, or `{}`. It runs
+and installs it, as `orag models import` would. No body, or `{}`, downloads
+the configured models. `{"generation_model": "<id>"}` downloads that
+generator instead of the configured one (with the embedder if it is
+missing); the id must be one of `GET /v1/models` `download.options` and pass
+the same check now (an offered option, `fits` or `recommended`, a supported
+machine). Choosing the current option downloads the configured model and
+leaves `config.toml` as it is. Once every file passed SHA-256 and was installed, the server sets
+only `generation_model = "<id>"` in `<home>/config.toml` (comments and order
+kept, written atomically: a temporary file, fsync, rename), and only then
+restarts as below; on any failure `config.toml` is left as it was, and a key
+that already names the model is not rewritten. It runs
 only when a client calls it; the server never downloads on its own. Only the
 catalog presets can be downloaded (`qwen3-embedding-0.6b-q8_0`,
-`qwen3.5-4b-q4_k_m`, `qwen3-4b-instruct-2507-q4_k_m`), each pinned to the
+`qwen3.5-4b-q4_k_m`, `qwen3.5-2b-q4_k_m`, `qwen3.5-9b-q4_k_m`,
+`qwen3-4b-instruct-2507-q4_k_m`), each pinned to the
 Hugging Face revision and SHA-256 of `scripts/fetch-model-pack.sh`; every
 file is checked by SHA-256 before it is installed. `HTTPS_PROXY`,
 `HTTP_PROXY` and `NO_PROXY` are honoured.
@@ -310,12 +355,17 @@ space is checked first when the system reports it.
 | Status | `code` | When |
 |---|---|---|
 | 202 | | Started; the body is the status body below |
+| 400 | `invalid_input` | A body other than none, `{}` or `{"generation_model": "<id>"}` |
 | 400 | `download_unavailable` | A missing configured model is not in the catalog (the message names it); import its pack instead |
+| 400 | `unknown_model` | `generation_model` is not an offered tier (the message lists them) |
 | 403 | `download_disabled` | `models.download = false` in `config.toml` |
 | 409 | `conflict` | Not in setup mode, or a download or an import is already running (they share one slot) |
+| 409 | `model_not_eligible` | The tier does not fit this machine now; the message names why (`too_big_ram`, `too_big_disk`, `cpu_unsupported`, `no_tier_fits`) |
 
 ```bash
 curl -s -X POST http://127.0.0.1:7613/v1/models/download
+curl -s -X POST http://127.0.0.1:7613/v1/models/download \
+  -H 'Content-Type: application/json' -d '{"generation_model": "qwen3.5-9b-q4_k_m"}'
 ```
 
 ```text
@@ -342,6 +392,7 @@ HTTP/1.1 202 Accepted
 | `disk` | Not enough free space (the message names the folder and the bytes needed), or a write failed |
 | `cancelled` | `DELETE /v1/models/download` stopped it |
 | `internal` | Any other failure; details are in the server log |
+| `config` | The models are installed, but the chosen `generation_model` could not be written into `config.toml` (the message names the file and the cause); nothing restarts. Set the key by hand and restart, or `POST` again |
 
 When every configured model is installed, `state` is `done` and `restart`
 says what happens next, exactly as after an import: `"automatic"` under
