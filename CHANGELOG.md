@@ -8,6 +8,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 ## [0.4.1-alpha.2] - 2026-10-20
 
 - **Release checksums and provenance (step 79).** Every release now carries `SHA256SUMS` and GitHub build provenance for each file (`gh attestation verify <file> --repo orkono/orag`). The macOS desktop build signs and notarizes once the `APPLE_*` repository secrets are set and is built unsigned without them; Windows signing waits for the owner's choice of provider. See `docs/signing.md`.
+- Fix: the desktop app could crash on macOS when it read the window's address before a page had loaded (closing the window during startup, or in the release smoke test). It no longer reads the address: each page reports a language choice to the app the moment it is made, and the app saves it at once.
 
 ## [0.4.1-alpha.1] - 2026-10-20
 
