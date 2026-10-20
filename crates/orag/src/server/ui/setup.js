@@ -61,7 +61,7 @@ function showRestarting() {
   lastPhase = null; // a download followed again after the restart is announced anew
 }
 
-function showRestartTimeout() {
+export function showRestartTimeout() {
   showStatus(tEl("p", "setup.restartTimeout", undefined, "failed"));
 }
 
@@ -147,14 +147,20 @@ function keepFocus() {
   }
 }
 
+/** The progress rows and the overall line: the only language-dependent
+ * parts of the view without a `data-i18n` key. */
+function drawProgress(view) {
+  renderRows(view.models);
+  fillBar($("setup-progress-bar"), view.overall.received, view.overall.total);
+  $("setup-progress-amount").textContent = `${view.overall.amount} · ${view.overall.percent}`;
+}
+
 function renderView(view) {
   lastView = view.phase === "idle" ? null : view;
   if (view.phase === "idle") return showStart();
   $("setup-download").hidden = true;
   $("setup-progress").hidden = false;
-  renderRows(view.models);
-  fillBar($("setup-progress-bar"), view.overall.received, view.overall.total);
-  $("setup-progress-amount").textContent = `${view.overall.amount} · ${view.overall.percent}`;
+  drawProgress(view);
   $("setup-download-cancel").hidden = !view.busy;
   const again = $("setup-download-again");
   again.hidden = view.phase !== "failed" && view.phase !== "cancelled";
@@ -166,12 +172,15 @@ function renderView(view) {
 }
 
 /**
- * A language change: the start button and the progress on screen are drawn
- * again (the sentences carry `data-i18n` and follow by themselves).
+ * A language change: only the text of what is on screen is written again.
+ * The sentences, the error, the retry button and every notice carry
+ * `data-i18n` and follow by themselves; which of them is shown (the current
+ * state of the panel) is left exactly as it is. The progress numbers come
+ * from the last status drawn, which is also what they show now.
  */
 function relabel() {
   $("setup-download-start").textContent = downloadButtonLabel(downloadBytes);
-  if (lastView && !$("setup-progress").hidden) renderView(downloadView(lastView.status));
+  if (lastView && !$("setup-progress").hidden) drawProgress(downloadView(lastView.status));
 }
 
 function showStart() {
