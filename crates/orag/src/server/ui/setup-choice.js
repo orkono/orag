@@ -47,6 +47,7 @@ function tierItem(option) {
   body.append(head, el("span", option.id, "setup-tier-id"), el("span", option.details, "setup-tier-details"));
   if (option.speed) body.append(el("span", option.speed, "setup-tier-speed"));
   if (option.reason) body.append(el("span", option.reason, "setup-tier-reason"));
+  if (option.belowRecommended) body.append(el("span", option.belowRecommended, "setup-tier-warning warning"));
   if (option.lowMemory && option.id === chosen) body.append(el("span", option.lowMemory, "setup-tier-warning warning"));
   const item = el("label", undefined, option.eligible ? "setup-tier" : "setup-tier is-disabled");
   item.htmlFor = inputId(option.id);

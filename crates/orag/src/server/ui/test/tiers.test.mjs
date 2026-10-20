@@ -23,13 +23,15 @@ const mac = {
   gpu: null,
 };
 
-const option = (id, size, bytes, need, verdict, extra = {}) => ({
+/** An option with a hard floor of `min` and 1 GiB more recommended. */
+const option = (id, size, bytes, min, verdict, extra = {}) => ({
   id,
   size,
   label_key: `setup.tier.${size}`,
   bytes,
   installed: false,
-  need_ram_bytes: need,
+  min_ram_bytes: min,
+  recommended_ram_bytes: min + GB,
   speed: { metal_p50_answer_s: null, cpu_p50_answer_s: null },
   verdict,
   warnings: [],
@@ -55,8 +57,8 @@ function models({ machine = mac, options, selected, warnings = [], support } = {
 const twoFit = () =>
   models({
     options: [
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended", { speed: { metal_p50_answer_s: 0.9, cpu_p50_answer_s: null } }),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "fits", { speed: { metal_p50_answer_s: 2.5, cpu_p50_answer_s: 14 } }),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "recommended", { speed: { metal_p50_answer_s: 0.9, cpu_p50_answer_s: null } }),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "fits", { speed: { metal_p50_answer_s: 2.5, cpu_p50_answer_s: 14 } }),
     ],
     selected: "qwen3.5-4b-q4_k_m",
   });
@@ -105,8 +107,8 @@ test("each tier shows its name, size, need, speed on this machine and verdict", 
   assert.deepEqual(
     view.options.map((o) => [o.name, o.badge, o.details, o.speed, o.eligible]),
     [
-      ["Standart", "Önerilen", "2,5 GB indirme · 6,5 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 0,9 sn (tahmin)", true],
-      ["Büyük: daha yavaş, daha çok bellek kullanır", "Uygun", "5,5 GB indirme · 9 GB bellek gerekir", "Tipik yanıt süresi: Apple GPU'da yaklaşık 2,5 sn (tahmin)", true],
+      ["Standart", "Önerilen", "2,5 GB indirme · Önerilen bellek: 8 GiB", "Tipik yanıt süresi: Apple GPU'da yaklaşık 0,9 sn (tahmin)", true],
+      ["Büyük: daha yavaş, daha çok bellek kullanır", "Uygun", "5,5 GB indirme · Önerilen bellek: 12 GiB", "Tipik yanıt süresi: Apple GPU'da yaklaşık 2,5 sn (tahmin)", true],
     ],
   );
   assert.equal(view.total, 3 * GB, "the embedder plus the default tier");
@@ -117,7 +119,7 @@ test("each tier shows its name, size, need, speed on this machine and verdict", 
   const en = choiceView(twoFit());
   assert.deepEqual(en.options.map((o) => o.badge), ["Recommended", "Fits"]);
   assert.equal(en.options[1].name, "Large: slower, uses more memory");
-  assert.equal(en.options[0].details, "2.5 GB download · needs 6.5 GB of memory");
+  assert.equal(en.options[0].details, "2.5 GB download · Recommended memory: 8 GiB");
 });
 
 test("a pick stays while it is eligible; otherwise the server's selection", () => {
@@ -128,9 +130,9 @@ test("a pick stays while it is eligible; otherwise the server's selection", () =
 test("the configured generator that is not a tier is the current option", () => {
   const current = models({
     options: [
-      option("qwen3-4b-instruct-2507-q4_k_m", null, 2.3 * GB, 6.5 * GB, "fits", { current: true, label_key: "setup.tier.current" }),
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended"),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "fits"),
+      option("qwen3-4b-instruct-2507-q4_k_m", null, 2.3 * GB, 7 * GB, "fits", { current: true, label_key: "setup.tier.current" }),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "recommended"),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "fits"),
     ],
     selected: "qwen3-4b-instruct-2507-q4_k_m",
   });
@@ -160,8 +162,8 @@ test("a tier that does not fit is disabled with the reason; warnings are shown",
   const eight = models({
     machine: { ...mac, total_ram_bytes: 8 * GB, available_ram_bytes: 4 * GB },
     options: [
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "recommended", { warnings: ["low_available_memory"] }),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "too_big_ram"),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "recommended", { warnings: ["low_available_memory"] }),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "too_big_ram"),
     ],
     selected: "qwen3.5-4b-q4_k_m",
     warnings: ["single_option"],
@@ -170,13 +172,15 @@ test("a tier that does not fit is disabled with the reason; warnings are shown",
   const [small, large] = view.options;
   assert.equal(large.eligible, false);
   assert.equal(large.badge, "Bellek yetersiz");
-  assert.equal(large.reason, "Bu bilgisayarda 8 GB bellek var; bu model 9 GB istiyor.");
-  assert.match(small.lowMemory, /Şu an boş bellek \(4 GB\) bu modelin ihtiyacından \(6,5 GB\) az/);
+  assert.equal(large.reason, "Bu bilgisayarda 8 GiB bellek var; bu model en az 11 GiB istiyor.");
+  assert.equal(large.details, "5,5 GB indirme · En az 11 GiB", "the floor when it is not selectable");
+  assert.match(small.lowMemory, /Şu an boş bellek \(4 GiB\) bu model için önerilen bellekten \(8 GiB\) az/);
+  assert.equal(small.belowRecommended, null, "8 GiB is the recommendation");
   assert.deepEqual(view.warnings, ["Bu bilgisayara yalnızca bir yanıt modeli uyuyor; daha büyük bir model için daha fazla bellek gerekir."]);
   assert.equal(choiceView(eight, "qwen3.5-9b-q4_k_m").selected, "qwen3.5-4b-q4_k_m", "a disabled tier is never picked");
   const disk = models({
     machine: { ...mac, free_disk_bytes: 4 * GB },
-    options: [option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "too_big_disk")],
+    options: [option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "too_big_disk")],
     selected: null,
     support: { status: "unsupported", code: "no_tier_fits", missing_cpu_features: [] },
   });
@@ -186,7 +190,7 @@ test("a tier that does not fit is disabled with the reason; warnings are shown",
 test("an unsupported machine gets the message and nothing to pick", () => {
   const old = models({
     machine: { ...mac, metal: false, cpu_features: { avx2: false, fma: false, f16c: true, bmi2: true } },
-    options: [option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "fits")],
+    options: [option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "fits")],
     selected: null,
     support: { status: "unsupported", code: "cpu_unsupported", missing_cpu_features: ["avx2", "fma"] },
   });
@@ -198,17 +202,17 @@ test("an unsupported machine gets the message and nothing to pick", () => {
   const small = models({
     machine: { ...mac, total_ram_bytes: 4 * GB },
     options: [
-      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 6.5 * GB, "too_big_ram"),
-      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 9 * GB, "too_big_ram"),
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "too_big_ram"),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "too_big_ram"),
     ],
     selected: null,
     support: { status: "unsupported", code: "no_tier_fits", missing_cpu_features: [] },
   });
   const none = choiceView(small);
   assert.equal(none.showList, true, "the list shows why nothing fits");
-  assert.match(none.unsupported.text, /en küçük model 6,5 GB bellek istiyor/);
+  assert.match(none.unsupported.text, /en küçük model en az 7 GiB bellek istiyor/);
   setLanguage("en");
-  assert.match(choiceView(small).unsupported.text, /the smallest needs 6.5 GB of memory/);
+  assert.match(choiceView(small).unsupported.text, /the smallest needs at least 7 GiB of memory/);
 });
 
 test("a server without options offers no choice", () => {
@@ -221,4 +225,39 @@ test("an interrupted download counts only what is still to fetch", () => {
   const resumed = twoFit();
   resumed.download.options[0].download_bytes = 1 * GB;
   assert.equal(choiceTotal(resumed.download, "qwen3.5-4b-q4_k_m"), 1.5 * GB, "the embedder plus the rest of the 4B");
+});
+
+test("below the recommended RAM a tier is selectable with a warning", () => {
+  const tight = models({
+    machine: { ...mac, total_ram_bytes: 7.5 * GB, available_ram_bytes: 7.5 * GB },
+    options: [
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "recommended", { warnings: ["below_recommended_ram", "low_available_memory"] }),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "too_big_ram"),
+    ],
+    selected: "qwen3.5-4b-q4_k_m",
+    warnings: ["single_option"],
+  });
+  const [small] = choiceView(tight).options;
+  assert.equal(small.eligible, true);
+  assert.equal(small.belowRecommended, "Bu bilgisayarın belleği önerilenin altında; yanıtlar yavaş olabilir.");
+  setLanguage("en");
+  assert.equal(choiceView(tight).options[0].belowRecommended, "This computer has less memory than recommended; answers may be slow.");
+  assert.equal(choiceView(tight).options[1].details, "5.5 GB download · At least 11 GiB");
+});
+
+test("a machine without Metal shows the CPU runner median", () => {
+  const pc = models({
+    machine: { ...mac, metal: false, apple_silicon: false },
+    options: [
+      option("qwen3.5-4b-q4_k_m", "default", 2.5 * GB, 7 * GB, "recommended", { speed: { metal_p50_answer_s: 0.9, cpu_p50_answer_s: 108 } }),
+      option("qwen3.5-9b-q4_k_m", "large", 5.5 * GB, 11 * GB, "fits", { speed: { metal_p50_answer_s: 2.5, cpu_p50_answer_s: 194 } }),
+    ],
+    selected: "qwen3.5-4b-q4_k_m",
+  });
+  assert.deepEqual(choiceView(pc).options.map((o) => o.speed), [
+    "4 çekirdekli bir GitHub test makinesinde ölçülen tipik süre: yaklaşık 108 sn",
+    "4 çekirdekli bir GitHub test makinesinde ölçülen tipik süre: yaklaşık 194 sn",
+  ]);
+  setLanguage("en");
+  assert.equal(choiceView(pc).options[0].speed, "Measured median on a 4-vCPU GitHub runner: about 108 s");
 });

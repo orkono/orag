@@ -16,6 +16,15 @@ function secondsText(seconds) {
   return String(Math.round(seconds * 10) / 10).replace(".", t("format.decimal"));
 }
 
+const GIB = 1024 ** 3;
+
+/** RAM in GiB with at most one decimal (`7 GiB`, `6,5 GiB`): the unit the thresholds are set in. */
+function gibText(bytes) {
+  if (!isCount(bytes)) return t("setup.machine.unknown");
+  const value = Math.round((bytes / GIB) * 10) / 10;
+  return t("setup.gib", { value: String(value).replace(".", t("format.decimal")) });
+}
+
 /** The "Bu bilgisayar" card as label/value rows; rows the server could not read are left out. */
 export function machineRows(machine) {
   if (!machine || typeof machine !== "object") return [];
@@ -64,13 +73,23 @@ function speedText(option, machine) {
 
 function reasonText(option, machine, download) {
   if (option.verdict === "too_big_ram") {
-    return t("setup.reason.too_big_ram", { total: known(machine?.total_ram_bytes), need: byteText(option.need_ram_bytes) });
+    return t("setup.reason.too_big_ram", { total: gibText(machine?.total_ram_bytes), need: gibText(option.min_ram_bytes) });
   }
   if (option.verdict === "too_big_disk") {
     const need = (isCount(download?.embedding_bytes) ? download.embedding_bytes : 0) + optionDownloadBytes(option);
     return t("setup.reason.too_big_disk", { free: known(machine?.free_disk_bytes), need: byteText(need) });
   }
   return null;
+}
+
+/** Size and memory: the recommended RAM, or the hard floor when the option cannot be picked. */
+function detailsText(option, eligible) {
+  const ram = eligible
+    ? t("setup.tier.recommendedRam", { ram: gibText(option.recommended_ram_bytes) })
+    : t("setup.tier.minimumRam", { ram: gibText(option.min_ram_bytes) });
+  return option.installed
+    ? t("setup.tier.installedDetails", { ram })
+    : t("setup.tier.details", { size: byteText(option.bytes), ram });
 }
 
 /** One radio of the list. */
@@ -83,14 +102,15 @@ export function optionView(option, machine, download, supported) {
     name: t(option.label_key || "setup.tier.default", { id: String(option.id) }),
     verdict,
     badge: t(`setup.verdict.${verdict}`),
-    details: option.installed
-      ? t("setup.tier.installedDetails", { ram: byteText(option.need_ram_bytes) })
-      : t("setup.tier.details", { size: byteText(option.bytes), ram: byteText(option.need_ram_bytes) }),
+    details: detailsText(option, eligible),
     speed: speedText(option, machine),
     reason: reasonText(option, machine, download),
     eligible,
+    belowRecommended: eligible && warnings.includes("below_recommended_ram")
+      ? t("setup.warning.below_recommended_ram")
+      : null,
     lowMemory: eligible && warnings.includes("low_available_memory")
-      ? t("setup.warning.low_available_memory", { available: known(machine?.available_ram_bytes), need: byteText(option.need_ram_bytes) })
+      ? t("setup.warning.low_available_memory", { available: gibText(machine?.available_ram_bytes), need: gibText(option.recommended_ram_bytes) })
       : null,
   };
 }
@@ -99,8 +119,8 @@ function unsupportedText(support, options) {
   if (support.code === "cpu_unsupported") {
     return t("setup.unsupported.cpu_unsupported", { features: featureList(support) });
   }
-  const needs = options.map((o) => o.need_ram_bytes).filter(isCount);
-  return t("setup.unsupported.no_tier_fits", { need: byteText(needs.length ? Math.min(...needs) : null) });
+  const floors = options.map((o) => o.min_ram_bytes).filter(isCount);
+  return t("setup.unsupported.no_tier_fits", { need: gibText(floors.length ? Math.min(...floors) : null) });
 }
 
 const featureList = (support) => (support.missing_cpu_features ?? []).map((f) => String(f).toUpperCase()).join(", ");
