@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.4.1-alpha.2] - 2026-10-20
+
+- **Release checksums and provenance (step 79).** Every release now carries `SHA256SUMS` and GitHub build provenance for each file (`gh attestation verify <file> --repo orkono/orag`). The macOS desktop build signs and notarizes once the `APPLE_*` repository secrets are set and is built unsigned without them; Windows signing waits for the owner's choice of provider. See `docs/signing.md`.
+
 ## [0.4.1-alpha.1] - 2026-10-20
 
 - **Turkish and English web UI (step 78).** Every UI string lives in one dictionary (`ui/i18n.js`, Turkish and English with the same keys); a TR/EN menu in the top bar switches the page live, including the setup and download progress views, and the choice is kept in the browser (`orag.lang`). The page always opens in Turkish unless English was chosen; the browser language is not used (owner decision). Sizes and percentages follow the language ("3,1 GB", "%45" / "3.1 GB", "45%"). The desktop status page gets the same menu. Server responses and the API are unchanged; tests check that both languages have the same keys and placeholders and that no Turkish text is left outside the dictionary.
