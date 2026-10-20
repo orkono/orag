@@ -100,21 +100,23 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
       # macOS signing and notarization turn on only when the owner has added
       # the secrets (docs/signing.md); without them the app is built unsigned,
-      # exactly as before. Tauri reads the APPLE_* variables itself.
+      # exactly as before. Tauri reads the APPLE_* variables itself. The secrets
+      # get a value on the macOS runner only, never on Linux or Windows.
       - name: Desktop bundle
         env:
-          SIGN_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          SIGN_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          SIGN_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          SIGN_APPLE_ID: ${{ secrets.APPLE_ID }}
-          SIGN_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          SIGN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGN_APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          SIGN_APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          SIGN_APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          SIGN_APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          SIGN_APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          SIGN_APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         run: |
           if [ "$RUNNER_OS" = macOS ] && [ -n "$SIGN_APPLE_CERTIFICATE" ]; then
             for v in CERTIFICATE CERTIFICATE_PASSWORD SIGNING_IDENTITY ID PASSWORD TEAM_ID; do
               src="SIGN_APPLE_$v"
               [ -n "${!src}" ] || { echo "secret APPLE_$v is missing; see docs/signing.md" >&2; exit 1; }
               export "APPLE_$v=${!src}"
+              unset "$src"
             done
             echo "macOS: signing and notarizing as $APPLE_SIGNING_IDENTITY"
           else
