@@ -113,14 +113,16 @@ pub enum Verdict {
 
 /// Chooses the executable of each start and reacts to how runs end.
 pub trait Backends: Send + 'static {
-    fn next(&mut self) -> SidecarSpec;
+    /// The next start's spec; None when `cancelled` turned true while it
+    /// was being chosen (the app is closing: start nothing).
+    fn next(&mut self, cancelled: &dyn Fn() -> bool) -> Option<SidecarSpec>;
     fn ended(&mut self, ended: &Ended) -> Verdict;
 }
 
 /// One executable, always: the behaviour before v0.6.
 impl Backends for SidecarSpec {
-    fn next(&mut self) -> SidecarSpec {
-        self.clone()
+    fn next(&mut self, _cancelled: &dyn Fn() -> bool) -> Option<SidecarSpec> {
+        Some(self.clone())
     }
 
     fn ended(&mut self, _ended: &Ended) -> Verdict {
@@ -227,8 +229,23 @@ fn run(
     pid: &AtomicU32,
 ) {
     let mut restarts: Vec<Instant> = Vec::new();
+    // A stop asked for while the next executable is chosen (a GPU probe can
+    // take seconds) ends the supervisor before anything else starts.
+    // Sticky: the first check that sees the stop consumes it.
+    let stop_seen = std::cell::Cell::new(false);
+    let stopped = || {
+        if !stop_seen.get() && !matches!(stop.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+            stop_seen.set(true);
+        }
+        stop_seen.get()
+    };
     loop {
-        let spec = backends.next();
+        let Some(spec) = backends.next(&stopped) else {
+            return;
+        };
+        if stopped() {
+            return;
+        }
         let spec = &spec;
         let tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL)));
         let mut was_ready = false;

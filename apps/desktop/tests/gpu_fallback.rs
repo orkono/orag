@@ -48,7 +48,7 @@ impl Setup {
             spec(self.vulkan.path(), vulkan, probe),
             self.home.path().to_path_buf(),
             "0.6.0-test".into(),
-            |spec| run_probe(spec, Duration::from_secs(1)),
+            |spec, cancelled| run_probe(spec, Duration::from_secs(1), cancelled),
         );
         Supervisor::start_with(backends)
     }
@@ -152,6 +152,63 @@ fn a_model_import_restarts_the_gpu_sidecar_without_a_marker() {
     );
     assert_eq!(s.marker_reason(), None);
     supervisor.shutdown();
+}
+
+#[test]
+fn an_import_restart_before_ready_is_not_a_gpu_failure() {
+    let s = Setup::new();
+    let supervisor = s.start("exit:75,ready", "chosen:0", "ready");
+    let event = next(&supervisor);
+    assert!(
+        matches!(&event, SidecarEvent::Restarting { reason } if reason.contains("new models")),
+        "{event:?}"
+    );
+    assert!(is_ready(&next(&supervisor)));
+    assert_eq!(
+        (Setup::starts(s.vulkan.path()), Setup::starts(s.cpu.path())),
+        (2, 0)
+    );
+    assert_eq!(s.marker_reason(), None);
+    supervisor.shutdown();
+}
+
+#[test]
+fn closing_the_app_during_a_hung_probe_stops_at_once_and_starts_nothing() {
+    let s = Setup::new();
+    let backends = GpuBackends::with_probe(
+        spec(s.cpu.path(), "ready", "none"),
+        spec(s.vulkan.path(), "ready", "hang"),
+        s.home.path().to_path_buf(),
+        "0.6.0-test".into(),
+        |spec, cancelled| run_probe(spec, Duration::from_secs(30), cancelled),
+    );
+    let supervisor = Supervisor::start_with(backends);
+    let probe = s.vulkan.path().join("probe-pid");
+    let deadline = Instant::now() + WAIT;
+    while !probe.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let pid: u32 = std::fs::read_to_string(&probe)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let started = Instant::now();
+    supervisor.shutdown();
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "shutdown waited {:?}",
+        started.elapsed()
+    );
+    assert!(
+        gone_within(pid, Duration::from_secs(5)),
+        "the cancelled probe was reaped"
+    );
+    assert_eq!(
+        (Setup::starts(s.vulkan.path()), Setup::starts(s.cpu.path())),
+        (0, 0)
+    );
+    assert_eq!(s.marker_reason(), None, "a cancelled probe is no reason");
 }
 
 #[test]

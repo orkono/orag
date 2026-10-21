@@ -116,8 +116,12 @@ pub fn write_marker(home: &Path, marker: &Marker) -> std::io::Result<()> {
     std::fs::rename(&tmp, home.join(MARKER_FILE))
 }
 
-pub fn delete_marker(home: &Path) {
-    let _ = std::fs::remove_file(home.join(MARKER_FILE));
+/// Deletes the marker; a marker that is not there is not an error.
+pub fn delete_marker(home: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(home.join(MARKER_FILE)) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+        _ => Ok(()),
+    }
 }
 
 /// `gpu` in the home's `config.toml`; anything but `"off"` (a missing file,
@@ -141,8 +145,12 @@ fn now_secs() -> u64 {
 }
 
 /// Runs `orag-vulkan gpu-probe` with `spec`'s environment, killing and
-/// reaping it after `timeout`.
-pub fn run_probe(spec: &SidecarSpec, timeout: Duration) -> ProbeOutcome {
+/// reaping it after `timeout` or as soon as `cancelled` turns true.
+pub fn run_probe(
+    spec: &SidecarSpec,
+    timeout: Duration,
+    cancelled: &dyn Fn() -> bool,
+) -> ProbeOutcome {
     use std::io::Read;
     use std::process::{Command, Stdio};
     let mut command = Command::new(&spec.program);
@@ -170,17 +178,21 @@ pub fn run_probe(spec: &SidecarSpec, timeout: Duration) -> ProbeOutcome {
     let deadline = std::time::Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if cancelled() => break Err("probe-cancelled"),
             Ok(None) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            _ => break None,
+            _ => break Err("probe-timeout"),
         }
     };
-    let Some(status) = status else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return ProbeOutcome::Failed("probe-timeout".into());
+    let status = match status {
+        Ok(status) => status,
+        Err(reason) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return ProbeOutcome::Failed(reason.into());
+        }
     };
     let text = reader.join().unwrap_or_default();
     if !status.success() {
@@ -198,15 +210,21 @@ pub fn run_probe(spec: &SidecarSpec, timeout: Duration) -> ProbeOutcome {
     }
 }
 
+/// Runs the probe for a spec; the second argument says the app is closing.
+type Probe = dyn FnMut(&SidecarSpec, &dyn Fn() -> bool) -> ProbeOutcome + Send;
+
 /// The policy the supervisor runs on Windows and Linux bundles.
 pub struct GpuBackends {
     cpu: SidecarSpec,
     vulkan: SidecarSpec,
     home: PathBuf,
     version: String,
-    probe: Box<dyn FnMut(&SidecarSpec) -> ProbeOutcome + Send>,
+    probe: Box<Probe>,
     /// Why this session runs on the CPU after a fallback; None otherwise.
     session: Option<String>,
+    /// After a retry the marker is not read again this session (it may
+    /// not have been deletable, or another start wrote it meanwhile).
+    ignore_marker: bool,
     vulkan_crashes: u32,
     current: Backend,
 }
@@ -220,7 +238,7 @@ impl GpuBackends {
             vulkan,
             home,
             env!("CARGO_PKG_VERSION").into(),
-            |spec| run_probe(spec, PROBE_TIMEOUT),
+            |spec, cancelled| run_probe(spec, PROBE_TIMEOUT, cancelled),
         )
     }
 
@@ -229,7 +247,7 @@ impl GpuBackends {
         vulkan: SidecarSpec,
         home: PathBuf,
         version: String,
-        probe: impl FnMut(&SidecarSpec) -> ProbeOutcome + Send + 'static,
+        probe: impl FnMut(&SidecarSpec, &dyn Fn() -> bool) -> ProbeOutcome + Send + 'static,
     ) -> GpuBackends {
         GpuBackends {
             cpu: with_env(cpu, GPU_RETRY_ENV, "1"),
@@ -238,6 +256,7 @@ impl GpuBackends {
             version,
             probe: Box::new(probe),
             session: None,
+            ignore_marker: false,
             vulkan_crashes: 0,
             current: Backend::Cpu,
         }
@@ -273,12 +292,16 @@ fn with_env(mut spec: SidecarSpec, key: &str, value: &str) -> SidecarSpec {
 }
 
 impl Backends for GpuBackends {
-    fn next(&mut self) -> SidecarSpec {
+    fn next(&mut self, cancelled: &dyn Fn() -> bool) -> Option<SidecarSpec> {
         if let Some(reason) = self.session.clone() {
             self.current = Backend::Cpu;
-            return self.cpu_spec(Some(&reason));
+            return Some(self.cpu_spec(Some(&reason)));
         }
-        let marker = read_marker(&self.home);
+        let marker = if self.ignore_marker {
+            None
+        } else {
+            read_marker(&self.home)
+        };
         let vulkan = self.vulkan.clone();
         let probe = &mut self.probe;
         let (backend, reason, new) = choose_backend(
@@ -286,10 +309,14 @@ impl Backends for GpuBackends {
             marker.as_ref(),
             &self.version,
             now_secs(),
-            || probe(&vulkan),
+            || probe(&vulkan, cancelled),
         );
+        // Closing while the probe ran: no start, and no reason to keep.
+        if cancelled() {
+            return None;
+        }
         self.current = backend;
-        match backend {
+        Some(match backend {
             Backend::Vulkan { device } => {
                 with_env(self.vulkan.clone(), GPU_DEVICE_ENV, &device.to_string())
             }
@@ -304,15 +331,25 @@ impl Backends for GpuBackends {
                 };
                 self.cpu_spec(reason.as_deref())
             }
-        }
+        })
     }
 
     fn ended(&mut self, ended: &Ended) -> Verdict {
-        if *ended == Ended::Exited(Some(EXIT_GPU_RETRY)) {
-            delete_marker(&self.home);
+        let code = match ended {
+            Ended::Exited(code) | Ended::NotReady { code, .. } => *code,
+        };
+        if code == Some(EXIT_GPU_RETRY) {
+            if let Err(err) = delete_marker(&self.home) {
+                eprintln!("orag-desktop: could not delete the GPU fallback marker: {err}");
+            }
+            self.ignore_marker = true;
             self.session = None;
             self.vulkan_crashes = 0;
             return Verdict::Fresh;
+        }
+        // A model import's restart, even before Ready: never a GPU failure.
+        if code == Some(crate::supervisor::EXIT_RESTART) {
+            return Verdict::Default;
         }
         if self.current == Backend::Cpu {
             return Verdict::Default;
@@ -325,7 +362,7 @@ impl Backends for GpuBackends {
                 Verdict::Fallback(self.fall_back("start-failed".into()))
             }
             Ended::NotReady { code, .. } => Verdict::Fallback(self.fall_back(exit_reason(*code))),
-            Ended::Exited(Some(crate::supervisor::EXIT_RESTART)) => Verdict::Default,
+
             Ended::Exited(_) => {
                 self.vulkan_crashes += 1;
                 if self.vulkan_crashes >= 2 {
