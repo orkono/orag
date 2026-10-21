@@ -127,6 +127,7 @@ pub fn run_bench(
     };
     let mut results = Vec::with_capacity(chosen.len());
     for probe in chosen {
+        test_delay();
         let result = run_probe(&engine, probe, false)?;
         on_answer(&result)?;
         results.push(result);
@@ -190,12 +191,33 @@ pub fn run_cli(args: &BenchArgs) -> anyhow::Result<()> {
     if args.exit_on_stdin_close {
         exit_when_stdin_closes();
     }
-    if args.out.exists() {
-        anyhow::bail!(
-            "{} already exists; choose a new --out file",
-            args.out.display()
-        );
+    // Reserved before any work, so a path that cannot be written fails now,
+    // not after the run; removed again when the run fails.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&args.out)
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::AlreadyExists => anyhow::anyhow!(
+                "{} already exists; choose a new --out file",
+                args.out.display()
+            ),
+            _ => anyhow::anyhow!("writing {}: {err}", args.out.display()),
+        })?;
+    let written = bench_run(args).and_then(|run| {
+        file.write_all(serde_json::to_string_pretty(&run)?.as_bytes())
+            .with_context(|| format!("writing {}", args.out.display()))
+    });
+    if written.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(&args.out);
     }
+    written
+}
+
+fn bench_run(args: &BenchArgs) -> anyhow::Result<BenchRun> {
+    use anyhow::Context;
+    use std::io::Write;
     let tier_id = tier_model(&args.tier)?;
     let probes = crate::eval::answers::load_probes(&args.dataset)
         .with_context(|| format!("dataset {}", args.dataset.display()))?;
@@ -231,14 +253,7 @@ pub fn run_cli(args: &BenchArgs) -> anyhow::Result<()> {
             )?
         }
     };
-    let json = serde_json::to_string_pretty(&run)?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&args.out)
-        .with_context(|| format!("writing {}", args.out.display()))?;
-    file.write_all(json.as_bytes())?;
-    Ok(())
+    Ok(run)
 }
 
 /// The catalog id of an offered tier named `default` or `large`.
@@ -279,10 +294,10 @@ fn load_models(
         (&config.embedding_model, ModelRole::Embedding),
         (&config.generation_model, ModelRole::Generation),
     ] {
-        if let Err(crate::error::OragError::ModelNotInstalled { .. }) =
-            crate::infer::models::find_model(&config.models_dir(), id, role)
-        {
-            return Ok(Err(id.clone()));
+        match crate::infer::models::find_model(&config.models_dir(), id, role) {
+            Ok(_) => {}
+            Err(crate::error::OragError::ModelNotInstalled { .. }) => return Ok(Err(id.clone())),
+            Err(err) => return Err(err.into()),
         }
     }
     let embedder = crate::app::load_embedder(&config)?;
@@ -300,4 +315,16 @@ fn exit_when_stdin_closes() {
         let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
         std::process::exit(EXIT_STDIN_CLOSED);
     });
+}
+
+/// Tests only: `ORAG_TEST_BENCH_ANSWER_DELAY_MS` slows each answer, so a
+/// test can stop a run in the middle. Release builds ignore it.
+fn test_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("ORAG_TEST_BENCH_ANSWER_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
 }

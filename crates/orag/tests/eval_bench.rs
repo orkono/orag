@@ -164,3 +164,92 @@ fn the_bench_questions_are_v02_lines() {
         assert_eq!(probe["split"], "dev");
     }
 }
+
+#[test]
+fn an_unwritable_out_is_refused_before_any_work() {
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let index = work.path().join("index");
+    let out = work.path().join("missing-dir").join("out.json");
+    let run = bench(home.path(), &index, &out, &["--build-index"]);
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("out.json"));
+    assert!(run.stdout.is_empty(), "no answer ran");
+    assert!(!index.join("eval.db").exists(), "no index built");
+}
+
+#[test]
+fn a_broken_model_is_an_error_not_a_missing_tier() {
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let broken = home.path().join("models/qwen3-embedding-0.6b-q8_0");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("orag-model.toml"), "this is not valid TOML").unwrap();
+    let out = work.path().join("out.json");
+    let run = orag()
+        .env("ORAG_HOME", home.path())
+        .args(["eval", "bench", "--corpus"])
+        .arg(eval_dir().join("corpus/v02"))
+        .arg("--dataset")
+        .arg(eval_dir().join("datasets/v06-bench.jsonl"))
+        .arg("--index-dir")
+        .arg(work.path().join("index"))
+        .args(["--tier", "default", "--build-index", "--out"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        !run.status.success(),
+        "a broken manifest is not a missing model"
+    );
+    assert!(!out.exists(), "no report for a failed run");
+}
+
+#[test]
+fn closing_stdin_stops_a_running_bench() {
+    use std::io::BufRead;
+    use std::process::Stdio;
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let index = work.path().join("index");
+    ok(&bench(
+        home.path(),
+        &index,
+        &work.path().join("a.json"),
+        &["--build-index", "--index-only"],
+    ));
+    let mut child = orag()
+        .env("ORAG_HOME", home.path())
+        .env("ORAG_TEST_BENCH_ANSWER_DELAY_MS", "500")
+        .args([
+            "eval",
+            "bench",
+            "--dev-fake-models",
+            "--exit-on-stdin-close",
+            "--corpus",
+        ])
+        .arg(eval_dir().join("corpus/v02"))
+        .arg("--dataset")
+        .arg(eval_dir().join("datasets/v06-bench.jsonl"))
+        .arg("--index-dir")
+        .arg(&index)
+        .args(["--tier", "default", "--out"])
+        .arg(work.path().join("b.json"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    assert!(lines.next().unwrap().unwrap().contains("\"answer\""));
+    drop(child.stdin.take());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(std::time::Instant::now() < deadline, "still running");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert_eq!(status.code(), Some(3));
+    assert!(lines.count() < 9, "stopped before the last answers");
+}
