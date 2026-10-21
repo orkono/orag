@@ -15,7 +15,16 @@ case "${1:-}" in
 esac
 ext=""
 case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) ext=".exe" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    ext=".exe"
+    # Ninja, not Visual Studio: ggml-vulkan builds its shader generator as a
+    # nested CMake project, and under MSBuild that step fails ("cannot find
+    # the batch label specified - VCEnd", MSB8066). Ninja needs the MSVC
+    # environment (cl.exe on PATH: a Developer shell, or ilammy/msvc-dev-cmd).
+    command -v ninja >/dev/null || { echo "ninja not found" >&2; exit 2; }
+    command -v cl >/dev/null || { echo "cl.exe not on PATH: run from an MSVC developer environment" >&2; exit 2; }
+    export CMAKE_GENERATOR=Ninja
+    ;;
   Darwin) echo "orag-vulkan is not built on macOS (Metal is in orag)" >&2; exit 2 ;;
 esac
 export CARGO_TARGET_DIR=target/vulkan

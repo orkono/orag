@@ -112,6 +112,15 @@ jobs:
           stripdown: true
       - if: startsWith(matrix.os, 'windows')
         run: echo "$VULKAN_SDK/runtime/x64" >> "$GITHUB_PATH"
+      # cl.exe on PATH for the Ninja build (scripts/build-vulkan.sh).
+      - if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        with:
+          arch: x64
+      # Every later cargo step reuses the same llama.cpp build directory, so they
+      # all need the generator build-vulkan.sh uses.
+      - if: startsWith(matrix.os, 'windows')
+        run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
       # The loader a user's driver installs, at the system path the allow-list
       # accepts (the SDK's own copy is only for building).
       - if: startsWith(matrix.os, 'ubuntu')
