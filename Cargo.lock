@@ -3227,7 +3227,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orag"
-version = "0.6.0-alpha.4"
+version = "0.6.0-alpha.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -3267,7 +3267,7 @@ dependencies = [
 
 [[package]]
 name = "orag-desktop"
-version = "0.6.0-alpha.4"
+version = "0.6.0-alpha.5"
 dependencies = [
  "libc",
  "serde",
@@ -3277,6 +3277,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tempfile",
+ "toml 1.1.6+spec-1.1.0",
  "windows-sys 0.61.2",
 ]
 

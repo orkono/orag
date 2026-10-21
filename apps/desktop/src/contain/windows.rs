@@ -19,6 +19,35 @@ unsafe impl Send for AppJob {}
 unsafe impl Sync for AppJob {}
 
 static APP_JOB: OnceLock<Result<AppJob, String>> = OnceLock::new();
+static ERROR_MODE: std::sync::Once = std::sync::Once::new();
+
+/// No system dialog for a child that cannot load a DLL (`vulkan-1.dll`
+/// missing, v0.6 plan G-3) or that crashes: the child just exits with its
+/// status, which the supervisor reads. Children inherit the error mode, so
+/// it is set once in the app before its first spawn.
+pub(super) fn quiet_errors() {
+    ERROR_MODE.call_once(|| {
+        use windows_sys::Win32::System::Diagnostics::Debug::{
+            GetErrorMode, SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX, SEM_NOOPENFILEERRORBOX,
+            SetErrorMode,
+        };
+        // SAFETY: plain Win32 calls on this process's own error mode.
+        unsafe {
+            SetErrorMode(
+                GetErrorMode()
+                    | SEM_FAILCRITICALERRORS
+                    | SEM_NOGPFAULTERRORBOX
+                    | SEM_NOOPENFILEERRORBOX,
+            );
+        }
+    });
+}
+
+/// This process's error mode (the fake sidecar reports what it inherited).
+pub fn error_mode() -> u32 {
+    // SAFETY: reads this process's own error mode.
+    unsafe { windows_sys::Win32::System::Diagnostics::Debug::GetErrorMode() }
+}
 
 /// Puts the app in a kill-on-close Job once. Children created afterwards are
 /// in the Job from their creation (nested Jobs, Windows 8+), so there is no

@@ -207,11 +207,22 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
             return;
         }
     };
+    // Windows and Linux bundles carry orag-vulkan too: the GPU policy picks
+    // one per start and falls back to the CPU (v0.6 plan, G-3).
+    let supervisor = match crate::sidecar::vulkan_beside(&spec.program) {
+        Some(vulkan) => {
+            let home = home_of(&spec);
+            let mut gpu = spec.clone();
+            gpu.program = vulkan;
+            Supervisor::start_with(crate::gpu::GpuBackends::new(spec, gpu, home))
+        }
+        None => Supervisor::start(spec),
+    };
     // Stored before its events are read, so a Ready finds its child pid.
     let events = {
         let sidecar = app.state::<Sidecar>();
         let mut slot = sidecar.0.lock().unwrap_or_else(|e| e.into_inner());
-        slot.insert(Supervisor::start(spec)).take_events()
+        slot.insert(supervisor).take_events()
     };
     let app = app.clone();
     std::thread::spawn(move || {
@@ -219,6 +230,15 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
             handle_event(&app, &window, &event);
         }
     });
+}
+
+/// The `ORAG_HOME` a serve spec runs with.
+fn home_of(spec: &SidecarSpec) -> PathBuf {
+    spec.env
+        .iter()
+        .find(|(key, _)| key == "ORAG_HOME")
+        .map(|(_, value)| PathBuf::from(value))
+        .unwrap_or_default()
 }
 
 fn sidecar_spec(app: &AppHandle) -> Result<SidecarSpec, String> {
