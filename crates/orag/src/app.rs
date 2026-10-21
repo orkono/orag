@@ -379,6 +379,36 @@ fn load_models(config: &Config) -> anyhow::Result<(Arc<dyn Embedder>, Arc<dyn Ge
     Ok((embedder, generator))
 }
 
+/// Where this process puts its models, decided once so every model goes to
+/// the same device (a second model must not pick another GPU because the
+/// first one took memory). `orag-vulkan`: `gpu = "off"`, then
+/// `ORAG_GPU_DEVICE`, then the automatic choice (v0.6 plan, G-4); other
+/// builds place models themselves.
+#[cfg(feature = "llama")]
+fn gpu_placement(config: &Config) -> anyhow::Result<&'static crate::gpu::Placement> {
+    static PLACEMENT: std::sync::OnceLock<crate::gpu::Placement> = std::sync::OnceLock::new();
+    if let Some(placement) = PLACEMENT.get() {
+        return Ok(placement);
+    }
+    let placement = decide_gpu_placement(config)?;
+    tracing::info!(?placement, "gpu placement");
+    Ok(PLACEMENT.get_or_init(|| placement))
+}
+
+#[cfg(feature = "vulkan")]
+fn decide_gpu_placement(config: &Config) -> anyhow::Result<crate::gpu::Placement> {
+    let devices = crate::infer::llama::devices::gpu_devices()?;
+    let env_device = std::env::var("ORAG_GPU_DEVICE").ok();
+    let allow_software = std::env::var_os("ORAG_VULKAN_ALLOW_SOFTWARE").is_some_and(|v| v == "1");
+    crate::gpu::decide_placement(config.gpu, env_device.as_deref(), &devices, allow_software)
+        .map_err(anyhow::Error::msg)
+}
+
+#[cfg(all(feature = "llama", not(feature = "vulkan")))]
+fn decide_gpu_placement(_config: &Config) -> anyhow::Result<crate::gpu::Placement> {
+    Ok(crate::gpu::Placement::BuildDefault)
+}
+
 /// The embedder `serve` runs; `orag eval retrieval` loads the same one.
 #[cfg(feature = "llama")]
 pub(crate) fn load_embedder(config: &Config) -> anyhow::Result<Arc<dyn Embedder>> {
@@ -391,7 +421,8 @@ pub(crate) fn load_embedder(config: &Config) -> anyhow::Result<Arc<dyn Embedder>
     )?;
     tracing::info!(embedding = %installed.manifest.id, "loading embedding model");
     Ok(Arc::new(
-        LlamaEmbedder::load(&installed).context("loading embedding model")?,
+        LlamaEmbedder::load_placed(&installed, gpu_placement(config)?)
+            .context("loading embedding model")?,
     ))
 }
 
@@ -406,7 +437,8 @@ pub(crate) fn load_generator(config: &Config) -> anyhow::Result<Arc<dyn Generato
     )?;
     tracing::info!(generation = %installed.manifest.id, "loading generation model");
     Ok(Arc::new(
-        LlamaGenerator::load(&installed).context("loading generation model")?,
+        LlamaGenerator::load_placed(&installed, gpu_placement(config)?)
+            .context("loading generation model")?,
     ))
 }
 
@@ -426,7 +458,8 @@ pub(crate) fn load_reranker(
     let installed = find_model(&config.models_dir(), id, ModelRole::Reranking)?;
     tracing::info!(reranker = %installed.manifest.id, "loading reranker");
     Ok(Arc::new(
-        LlamaReranker::load(&installed).context("loading reranker")?,
+        LlamaReranker::load_placed(&installed, gpu_placement(config)?)
+            .context("loading reranker")?,
     ))
 }
 

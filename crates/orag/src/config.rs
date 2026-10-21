@@ -49,6 +49,11 @@ pub const DEFAULT_CONFIG_TOML: &str = r#"# ORAG configuration.
 # Log verbosity on stderr: error, warn, info, debug or trace.
 # log_level = "info"
 
+# GPU use by orag-vulkan (Windows and Linux): "auto" puts the models on the
+# best GPU that has room, "off" keeps them on the CPU. The CPU orag and the
+# macOS build (Metal) ignore it.
+# gpu = "auto"
+
 # The setup page's download button: fetches the configured models from
 # Hugging Face (pinned revisions, SHA-256 checked) only when it is pressed.
 # Set it to false to allow offline packs only.
@@ -65,6 +70,7 @@ struct FileConfig {
     embedding_model: Option<String>,
     generation_model: Option<String>,
     log_level: Option<String>,
+    gpu: Option<String>,
     models: Option<FileModels>,
 }
 
@@ -96,6 +102,7 @@ pub struct Config {
     pub embedding_model: String,
     pub generation_model: String,
     pub log_level: String,
+    pub gpu: crate::gpu::GpuSetting,
     pub models: ModelsConfig,
 }
 
@@ -180,6 +187,8 @@ impl Config {
                 "generation_model",
             )?,
             log_level: log_level(file.log_level)?,
+            gpu: crate::gpu::GpuSetting::parse(file.gpu.as_deref())
+                .map_err(OragError::InvalidInput)?,
             models: ModelsConfig {
                 download: file.models.and_then(|m| m.download).unwrap_or(true),
             },
@@ -402,6 +411,20 @@ mod tests {
         let unknown = home_with(Some("[models]\nmirror = \"x\"\n"));
         let err = Config::load(unknown.path()).unwrap_err().to_string();
         assert!(err.contains("mirror"), "{err}");
+    }
+
+    #[test]
+    fn gpu_is_auto_unless_the_config_turns_it_off() {
+        let default = Config::load(home_with(None).path()).unwrap();
+        assert_eq!(default.gpu, crate::gpu::GpuSetting::Auto);
+        assert!(DEFAULT_CONFIG_TOML.contains("# gpu = \"auto\""));
+        let off = Config::load(home_with(Some("gpu = \"off\"\n")).path()).unwrap();
+        assert_eq!(off.gpu, crate::gpu::GpuSetting::Off);
+        assert_eq!(off.effective()["gpu"], serde_json::json!("off"));
+        let err = Config::load(home_with(Some("gpu = \"cuda\"\n")).path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("gpu") && err.contains("cuda"), "{err}");
     }
 
     #[test]

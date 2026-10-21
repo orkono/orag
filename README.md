@@ -110,6 +110,7 @@ uncomment a line. It is read **once at startup**; after editing it, restart
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding model pack (`orag models list`) |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation model pack; the setup page writes the model you picked here (only this key) |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace`, on stderr |
+| `gpu` | `"auto"` | `orag-vulkan` only (Windows, Linux): `"auto"` puts the models on the discrete GPU with the most free memory (at least 2 GiB), fitted to that memory; `"off"` keeps them on the CPU. The CPU `orag` and macOS (Metal) ignore it |
 | `models.download` | `true` | Whether setup mode may download the missing models when you press *Modelleri indir*; set `models.download = false` for a fully offline install |
 
 ## Build
