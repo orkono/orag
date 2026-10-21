@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.2] - 2026-10-21
+
+- Step 84: `orag-vulkan gpu-probe` prints the GPU devices llama.cpp's Vulkan backend sees (index, driver name, discrete/integrated, total and free memory) and the one ORAG would use: the discrete GPU with the most free memory and at least 2 GiB free; integrated GPUs and software rasterisers (llvmpipe, SwiftShader) are never chosen. The CPU `orag` reports no devices. CI checks the probe with no Vulkan driver and with Mesa's lavapipe as the only device.
+
 ## [0.6.0-alpha.1] - 2026-10-21
 
 - GPU support for Windows and Linux begins (plan `.docs/plans/2026-10-21-orag-v0.6-gpu-plan.md`, reviewed by muse and gpt-6-astra). Step 83 adds the `orag-vulkan` build: the service with llama.cpp's Vulkan backend (`scripts/build-vulkan.sh`, feature `vulkan`), whose only extra import is the system Vulkan loader (`check-binary-deps.sh --vulkan`; D-001 amended). A hidden `gpu-probe --fit <gguf>` runs llama.cpp's memory fit in that build to prove it links. The CPU `orag` is unchanged and nothing ships yet.

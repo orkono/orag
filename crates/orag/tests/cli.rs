@@ -760,3 +760,39 @@ fn gpu_probe_fit_runs_only_in_the_vulkan_build() {
         assert!(stderr.contains("orag-vulkan"), "{stderr}");
     }
 }
+
+/// v0.6 step 84: `gpu-probe` lists the GPU devices and the one ORAG would
+/// use. The CPU build has none and says so; it never touches llama.cpp.
+#[test]
+fn gpu_probe_lists_devices_and_the_choice() {
+    let out = orag().arg("gpu-probe").output().expect("run orag");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let devices = json["devices"].as_array().expect("devices");
+    if cfg!(feature = "vulkan") {
+        assert_eq!(json["backend"], "vulkan");
+        for device in devices {
+            assert!(
+                device["index"].is_u64() && device["name"].is_string(),
+                "{device}"
+            );
+            assert!(
+                ["discrete", "integrated", "other"].contains(&device["kind"].as_str().unwrap())
+            );
+        }
+        let chosen = &json["chosen"];
+        assert!(
+            chosen.is_null() || devices.iter().any(|device| device["index"] == *chosen),
+            "{json}"
+        );
+    } else {
+        assert_eq!(
+            json,
+            serde_json::json!({"backend": "cpu", "devices": [], "chosen": null})
+        );
+    }
+}
