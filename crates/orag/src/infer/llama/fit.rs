@@ -52,7 +52,7 @@ pub(crate) fn fit(
     backend()?;
     let c_path = CString::new(path.to_string_lossy().as_bytes())
         .map_err(|_| OragError::Model(format!("model path has a NUL byte: {}", path.display())))?;
-    let n_ctx_min = context.n_ctx().map_or(0, std::num::NonZeroU32::get);
+    let n_ctx_min = n_ctx_min(context);
     let mut margins = margins();
     Ok(params
         .fit_params(
@@ -64,6 +64,12 @@ pub(crate) fn fit(
             llama_cpp_sys_2::GGML_LOG_LEVEL_WARN,
         )
         .map(|_| ()))
+}
+
+/// The smallest context the fit may leave: the context itself, so the fit
+/// never shrinks what the model is used with.
+pub(crate) fn n_ctx_min(context: &LlamaContextParams) -> u32 {
+    context.n_ctx().map_or(0, std::num::NonZeroU32::get)
 }
 
 /// Runs one fit of `path` with default parameters and a context of `n_ctx`
@@ -79,4 +85,45 @@ pub fn fit_once(path: &Path, n_ctx: u32) -> Result<FitOutcome> {
         Err(FitError::Failure) => FitOutcome::DoesNotFit,
         Err(FitError::Error) => FitOutcome::Failed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // No fit call here: it swaps llama.cpp's process-wide logger, so it runs
+    // only in child processes (tests/cli.rs, scripts/check-gpu-offload.sh).
+
+    #[test]
+    fn one_margin_of_512_mib_per_device() {
+        let margins = margins();
+        assert_eq!(margins.len(), llama_cpp_2::max_devices());
+        assert!(margins.iter().all(|&m| m == 512 * 1024 * 1024));
+    }
+
+    #[test]
+    fn the_fit_never_shrinks_the_role_context() {
+        use crate::infer::llama::{embedder, generator, reranker};
+        use crate::infer::models::{EmbeddingSpec, Pooling, RerankInput, RerankerSpec};
+        let embedding = EmbeddingSpec {
+            dimensions: 1024,
+            pooling: Pooling::Last,
+            max_tokens: 8192,
+            query_prefix: String::new(),
+            document_prefix: String::new(),
+            require_trailing_eos: true,
+        };
+        let rerank = RerankerSpec {
+            max_tokens: 1024,
+            input: RerankInput::Pair,
+            relevant_output: 0,
+        };
+        for (params, n_ctx) in [
+            (embedder::context_params(&embedding), 8192),
+            (generator::context_params(16384), 16384),
+            (reranker::context_params(&rerank), 1024),
+        ] {
+            assert_eq!(n_ctx_min(&params), n_ctx);
+        }
+    }
 }

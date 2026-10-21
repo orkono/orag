@@ -15,7 +15,9 @@ use crate::error::{OragError, Result};
 use crate::gpu::{Offload, Placement};
 use crate::infer::Reranker;
 use crate::infer::llama::generator::special_tokens_of;
-use crate::infer::llama::{backend, load_model, model_error, tokenize};
+use crate::infer::llama::{
+    Loaded, backend, hooked_context_failure, load_and_start, model_error, tokenize,
+};
 use crate::infer::models::{InstalledModel, RerankInput, RerankerSpec};
 use crate::infer::prompt::{SpecialTexts, neutralize_special_markers};
 
@@ -52,11 +54,36 @@ impl LlamaReranker {
         let spec = manifest.reranker.clone().ok_or_else(|| {
             OragError::InvalidInput(format!("`{}` has no [reranker] section", manifest.id))
         })?;
-        let loaded = load_model(
+        load_and_start(
             &installed.model_path(),
             &|| context_params(&spec),
             placement,
-        )?;
+            &mut |loaded, fail_context| Self::start(installed, &spec, loaded, fail_context),
+        )
+    }
+
+    /// Checks the loaded model. On a GPU it also creates and drops one
+    /// scoring context, so a context that does not fit fails here, where the
+    /// load can still retry CPU-only, and not on the first call.
+    fn start(
+        installed: &InstalledModel,
+        spec: &RerankerSpec,
+        loaded: Loaded,
+        fail_context: bool,
+    ) -> Result<LlamaReranker> {
+        let manifest = &installed.manifest;
+        let spec = spec.clone();
+        if fail_context {
+            return Err(hooked_context_failure());
+        }
+        if loaded.offload.as_ref().is_some_and(|o| o.layers_on_gpu > 0) {
+            drop(
+                loaded
+                    .model
+                    .new_context(backend()?, context_params(&spec))
+                    .map_err(model_error)?,
+            );
+        }
         let offload = loaded.offload;
         let model = Arc::new(loaded.model);
         let template = match spec.input {

@@ -136,11 +136,24 @@ pub fn decide_placement(
 pub struct Offload {
     pub layers_on_gpu: u32,
     pub layers_total: u32,
+    /// Tensors the fit kept in host memory although their layer is on the
+    /// GPU (a mixture-of-experts model's experts).
+    pub cpu_tensor_overrides: usize,
     /// The device the layers went to; `None` for a CPU-only load.
     pub device: Option<String>,
     /// Why nothing went to the GPU: `gpu_off`, `no_eligible_device`,
     /// `fit_failed`, `fit_zero_layers`, `alloc_failed`.
     pub reason: Option<&'static str>,
+}
+
+impl Offload {
+    /// Every layer and every tensor on the GPU: only then is the model "on
+    /// the GPU" (G-5); anything less is a partial offload.
+    pub fn is_full(&self) -> bool {
+        self.layers_total > 0
+            && self.layers_on_gpu == self.layers_total
+            && self.cpu_tensor_overrides == 0
+    }
 }
 
 #[cfg(test)]
@@ -290,6 +303,21 @@ mod tests {
                 reason: "no_eligible_device"
             }
         );
+    }
+
+    #[test]
+    fn a_model_is_on_the_gpu_only_when_nothing_stayed_behind() {
+        let offload = |layers_on_gpu, cpu_tensor_overrides| Offload {
+            layers_on_gpu,
+            layers_total: 33,
+            cpu_tensor_overrides,
+            device: Some("NVIDIA GeForce RTX 3060".into()),
+            reason: None,
+        };
+        assert!(offload(33, 0).is_full());
+        assert!(!offload(20, 0).is_full(), "some layers on the CPU");
+        assert!(!offload(33, 2).is_full(), "experts kept in host memory");
+        assert!(!offload(0, 0).is_full());
     }
 
     #[test]

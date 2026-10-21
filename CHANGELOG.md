@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.6.0-alpha.3] - 2026-10-21
 
-- Step 85: `orag-vulkan` puts each model on one GPU, fitted to its free memory by llama.cpp's fit with exactly the context the model then uses (embedder, generator, reranker), or loads it CPU-only with no GPU device at all. The device is decided once per process: `gpu = "off"` in `config.toml` (new key, default `"auto"`), then `ORAG_GPU_DEVICE`, then the automatic choice; a fit that finds no room, a fit with zero GPU layers, or an allocation failure after the fit falls back to a CPU-only load with its reason. CI checks every branch on Mesa's lavapipe. The CPU `orag` and macOS are unchanged.
+- Step 85: `orag-vulkan` puts each model on one GPU, fitted to its free memory by llama.cpp's fit with exactly the context the model then uses (embedder, generator, reranker), or loads it CPU-only with no GPU device at all. The device is decided once per process: `gpu = "off"` in `config.toml` (new key, default `"auto"`), then `ORAG_GPU_DEVICE`, then the automatic choice; a fit that finds no room, a fit with zero GPU layers, or a model or first context that cannot be allocated after the fit falls back to a CPU-only load with its reason. A mixture-of-experts fit that keeps expert tensors in host memory counts as a partial offload. CI checks every branch on Mesa's lavapipe. The CPU `orag` and macOS are unchanged.
 
 ## [0.6.0-alpha.2] - 2026-10-21
 

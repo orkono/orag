@@ -340,24 +340,10 @@ fn gpu_probe_load(gguf: &std::path::Path) -> anyhow::Result<()> {
         allow_software,
     )
     .map_err(anyhow::Error::msg)?;
-    let loaded = crate::infer::llama::load_model(
-        gguf,
-        &|| crate::infer::llama::generator::context_params(256),
-        &placement,
-    )?;
-    // One context too: its compute buffers show where work would run.
-    drop(
-        loaded
-            .model
-            .new_context(
-                crate::infer::llama::backend()?,
-                crate::infer::llama::generator::context_params(256),
-            )
-            .map_err(crate::infer::llama::model_error)?,
-    );
+    let offload = crate::infer::llama::offload::probe_load(gguf, &placement)?;
     println!(
         "{}",
-        serde_json::json!({"backend": "vulkan", "offload": loaded.offload})
+        serde_json::json!({"backend": "vulkan", "offload": offload})
     );
     Ok(())
 }

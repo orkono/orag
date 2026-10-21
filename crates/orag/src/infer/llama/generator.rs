@@ -19,7 +19,9 @@ use llama_cpp_2::vocab::LlamaVocab;
 
 use crate::error::{OragError, Result};
 use crate::gpu::{Offload, Placement};
-use crate::infer::llama::{WorkerThread, backend, load_model, model_error, tokenize};
+use crate::infer::llama::{
+    Loaded, WorkerThread, backend, hooked_context_failure, load_and_start, model_error, tokenize,
+};
 use crate::infer::models::{GenerationSpec, InstalledModel, MIN_CONTEXT_TOKENS, PromptFormat};
 use crate::infer::prompt::{
     Segment, SpecialTexts, chatml_segments, concat, ends_inside_think, is_guarded_special,
@@ -83,11 +85,24 @@ impl LlamaGenerator {
             OragError::InvalidInput(format!("`{}` has no [generation] section", manifest.id))
         })?;
         let context_tokens = spec.context_tokens;
-        let loaded = load_model(
+        load_and_start(
             &installed.model_path(),
             &|| context_params(context_tokens),
             placement,
-        )?;
+            &mut |loaded, fail_context| Self::start(installed, &spec, loaded, fail_context),
+        )
+    }
+
+    /// Checks the loaded model and its template, then starts the worker,
+    /// which creates the generation context (the KV cache).
+    fn start(
+        installed: &InstalledModel,
+        spec: &GenerationSpec,
+        loaded: Loaded,
+        fail_context: bool,
+    ) -> Result<LlamaGenerator> {
+        let manifest = &installed.manifest;
+        let spec = spec.clone();
         let offload = loaded.offload;
         let model = Arc::new(loaded.model);
         check_context(&model, spec.context_tokens)?;
@@ -123,7 +138,13 @@ impl LlamaGenerator {
             std::thread::Builder::new()
                 .name("orag-generate".into())
                 .spawn(move || {
-                    generation_worker(&worker_model, context_tokens, receiver, ready_tx)
+                    generation_worker(
+                        &worker_model,
+                        context_tokens,
+                        receiver,
+                        ready_tx,
+                        fail_context,
+                    )
                 })?,
         );
         ready_rx
@@ -355,10 +376,14 @@ fn generation_worker(
     context_tokens: usize,
     jobs: Receiver<GenJob>,
     ready: Sender<Result<()>>,
+    fail_context: bool,
 ) {
     let params = context_params(context_tokens);
-    let context =
-        backend().and_then(|backend| model.new_context(backend, params).map_err(model_error));
+    let context = if fail_context {
+        Err(hooked_context_failure())
+    } else {
+        backend().and_then(|backend| model.new_context(backend, params).map_err(model_error))
+    };
     let mut ctx = match context {
         Ok(ctx) => ctx,
         Err(err) => {

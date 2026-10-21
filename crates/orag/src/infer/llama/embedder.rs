@@ -13,7 +13,9 @@ use crate::domain::space::SpaceDescriptor;
 use crate::error::{OragError, Result};
 use crate::gpu::{Offload, Placement};
 use crate::infer::llama::WorkerThread;
-use crate::infer::llama::{ModelInfo, backend, load_model, model_error, tokenize};
+use crate::infer::llama::{
+    Loaded, ModelInfo, backend, hooked_context_failure, load_and_start, model_error, tokenize,
+};
 use crate::infer::models::{EmbeddingSpec, InstalledModel, Pooling};
 use crate::infer::tokens::{check_input_length, ensure_single_trailing_eos};
 use crate::infer::{Embedder, l2_normalize, require_text};
@@ -56,11 +58,24 @@ impl LlamaEmbedder {
         let spec = manifest.embedding.clone().ok_or_else(|| {
             OragError::InvalidInput(format!("`{}` has no [embedding] section", manifest.id))
         })?;
-        let loaded = load_model(
+        load_and_start(
             &installed.model_path(),
             &|| context_params(&spec),
             placement,
-        )?;
+            &mut |loaded, fail_context| Self::start(installed, &spec, loaded, fail_context),
+        )
+    }
+
+    /// Checks the loaded model and starts its worker, which creates the
+    /// embedding context.
+    fn start(
+        installed: &InstalledModel,
+        spec: &EmbeddingSpec,
+        loaded: Loaded,
+        fail_context: bool,
+    ) -> Result<LlamaEmbedder> {
+        let manifest = &installed.manifest;
+        let spec = spec.clone();
         let model = Arc::new(loaded.model);
         check_model(&model, &spec)?;
         let (jobs, receiver) = mpsc::sync_channel::<EmbedJob>(QUEUE_DEPTH);
@@ -68,7 +83,16 @@ impl LlamaEmbedder {
         let (worker_model, worker_spec) = (Arc::clone(&model), spec.clone());
         let worker = std::thread::Builder::new()
             .name("orag-embed".into())
-            .spawn(move || embed_worker(&worker_model, &worker_spec, receiver, ready_tx))?;
+            .spawn(move || {
+                embed_worker(
+                    &worker_model,
+                    &worker_spec,
+                    receiver,
+                    ready_tx,
+                    fail_context,
+                )
+            })?;
+        let worker = WorkerThread::new(worker);
         ready_rx
             .recv()
             .map_err(|_| OragError::Model("embedding worker exited during startup".into()))??;
@@ -90,7 +114,7 @@ impl LlamaEmbedder {
             model,
             offload: loaded.offload,
             jobs,
-            _worker: WorkerThread::new(worker),
+            _worker: worker,
         })
     }
 
@@ -183,10 +207,14 @@ fn embed_worker(
     spec: &EmbeddingSpec,
     jobs: Receiver<EmbedJob>,
     ready: Sender<Result<()>>,
+    fail_context: bool,
 ) {
     let params = context_params(spec);
-    let context =
-        backend().and_then(|backend| model.new_context(backend, params).map_err(model_error));
+    let context = if fail_context {
+        Err(hooked_context_failure())
+    } else {
+        backend().and_then(|backend| model.new_context(backend, params).map_err(model_error))
+    };
     let mut ctx = match context {
         Ok(ctx) => ctx,
         Err(err) => {

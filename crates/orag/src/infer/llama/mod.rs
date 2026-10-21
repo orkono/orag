@@ -8,7 +8,7 @@ pub mod embedder;
 pub mod fit;
 pub mod generator;
 #[cfg(feature = "vulkan")]
-mod offload;
+pub mod offload;
 pub mod reranker;
 
 use std::path::Path;
@@ -102,6 +102,59 @@ pub(crate) fn load_model(
             )))
         }
     }
+}
+
+/// Loads where `placement` says, then lets `start` finish the model (its
+/// worker context, a first context). In `orag-vulkan` the fit estimates from
+/// a snapshot of free memory: when `start` fails on a model with layers on
+/// the GPU, the model is loaded again CPU-only (`alloc_failed`) and started
+/// once more (v0.6 plan, G-4). Errors of the load itself (a fit's hard
+/// error, an unreadable file) are returned as they are. `start`'s flag is
+/// the test-only `ORAG_VULKAN_TEST_FIT=context_failure`: fail the first
+/// context on the GPU.
+pub(crate) fn load_and_start<T>(
+    path: &Path,
+    context: &dyn Fn() -> LlamaContextParams,
+    placement: &Placement,
+    start: &mut dyn FnMut(Loaded, bool) -> Result<T>,
+) -> Result<T> {
+    let loaded = load_model(path, context, placement)?;
+    let on_gpu = loaded
+        .offload
+        .as_ref()
+        .is_some_and(|offload| offload.layers_on_gpu > 0);
+    if !on_gpu {
+        return start(loaded, false);
+    }
+    match start(loaded, test_context_failure()) {
+        Ok(started) => Ok(started),
+        Err(err) => {
+            tracing::warn!(error = %err, "the model's context failed on the GPU; loading it CPU-only");
+            let cpu = load_model(
+                path,
+                context,
+                &Placement::CpuOnly {
+                    reason: "alloc_failed",
+                },
+            )?;
+            start(cpu, false)
+        }
+    }
+}
+
+#[cfg(feature = "vulkan")]
+fn test_context_failure() -> bool {
+    offload::test_context_failure()
+}
+
+#[cfg(not(feature = "vulkan"))]
+fn test_context_failure() -> bool {
+    false
+}
+
+/// The test hook's error, in place of the context a worker would create.
+pub(crate) fn hooked_context_failure() -> OragError {
+    OragError::Model("test hook: context allocation failure".into())
 }
 
 pub(crate) fn load_with_gpu_layers(path: &Path, gpu_layers: u32) -> Result<LlamaModel> {
