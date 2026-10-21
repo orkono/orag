@@ -7,17 +7,21 @@ pub mod embedder;
 #[cfg(feature = "vulkan")]
 pub mod fit;
 pub mod generator;
+#[cfg(feature = "vulkan")]
+mod offload;
 pub mod reranker;
 
 use std::path::Path;
 use std::sync::OnceLock;
 
+use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
 
 use crate::error::{OragError, Result};
+use crate::gpu::{Offload, Placement};
 
 static BACKEND: OnceLock<std::result::Result<LlamaBackend, String>> = OnceLock::new();
 
@@ -67,12 +71,40 @@ pub(crate) fn model_error(err: impl std::fmt::Display) -> OragError {
     OragError::Model(err.to_string())
 }
 
-/// Loads GGUF weights, offloading all layers when a GPU backend is compiled in.
-pub(crate) fn load_model(path: &Path) -> Result<LlamaModel> {
-    load_with_gpu_layers(path, 999)
+/// A loaded model and what its load did with the GPU (`None` outside
+/// `orag-vulkan`, or for [`Placement::BuildDefault`]).
+pub(crate) struct Loaded {
+    pub(crate) model: LlamaModel,
+    pub(crate) offload: Option<Offload>,
 }
 
-fn load_with_gpu_layers(path: &Path, gpu_layers: u32) -> Result<LlamaModel> {
+/// Loads GGUF weights where `placement` says. `BuildDefault` offloads every
+/// layer when the build has a GPU backend (Metal), as before v0.6. `context`
+/// builds the role's context parameters: `orag-vulkan` fits the model to the
+/// GPU's free memory with exactly the context the role then creates.
+pub(crate) fn load_model(
+    path: &Path,
+    context: &dyn Fn() -> LlamaContextParams,
+    placement: &Placement,
+) -> Result<Loaded> {
+    match placement {
+        Placement::BuildDefault => Ok(Loaded {
+            model: load_with_gpu_layers(path, 999)?,
+            offload: None,
+        }),
+        #[cfg(feature = "vulkan")]
+        placed => offload::load_placed(path, context, placed),
+        #[cfg(not(feature = "vulkan"))]
+        placed => {
+            let _ = context;
+            Err(OragError::Model(format!(
+                "{placed:?} needs orag-vulkan; this build places models itself"
+            )))
+        }
+    }
+}
+
+pub(crate) fn load_with_gpu_layers(path: &Path, gpu_layers: u32) -> Result<LlamaModel> {
     let params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
     LlamaModel::load_from_file(backend()?, path, &params).map_err(model_error)
 }

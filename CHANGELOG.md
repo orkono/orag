@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.3] - 2026-10-21
+
+- Step 85: `orag-vulkan` puts each model on one GPU, fitted to its free memory by llama.cpp's fit with exactly the context the model then uses (embedder, generator, reranker), or loads it CPU-only with no GPU device at all. The device is decided once per process: `gpu = "off"` in `config.toml` (new key, default `"auto"`), then `ORAG_GPU_DEVICE`, then the automatic choice; a fit that finds no room, a fit with zero GPU layers, or an allocation failure after the fit falls back to a CPU-only load with its reason. CI checks every branch on Mesa's lavapipe. The CPU `orag` and macOS are unchanged.
+
 ## [0.6.0-alpha.2] - 2026-10-21
 
 - Step 84: `orag-vulkan gpu-probe` prints the GPU devices llama.cpp's Vulkan backend sees (index, driver name, discrete/integrated, total and free memory) and the one ORAG would use: the discrete GPU with the most free memory and at least 2 GiB free; integrated GPUs and software rasterisers (llvmpipe, SwiftShader) are never chosen. The CPU `orag` reports no devices. CI checks the probe with no Vulkan driver and with Mesa's lavapipe as the only device.

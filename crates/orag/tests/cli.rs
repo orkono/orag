@@ -758,6 +758,13 @@ fn gpu_probe_fit_runs_only_in_the_vulkan_build() {
         assert!(!out.status.success());
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains("orag-vulkan"), "{stderr}");
+        let load = orag()
+            .args(["gpu-probe", "--load"])
+            .arg(&gguf)
+            .output()
+            .expect("run orag");
+        assert!(!load.status.success());
+        assert!(String::from_utf8_lossy(&load.stderr).contains("orag-vulkan"));
     }
 }
 

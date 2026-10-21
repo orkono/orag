@@ -12,6 +12,7 @@ use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
 
 use crate::error::{OragError, Result};
+use crate::gpu::{Offload, Placement};
 use crate::infer::Reranker;
 use crate::infer::llama::generator::special_tokens_of;
 use crate::infer::llama::{backend, load_model, model_error, tokenize};
@@ -25,6 +26,7 @@ pub struct LlamaReranker {
     model_id: String,
     spec: RerankerSpec,
     model: Arc<LlamaModel>,
+    offload: Option<Offload>,
     /// `(before the document, after it)` for template input; the question
     /// is filled in per call.
     template: Option<(String, String)>,
@@ -34,12 +36,29 @@ pub struct LlamaReranker {
 }
 
 impl LlamaReranker {
+    /// What the load did with the GPU; `None` outside `orag-vulkan`.
+    pub fn offload(&self) -> Option<&Offload> {
+        self.offload.as_ref()
+    }
+
     pub fn load(installed: &InstalledModel) -> Result<LlamaReranker> {
+        Self::load_placed(installed, &Placement::BuildDefault)
+    }
+
+    /// Loads the model where `placement` says (`orag-vulkan`: a fitted GPU
+    /// or CPU-only; v0.6 plan, G-4).
+    pub fn load_placed(installed: &InstalledModel, placement: &Placement) -> Result<LlamaReranker> {
         let manifest = &installed.manifest;
         let spec = manifest.reranker.clone().ok_or_else(|| {
             OragError::InvalidInput(format!("`{}` has no [reranker] section", manifest.id))
         })?;
-        let model = Arc::new(load_model(&installed.model_path())?);
+        let loaded = load_model(
+            &installed.model_path(),
+            &|| context_params(&spec),
+            placement,
+        )?;
+        let offload = loaded.offload;
+        let model = Arc::new(loaded.model);
         let template = match spec.input {
             RerankInput::Pair => None,
             RerankInput::GgufTemplate => {
@@ -61,6 +80,7 @@ impl LlamaReranker {
             model_id: manifest.id.clone(),
             spec,
             model,
+            offload,
             template,
             specials,
         })
@@ -130,13 +150,7 @@ impl Reranker for LlamaReranker {
         if passages.is_empty() {
             return Ok(Vec::new());
         }
-        let n = u32::try_from(self.spec.max_tokens).unwrap_or(u32::MAX);
-        let params = LlamaContextParams::default()
-            .with_embeddings(true)
-            .with_n_ctx(NonZeroU32::new(n))
-            .with_n_batch(n)
-            .with_n_ubatch(n)
-            .with_pooling_type(LlamaPoolingType::Rank);
+        let params = context_params(&self.spec);
         let mut ctx = self
             .model
             .new_context(backend()?, params)
@@ -164,6 +178,18 @@ impl Reranker for LlamaReranker {
 /// returns probabilities for some models (Qwen3-Reranker: softmax over
 /// yes/no) and logits for others; log-odds keeps the ranking resolution that
 /// a probability near 1 loses in `f32`. A single output is the score itself.
+/// The scoring context: one pair per decode, ranked. The load's GPU fit
+/// uses the same value, so it sizes exactly what each call creates.
+pub(crate) fn context_params(spec: &RerankerSpec) -> LlamaContextParams {
+    let n = u32::try_from(spec.max_tokens).unwrap_or(u32::MAX);
+    LlamaContextParams::default()
+        .with_embeddings(true)
+        .with_n_ctx(NonZeroU32::new(n))
+        .with_n_batch(n)
+        .with_n_ubatch(n)
+        .with_pooling_type(LlamaPoolingType::Rank)
+}
+
 fn relevance(outputs: &[f32], relevant: usize) -> f32 {
     match outputs {
         [] => f32::NAN,
@@ -201,6 +227,21 @@ fn split_template(template: &str) -> Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scoring_context_ranks_one_pair_per_batch() {
+        let spec = RerankerSpec {
+            max_tokens: 1024,
+            input: RerankInput::Pair,
+            relevant_output: 0,
+        };
+        // The GPU fit and each scoring call use this function (v0.6 G-4).
+        let params = context_params(&spec);
+        assert_eq!(params.n_ctx().map(|n| n.get()), Some(1024));
+        assert_eq!((params.n_batch(), params.n_ubatch()), (1024, 1024));
+        assert!(params.embeddings());
+        assert_eq!(params.pooling_type(), LlamaPoolingType::Rank);
+    }
 
     #[test]
     fn relevance_is_the_log_odds_of_the_relevant_output() {

@@ -44,14 +44,18 @@ pub enum Command {
     /// Internal: parse one document from stdin in an isolated child process.
     #[command(name = "__parse", hide = true)]
     Parse { format: String },
-    /// Internal: GPU checks for the desktop app (v0.6). Prints the GPU
-    /// devices and the one ORAG would use as one JSON line; `--fit <gguf>`
-    /// instead runs llama.cpp's memory fit once. Only `orag-vulkan` has
-    /// devices; the CPU build reports none.
+    /// Internal: GPU checks for the desktop app and CI (v0.6). Prints the
+    /// GPU devices and the one ORAG would use as one JSON line. `--fit <gguf>`
+    /// instead runs llama.cpp's memory fit once; `--load <gguf>` loads the
+    /// file as a generator would (placement as `serve` decides it, without
+    /// a config file) and prints what went to the GPU. Only `orag-vulkan`
+    /// has devices; the CPU build reports none.
     #[command(name = "gpu-probe", hide = true)]
     GpuProbe {
-        #[arg(long)]
+        #[arg(long, conflicts_with = "load")]
         fit: Option<std::path::PathBuf>,
+        #[arg(long)]
+        load: Option<std::path::PathBuf>,
     },
     /// Evaluation tools.
     Eval {
@@ -276,8 +280,13 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             judge,
             dev_fake_models,
         ),
-        Command::GpuProbe { fit: Some(gguf) } => gpu_probe_fit(&gguf),
-        Command::GpuProbe { fit: None } => gpu_probe_devices(),
+        Command::GpuProbe {
+            fit: Some(gguf), ..
+        } => gpu_probe_fit(&gguf),
+        Command::GpuProbe {
+            load: Some(gguf), ..
+        } => gpu_probe_load(&gguf),
+        Command::GpuProbe { .. } => gpu_probe_devices(),
         Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
             &format,
             crate::ingest::parse::parse_in_process,
@@ -311,6 +320,50 @@ fn gpu_probe_fit(gguf: &std::path::Path) -> anyhow::Result<()> {
 
 #[cfg(not(feature = "vulkan"))]
 fn gpu_probe_fit(_gguf: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("this is the CPU build; GPU checks need orag-vulkan")
+}
+
+#[cfg(feature = "vulkan")]
+fn gpu_probe_load(gguf: &std::path::Path) -> anyhow::Result<()> {
+    // llama.cpp's load and context logs on stderr: CI reads its buffer lines.
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+        .try_init();
+    let devices = crate::infer::llama::devices::gpu_devices()?;
+    let env_device = std::env::var("ORAG_GPU_DEVICE").ok();
+    let allow_software = std::env::var_os("ORAG_VULKAN_ALLOW_SOFTWARE").is_some_and(|v| v == "1");
+    let placement = crate::gpu::decide_placement(
+        crate::gpu::GpuSetting::Auto,
+        env_device.as_deref(),
+        &devices,
+        allow_software,
+    )
+    .map_err(anyhow::Error::msg)?;
+    let loaded = crate::infer::llama::load_model(
+        gguf,
+        &|| crate::infer::llama::generator::context_params(256),
+        &placement,
+    )?;
+    // One context too: its compute buffers show where work would run.
+    drop(
+        loaded
+            .model
+            .new_context(
+                crate::infer::llama::backend()?,
+                crate::infer::llama::generator::context_params(256),
+            )
+            .map_err(crate::infer::llama::model_error)?,
+    );
+    println!(
+        "{}",
+        serde_json::json!({"backend": "vulkan", "offload": loaded.offload})
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "vulkan"))]
+fn gpu_probe_load(_gguf: &std::path::Path) -> anyhow::Result<()> {
     anyhow::bail!("this is the CPU build; GPU checks need orag-vulkan")
 }
 

@@ -148,4 +148,6 @@ jobs:
       - run: target/vulkan/release/orag-vulkan$EXE gpu-probe --fit test-fixtures/stories260K.gguf
       - if: startsWith(matrix.os, 'ubuntu')
         run: scripts/check-gpu-probe.sh target/vulkan/release/orag-vulkan
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: scripts/check-gpu-offload.sh target/vulkan/release/orag-vulkan test-fixtures/stories260K.gguf
       - run: env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan

@@ -18,6 +18,7 @@ use llama_cpp_2::token_type::LlamaTokenAttr;
 use llama_cpp_2::vocab::LlamaVocab;
 
 use crate::error::{OragError, Result};
+use crate::gpu::{Offload, Placement};
 use crate::infer::llama::{WorkerThread, backend, load_model, model_error, tokenize};
 use crate::infer::models::{GenerationSpec, InstalledModel, MIN_CONTEXT_TOKENS, PromptFormat};
 use crate::infer::prompt::{
@@ -49,6 +50,7 @@ pub struct LlamaGenerator {
     model_id: String,
     spec: GenerationSpec,
     model: Arc<LlamaModel>,
+    offload: Option<Offload>,
     template: Option<LlamaChatTemplate>,
     jobs: SyncSender<GenJob>,
     /// Guarded special-token texts of this vocabulary, removed from content.
@@ -61,12 +63,33 @@ pub struct LlamaGenerator {
 }
 
 impl LlamaGenerator {
+    /// What the load did with the GPU; `None` outside `orag-vulkan`.
+    pub fn offload(&self) -> Option<&Offload> {
+        self.offload.as_ref()
+    }
+
     pub fn load(installed: &InstalledModel) -> Result<LlamaGenerator> {
+        Self::load_placed(installed, &Placement::BuildDefault)
+    }
+
+    /// Loads the model where `placement` says (`orag-vulkan`: a fitted GPU
+    /// or CPU-only; v0.6 plan, G-4).
+    pub fn load_placed(
+        installed: &InstalledModel,
+        placement: &Placement,
+    ) -> Result<LlamaGenerator> {
         let manifest = &installed.manifest;
         let spec = manifest.generation.clone().ok_or_else(|| {
             OragError::InvalidInput(format!("`{}` has no [generation] section", manifest.id))
         })?;
-        let model = Arc::new(load_model(&installed.model_path())?);
+        let context_tokens = spec.context_tokens;
+        let loaded = load_model(
+            &installed.model_path(),
+            &|| context_params(context_tokens),
+            placement,
+        )?;
+        let offload = loaded.offload;
+        let model = Arc::new(loaded.model);
         check_context(&model, spec.context_tokens)?;
         let (specials, guarded) = special_tokens_of(&model);
         // Models without an embedded chat template (e.g. the CI fixture) use a plain transcript.
@@ -84,6 +107,7 @@ impl LlamaGenerator {
             model_id: manifest.id.clone(),
             spec,
             model,
+            offload,
             template,
             jobs,
             specials,
@@ -317,16 +341,22 @@ impl Drop for CancelOnDrop {
     }
 }
 
+/// The generation context: the manifest's context, prompts decoded
+/// `PROMPT_BATCH` tokens at a time. The load's GPU fit uses the same value.
+pub(crate) fn context_params(context_tokens: usize) -> LlamaContextParams {
+    let n_ctx = u32::try_from(context_tokens).unwrap_or(u32::MAX);
+    LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(n_ctx))
+        .with_n_batch(PROMPT_BATCH as u32)
+}
+
 fn generation_worker(
     model: &LlamaModel,
     context_tokens: usize,
     jobs: Receiver<GenJob>,
     ready: Sender<Result<()>>,
 ) {
-    let n_ctx = u32::try_from(context_tokens).unwrap_or(u32::MAX);
-    let params = LlamaContextParams::default()
-        .with_n_ctx(NonZeroU32::new(n_ctx))
-        .with_n_batch(PROMPT_BATCH as u32);
+    let params = context_params(context_tokens);
     let context =
         backend().and_then(|backend| model.new_context(backend, params).map_err(model_error));
     let mut ctx = match context {
@@ -525,6 +555,15 @@ fn is_think_tag(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_generation_context_is_the_manifest_context_in_prompt_batches() {
+        // The GPU fit and the worker both call this function (v0.6 G-4).
+        let params = context_params(16384);
+        assert_eq!(params.n_ctx().map(|n| n.get()), Some(16384));
+        assert_eq!(params.n_batch(), PROMPT_BATCH as u32);
+        assert!(!params.embeddings());
+    }
 
     /// The CI fixture as an installed generation model; `None` locally when
     /// it has not been fetched (CI sets ORAG_REQUIRE_FIXTURES).

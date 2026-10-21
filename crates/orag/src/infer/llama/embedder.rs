@@ -11,6 +11,7 @@ use llama_cpp_2::model::LlamaModel;
 
 use crate::domain::space::SpaceDescriptor;
 use crate::error::{OragError, Result};
+use crate::gpu::{Offload, Placement};
 use crate::infer::llama::WorkerThread;
 use crate::infer::llama::{ModelInfo, backend, load_model, model_error, tokenize};
 use crate::infer::models::{EmbeddingSpec, InstalledModel, Pooling};
@@ -31,6 +32,7 @@ pub struct LlamaEmbedder {
     descriptor: SpaceDescriptor,
     spec: EmbeddingSpec,
     model: Arc<LlamaModel>,
+    offload: Option<Offload>,
     jobs: SyncSender<EmbedJob>,
     /// Declared after `jobs`: fields drop in order, so the queue closes
     /// first and then the worker is joined.
@@ -38,12 +40,28 @@ pub struct LlamaEmbedder {
 }
 
 impl LlamaEmbedder {
+    /// What the load did with the GPU; `None` outside `orag-vulkan`.
+    pub fn offload(&self) -> Option<&Offload> {
+        self.offload.as_ref()
+    }
+
     pub fn load(installed: &InstalledModel) -> Result<LlamaEmbedder> {
+        Self::load_placed(installed, &Placement::BuildDefault)
+    }
+
+    /// Loads the model where `placement` says (`orag-vulkan`: a fitted GPU
+    /// or CPU-only; v0.6 plan, G-4).
+    pub fn load_placed(installed: &InstalledModel, placement: &Placement) -> Result<LlamaEmbedder> {
         let manifest = &installed.manifest;
         let spec = manifest.embedding.clone().ok_or_else(|| {
             OragError::InvalidInput(format!("`{}` has no [embedding] section", manifest.id))
         })?;
-        let model = Arc::new(load_model(&installed.model_path())?);
+        let loaded = load_model(
+            &installed.model_path(),
+            &|| context_params(&spec),
+            placement,
+        )?;
+        let model = Arc::new(loaded.model);
         check_model(&model, &spec)?;
         let (jobs, receiver) = mpsc::sync_channel::<EmbedJob>(QUEUE_DEPTH);
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -70,6 +88,7 @@ impl LlamaEmbedder {
             descriptor,
             spec,
             model,
+            offload: loaded.offload,
             jobs,
             _worker: WorkerThread::new(worker),
         })
@@ -147,19 +166,25 @@ fn pooling_type(pooling: Pooling) -> LlamaPoolingType {
     }
 }
 
+/// The embedding context: the whole input in one batch, pooled. The load's
+/// GPU fit uses the same value, so it sizes exactly what the worker creates.
+pub(crate) fn context_params(spec: &EmbeddingSpec) -> LlamaContextParams {
+    let n = u32::try_from(spec.max_tokens).unwrap_or(u32::MAX);
+    LlamaContextParams::default()
+        .with_embeddings(true)
+        .with_n_ctx(NonZeroU32::new(n))
+        .with_n_batch(n)
+        .with_n_ubatch(n)
+        .with_pooling_type(pooling_type(spec.pooling))
+}
+
 fn embed_worker(
     model: &LlamaModel,
     spec: &EmbeddingSpec,
     jobs: Receiver<EmbedJob>,
     ready: Sender<Result<()>>,
 ) {
-    let n = u32::try_from(spec.max_tokens).unwrap_or(u32::MAX);
-    let params = LlamaContextParams::default()
-        .with_embeddings(true)
-        .with_n_ctx(NonZeroU32::new(n))
-        .with_n_batch(n)
-        .with_n_ubatch(n)
-        .with_pooling_type(pooling_type(spec.pooling));
+    let params = context_params(spec);
     let context =
         backend().and_then(|backend| model.new_context(backend, params).map_err(model_error));
     let mut ctx = match context {
@@ -206,6 +231,24 @@ fn embed_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_embedding_context_takes_the_whole_input_in_one_pooled_batch() {
+        let spec = EmbeddingSpec {
+            dimensions: 1024,
+            pooling: Pooling::Last,
+            max_tokens: 8192,
+            query_prefix: String::new(),
+            document_prefix: String::new(),
+            require_trailing_eos: true,
+        };
+        // The GPU fit and the worker both call this function (v0.6 G-4).
+        let params = context_params(&spec);
+        assert_eq!(params.n_ctx().map(|n| n.get()), Some(8192));
+        assert_eq!((params.n_batch(), params.n_ubatch()), (8192, 8192));
+        assert!(params.embeddings());
+        assert_eq!(params.pooling_type(), LlamaPoolingType::Last);
+    }
     use crate::infer::models::ModelRole;
 
     #[test]

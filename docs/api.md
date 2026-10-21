@@ -81,6 +81,7 @@ commented out, so built-in defaults apply until a line is uncommented.
 | `embedding_model` | `"qwen3-embedding-0.6b-q8_0"` | Installed embedding pack id |
 | `generation_model` | `"qwen3.5-4b-q4_k_m"` | Installed generation pack id |
 | `log_level` | `"info"` | `error`, `warn`, `info`, `debug` or `trace` (stderr) |
+| `gpu` | `"auto"` | `orag-vulkan` only: `"auto"` or `"off"` (models on the CPU); ignored by the CPU `orag` and on macOS |
 | `models.download` | `true` | Setup mode may download the missing catalog models when asked (`POST /v1/models/download`); `false` turns it off for fully offline installs |
 
 `GET /v1/version` shows the values in effect (`bind` and `ui_bind` with the
