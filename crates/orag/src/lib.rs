@@ -8,6 +8,7 @@ pub mod domain;
 pub mod error;
 pub mod eval;
 mod exit;
+pub mod gpu;
 pub mod infer;
 pub mod ingest;
 pub mod launcher;

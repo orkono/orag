@@ -44,12 +44,14 @@ pub enum Command {
     /// Internal: parse one document from stdin in an isolated child process.
     #[command(name = "__parse", hide = true)]
     Parse { format: String },
-    /// Internal: GPU checks for the desktop app (v0.6). `--fit <gguf>` runs
-    /// llama.cpp's memory fit once; only `orag-vulkan` has it.
+    /// Internal: GPU checks for the desktop app (v0.6). Prints the GPU
+    /// devices and the one ORAG would use as one JSON line; `--fit <gguf>`
+    /// instead runs llama.cpp's memory fit once. Only `orag-vulkan` has
+    /// devices; the CPU build reports none.
     #[command(name = "gpu-probe", hide = true)]
     GpuProbe {
         #[arg(long)]
-        fit: std::path::PathBuf,
+        fit: Option<std::path::PathBuf>,
     },
     /// Evaluation tools.
     Eval {
@@ -274,7 +276,8 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             judge,
             dev_fake_models,
         ),
-        Command::GpuProbe { fit } => gpu_probe_fit(&fit),
+        Command::GpuProbe { fit: Some(gguf) } => gpu_probe_fit(&gguf),
+        Command::GpuProbe { fit: None } => gpu_probe_devices(),
         Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
             &format,
             crate::ingest::parse::parse_in_process,
@@ -309,6 +312,21 @@ fn gpu_probe_fit(gguf: &std::path::Path) -> anyhow::Result<()> {
 #[cfg(not(feature = "vulkan"))]
 fn gpu_probe_fit(_gguf: &std::path::Path) -> anyhow::Result<()> {
     anyhow::bail!("this is the CPU build; GPU checks need orag-vulkan")
+}
+
+fn gpu_probe_devices() -> anyhow::Result<()> {
+    #[cfg(feature = "vulkan")]
+    let (backend, devices) = ("vulkan", crate::infer::llama::devices::gpu_devices()?);
+    #[cfg(not(feature = "vulkan"))]
+    let (backend, devices) = ("cpu", Vec::new());
+    // Tests only: lets a software rasteriser (lavapipe in CI) be chosen.
+    let allow_software = std::env::var_os("ORAG_VULKAN_ALLOW_SOFTWARE").is_some_and(|v| v == "1");
+    let chosen = crate::gpu::choose_device(&devices, allow_software).map(|device| device.index);
+    println!(
+        "{}",
+        serde_json::json!({"backend": backend, "devices": devices, "chosen": chosen})
+    );
+    Ok(())
 }
 
 fn run_models(command: ModelsCommand) -> anyhow::Result<()> {

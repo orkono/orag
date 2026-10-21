@@ -1,6 +1,8 @@
 //! llama.cpp integration (D-002). The only module that touches llama-cpp-2
 //! types. Pinned to llama-cpp-2 =0.1.158; binding API changes are absorbed here.
 
+#[cfg(feature = "vulkan")]
+pub mod devices;
 pub mod embedder;
 #[cfg(feature = "vulkan")]
 pub mod fit;
