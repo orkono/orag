@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewWindowBuilder};
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow};
 
-use crate::bench::channel::{self, Phase, Shown};
+use crate::bench::channel::{self, Shown};
+use crate::bench::control::{Control, Step};
 use crate::prefs::Choice;
 use crate::supervisor::{Backends, SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
@@ -43,7 +44,9 @@ struct Pages {
     on_service: AtomicBool,
     /// The serve spec of this run, for the GPU bench's executables and home.
     spec: Mutex<Option<SidecarSpec>>,
-    bench: Mutex<Phase>,
+    /// The bench phase and the watched supervisor's generation; events and
+    /// bench commands are handled under this lock (`bench::control`).
+    bench: Mutex<Control>,
     /// Set by "Durdur" and on quit; the running bench job is killed.
     bench_cancel: Arc<AtomicBool>,
     bench_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -99,7 +102,7 @@ pub fn run() {
         on_local: AtomicBool::new(false),
         on_service: AtomicBool::new(false),
         spec: Mutex::new(None),
-        bench: Mutex::new(Phase::Idle),
+        bench: Mutex::new(Control::default()),
         bench_cancel: Arc::new(AtomicBool::new(false)),
         bench_thread: Mutex::new(None),
         paused: Mutex::new(None),
@@ -217,6 +220,15 @@ fn open_external(app: &AppHandle, url: &Url) {
 }
 
 fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
+    let generation = {
+        let pages = app.state::<Arc<Pages>>();
+        let mut control = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
+        control.watch()
+    };
+    start_sidecar_as(app, window, generation);
+}
+
+fn start_sidecar_as(app: &AppHandle, window: WebviewWindow, generation: u64) {
     let spec = match sidecar_spec(app) {
         Ok(spec) => spec,
         Err(message) => {
@@ -243,11 +255,12 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
         }
         None => Supervisor::start(spec),
     };
-    watch(app, window, supervisor);
+    watch(app, window, supervisor, generation);
 }
 
-/// Keeps `supervisor` as the app's sidecar and shows its events.
-fn watch(app: &AppHandle, window: WebviewWindow, supervisor: Supervisor) {
+/// Keeps `supervisor` as the app's sidecar and shows its events while it
+/// is the current one (`generation`).
+fn watch(app: &AppHandle, window: WebviewWindow, supervisor: Supervisor, generation: u64) {
     // Stored before its events are read, so a Ready finds its child pid.
     let events = {
         let sidecar = app.state::<Sidecar>();
@@ -256,8 +269,12 @@ fn watch(app: &AppHandle, window: WebviewWindow, supervisor: Supervisor) {
     };
     let app = app.clone();
     std::thread::spawn(move || {
+        let pages = app.state::<Arc<Pages>>().inner().clone();
         for event in events {
-            handle_event(&app, &window, &event);
+            let control = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
+            if control.current(generation) {
+                handle_event(&app, &window, &event);
+            }
         }
     });
 }
@@ -294,10 +311,6 @@ fn handle_event(app: &AppHandle, window: &WebviewWindow, event: &SidecarEvent) {
     match action_for(event) {
         Action::Open(url) => {
             let pages = app.state::<Arc<Pages>>();
-            // A bench paused the service after this event was sent.
-            if *pages.bench.lock().unwrap_or_else(|e| e.into_inner()) != Phase::Idle {
-                return;
-            }
             // A choice made on the status page goes along to the service page.
             pages.on_local.store(false, Ordering::SeqCst);
             set(&pages.service, Some(url.clone()));
@@ -352,7 +365,8 @@ fn stop_sidecar(app: &AppHandle) {
     }
 }
 
-/// Acts on a bench command the page shown may give (`bench::channel`).
+/// Acts on a bench command the page shown may give (`bench::channel`),
+/// under the lock that event handling takes (`bench::control`).
 fn bench_command(app: &AppHandle, pages: &Arc<Pages>, url: &Url) {
     let Some(command) = channel::command(url) else {
         return;
@@ -364,70 +378,58 @@ fn bench_command(app: &AppHandle, pages: &Arc<Pages>, url: &Url) {
     } else {
         Shown::Other
     };
-    let mut phase = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
-    if !channel::allowed(command, shown, *phase) {
-        return;
-    }
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    match command {
-        channel::Command::Run => {
-            *phase = Phase::Running;
-            drop(phase);
+    let mut control = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
+    match control.command(command, shown) {
+        None => {}
+        Some(Step::StartBench) => {
+            pages.bench_cancel.store(false, Ordering::SeqCst);
+            show(
+                app,
+                &window,
+                bench_status(&crate::bench::Progress::default(), false),
+            );
+            drop(control);
             start_bench(app, pages, window);
         }
-        channel::Command::Cancel => {
-            pages.bench_cancel.store(true, Ordering::SeqCst);
-        }
-        channel::Command::Resume => {
-            *phase = Phase::Idle;
-            drop(phase);
+        Some(Step::Cancel) => pages.bench_cancel.store(true, Ordering::SeqCst),
+        Some(Step::Resume { generation }) => {
+            show(app, &window, Status::Loading);
+            drop(control);
             let backends = pages
                 .paused
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .take();
-            show(app, &window, Status::Loading);
             match backends {
-                Some(backends) => watch(app, window, Supervisor::resume(backends)),
-                None => start_sidecar(app, window),
+                Some(backends) => watch(app, window, Supervisor::resume(backends), generation),
+                None => start_sidecar_as(app, window, generation),
             }
         }
     }
 }
 
-/// Pauses the service and runs the bench on a thread of its own.
+/// Runs the bench on a thread of its own: the service is paused there (its
+/// stop may take the grace time), before any bench job starts.
 fn start_bench(app: &AppHandle, pages: &Arc<Pages>, window: WebviewWindow) {
-    pages.bench_cancel.store(false, Ordering::SeqCst);
-    let supervisor = app
-        .state::<Sidecar>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take();
-    set(&pages.paused, supervisor.and_then(Supervisor::pause));
-    let progress = crate::bench::Progress {
-        answers_done: 0,
-        answers_total: 0,
-        jobs_done: 0,
-        jobs_total: 0,
-    };
-    show(app, &window, bench_status(&progress, false));
-    let (Some(spec), Some(data)) = (locked(&pages.spec), locked(&pages.data)) else {
-        let status = Status::BenchDone {
-            path: None,
-            error: Some("the service was never started".into()),
-        };
-        set(&pages.bench, Phase::Done);
-        show(app, &window, status);
-        return;
-    };
     let app = app.clone();
     let pages_for_thread = pages.clone();
     let handle = std::thread::spawn(move || {
         let pages = pages_for_thread;
-        let status = match run_bench(&app, &pages, &window, &spec, data) {
+        let supervisor = app
+            .state::<Sidecar>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        set(&pages.paused, supervisor.and_then(Supervisor::pause));
+        let result = match (locked(&pages.spec), locked(&pages.data)) {
+            (Some(spec), Some(data)) => run_bench(&app, &pages, &window, &spec, data),
+            _ => Err(std::io::Error::other("the service was never started")),
+        };
+        let status = match result {
             Ok(path) => {
                 use tauri_plugin_opener::OpenerExt;
                 let _ = app.opener().reveal_item_in_dir(&path);
@@ -441,7 +443,8 @@ fn start_bench(app: &AppHandle, pages: &Arc<Pages>, window: WebviewWindow) {
                 error: Some(err.to_string()),
             },
         };
-        set(&pages.bench, Phase::Done);
+        let mut control = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
+        control.finished();
         show(&app, &window, status);
     });
     set(&pages.bench_thread, Some(handle));
