@@ -61,7 +61,9 @@ jobs:
       - if: ${{ !startsWith(matrix.os, 'macos') }}
         run: |
           scripts/build-vulkan.sh --release
-          scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan
+          # The SDK action points LD_LIBRARY_PATH at its own loader; a user's
+          # system has only the distribution's.
+          env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan
       # Only the binaries that passed the checks above, in this run, are uploaded.
       - name: Name the artifact
         id: name
@@ -154,7 +156,7 @@ jobs:
           scripts/stage-sidecar.sh
           for bin in apps/desktop/binaries/orag-*$EXE; do
             case "$bin" in
-              */orag-vulkan-*) scripts/check-binary-deps.sh "$bin" --release-floor --vulkan ;;
+              */orag-vulkan-*) env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "$bin" --release-floor --vulkan ;;
               *) scripts/check-binary-deps.sh "$bin" --release-floor ;;
             esac
           done
@@ -165,17 +167,12 @@ jobs:
           esac
           (cd apps/desktop && cargo tauri build --bundles "$bundles" -- --locked)
           # Windows and Linux: the app tries orag-vulkan first and, on a
-          # runner without a GPU, runs the CPU with the reason in its marker.
+          # runner without a GPU, runs the CPU with the reason in its marker
+          # (desktop.yml's missing-loader job covers a PC without Vulkan).
           gpu=()
           if [ "$RUNNER_OS" != macOS ]; then gpu=(--expect-gpu-fallback); fi
-          if [ "$RUNNER_OS" = Windows ]; then
-            PATH=$(tr ':' '\n' <<<"$PATH" | grep -vi vulkan | paste -sd: -)
-            if [ ! -e /c/Windows/System32/vulkan-1.dll ]; then
-              export ORAG_EXPECT_GPU_REASON=loader-missing
-            fi
-          fi
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a scripts/smoke-desktop.sh "target/release/orag-desktop" "${gpu[@]}"
+            env -u LD_LIBRARY_PATH xvfb-run -a scripts/smoke-desktop.sh "target/release/orag-desktop" "${gpu[@]}"
           else
             scripts/smoke-desktop.sh "target/release/orag-desktop$EXE" "${gpu[@]}"
           fi
