@@ -1,7 +1,7 @@
 //! Indexes a corpus into a fresh store and compares lexical, dense and hybrid retrieval.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -75,6 +75,9 @@ pub struct QueryRanks {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RetrievalReport {
     pub embedding_model: String,
+    /// Where the embedder's layers went (`orag-vulkan`; `None` elsewhere):
+    /// a GPU run proves it used the GPU with this (v0.6 plan, G-7).
+    pub embedding_offload: Option<crate::gpu::Offload>,
     pub lexical_query: String,
     pub corpus_documents: usize,
     pub answerable: usize,
@@ -273,7 +276,11 @@ pub fn run_retrieval_eval_run(
         _ => {}
     }
     let store = Arc::new(Store::open(&db)?);
-    let corpus_documents = index_corpus(&store, embedder.clone(), corpus)?;
+    let corpus_documents = if reuse_index {
+        check_reused_index(&store, corpus)?
+    } else {
+        index_corpus(&store, embedder.clone(), corpus)?
+    };
     check_labels(&store, dataset)?;
     let retriever = Retriever {
         index: Arc::new(SqliteVecIndex::new(store.clone())),
@@ -297,6 +304,7 @@ pub fn run_retrieval_eval_run(
         .collect::<Result<Vec<_>>>()?;
     Ok(RetrievalReport {
         embedding_model: embedder.descriptor().model_id.clone(),
+        embedding_offload: embedder.offload(),
         lexical_query: retriever.config.lexical_query.name(),
         corpus_documents,
         answerable: answerable.len(),
@@ -337,14 +345,9 @@ fn is_hidden(path: &Path) -> bool {
         .is_some_and(|n| n.as_encoded_bytes().first() == Some(&b'.'))
 }
 
-/// Indexes every corpus file. Anything that would silently score 0 instead
-/// is an error: an empty corpus, an unreadable entry, a file that fails to
-/// index, or two files with identical bytes (stored as one document).
-pub(crate) fn index_corpus(
-    store: &Arc<Store>,
-    embedder: Arc<dyn Embedder>,
-    corpus: &Path,
-) -> Result<usize> {
+/// The corpus files, sorted; dotfiles, directories and other extensions
+/// are skipped, and a corpus with none is an error.
+fn corpus_files(corpus: &Path) -> Result<Vec<PathBuf>> {
     let in_corpus = |err: std::io::Error| {
         OragError::Io(std::io::Error::new(
             err.kind(),
@@ -374,6 +377,61 @@ pub(crate) fn index_corpus(
             corpus.display()
         )));
     }
+    Ok(files)
+}
+
+/// A reused index is queried as it is: nothing is embedded again. It must
+/// hold exactly the corpus files (by content), all ready; anything else
+/// would be indexed by the querying backend beside the other one's vectors.
+fn check_reused_index(store: &Store, corpus: &Path) -> Result<usize> {
+    use sha2::{Digest, Sha256};
+    let mut expected = std::collections::BTreeSet::new();
+    for path in corpus_files(corpus)? {
+        let bytes = std::fs::read(&path)?;
+        expected.insert(hex::encode(Sha256::digest(&bytes)));
+    }
+    let mut stored = std::collections::BTreeSet::new();
+    let mut after_id = None;
+    loop {
+        let page = store.list_documents(
+            1,
+            crate::store::documents::Page {
+                after_id,
+                limit: crate::store::documents::MAX_PAGE_SIZE,
+            },
+        )?;
+        let Some(last) = page.last() else { break };
+        after_id = Some(last.id);
+        for document in &page {
+            if document.status != DocumentStatus::Ready {
+                return Err(OragError::InvalidInput(format!(
+                    "the reused index has a document that is not ready: {}",
+                    document.filename.as_deref().unwrap_or("?")
+                )));
+            }
+            stored.insert(document.source_sha256.clone());
+        }
+    }
+    if stored != expected {
+        return Err(OragError::InvalidInput(format!(
+            "the corpus changed since the index was built ({} files, {} indexed, {} in common); use a new --index-dir",
+            expected.len(),
+            stored.len(),
+            expected.intersection(&stored).count()
+        )));
+    }
+    Ok(stored.len())
+}
+
+/// Indexes every corpus file. Anything that would silently score 0 instead
+/// is an error: an empty corpus, an unreadable entry, a file that fails to
+/// index, or two files with identical bytes (stored as one document).
+pub(crate) fn index_corpus(
+    store: &Arc<Store>,
+    embedder: Arc<dyn Embedder>,
+    corpus: &Path,
+) -> Result<usize> {
+    let files = corpus_files(corpus)?;
     let mut documents: HashMap<i64, String> = HashMap::new();
     for path in &files {
         let filename = path

@@ -29,6 +29,10 @@ pub trait Embedder: Send + Sync {
     fn embed_documents(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
     /// Embeds a query (query prefix applied inside). Output is L2-normalized.
     fn embed_query(&self, text: &str) -> Result<Vec<f32>>;
+    /// What the load did with the GPU (`orag-vulkan`); `None` elsewhere.
+    fn offload(&self) -> Option<crate::gpu::Offload> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

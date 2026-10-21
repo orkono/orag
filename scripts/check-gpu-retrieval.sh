@@ -35,13 +35,23 @@ recall() { jq '.strategies[] | select(.strategy == "hybrid") | .recall_at_10' "$
 
 run cpu "$cpu"
 run gpu "$gpu"
-# The GPU runs must really have used the GPU: llama.cpp's log names it.
-ORAG_HOME="$home" "$gpu" gpu-probe | jq -e '.chosen != null' >/dev/null \
-  || fail "$gpu chose no GPU device here; the GPU runs would be CPU runs"
 run cpu_indexed "$cpu" --index-dir "$tmp/cpu-index"
 run gpu_queries_cpu_index "$gpu" --index-dir "$tmp/cpu-index"
 run gpu_indexed "$gpu" --index-dir "$tmp/gpu-index"
 run cpu_queries_gpu_index "$cpu" --index-dir "$tmp/gpu-index"
+
+# Every run whose queries or index came from orag-vulkan must have had its
+# embedder on the GPU (the report's embedding_offload); a CPU fallback
+# would pass the recall gates without testing the Vulkan path.
+for name in gpu gpu_queries_cpu_index gpu_indexed; do
+  jq -e '.embedding_offload.layers_on_gpu > 0 and .embedding_offload.reason == null' \
+    "$tmp/$name.json" >/dev/null \
+    || fail "$name: the embedder was not on the GPU: $(jq -c .embedding_offload "$tmp/$name.json")"
+done
+for name in cpu cpu_indexed cpu_queries_gpu_index; do
+  [ "$(jq -c .embedding_offload "$tmp/$name.json")" = null ] \
+    || fail "$name: the CPU binary reported a GPU offload"
+done
 
 base=$(recall cpu)
 for name in gpu gpu_queries_cpu_index cpu_queries_gpu_index; do
@@ -51,4 +61,5 @@ for name in gpu gpu_queries_cpu_index cpu_queries_gpu_index; do
     || fail "$name: hybrid recall@10 $value, CPU $base (tolerance $tolerance)"
   echo "$name: hybrid recall@10 $value (CPU $base)"
 done
+echo "embedder on $(jq -r .embedding_offload.device "$tmp/gpu.json"): $(jq -r '.embedding_offload | "\(.layers_on_gpu)/\(.layers_total)"' "$tmp/gpu.json") layers"
 echo "gpu retrieval ok"

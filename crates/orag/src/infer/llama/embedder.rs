@@ -129,6 +129,10 @@ impl LlamaEmbedder {
 }
 
 impl Embedder for LlamaEmbedder {
+    fn offload(&self) -> Option<Offload> {
+        self.offload.clone()
+    }
+
     fn descriptor(&self) -> &SpaceDescriptor {
         &self.descriptor
     }

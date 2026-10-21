@@ -547,3 +547,46 @@ fn a_kept_index_is_reused_without_embedding_documents_again() {
     .unwrap_err();
     assert!(missing.to_string().contains("no index"), "{missing}");
 }
+
+/// A reused index must hold exactly the corpus it is run with: a changed or
+/// added file would otherwise be embedded by the querying backend and stored
+/// beside the other backend's vectors.
+#[test]
+fn a_reused_index_refuses_a_changed_corpus() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let corpus = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("corpus/seed")).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, corpus.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let work = tempfile::tempdir().unwrap();
+    let run = |embedder: Arc<dyn Embedder>, reuse_index| {
+        run_retrieval_eval_run(
+            embedder,
+            corpus.path(),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank: None,
+                reuse_index,
+            },
+        )
+    };
+    let fresh = run(Arc::new(FakeEmbedder::new()), false).unwrap();
+    assert_eq!(fresh.embedding_offload, None, "fake models have no GPU");
+    let first = std::fs::read_dir(corpus.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut text = std::fs::read(&first).unwrap();
+    text.extend_from_slice(b"\nOne more line.\n");
+    std::fs::write(&first, text).unwrap();
+    let err = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap_err();
+    assert!(err.to_string().contains("corpus changed"), "{err}");
+}

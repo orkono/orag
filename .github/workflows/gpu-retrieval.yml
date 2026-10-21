@@ -55,6 +55,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/import-home"
           ORAG_HOME="$RUNNER_TEMP/import-home" target/release/orag models import "$packs/qwen3-embedding-0.6b-q8_0"
       - name: CPU, Vulkan (lavapipe) and mixed seed retrieval
+        # bash -eo pipefail: the script's failure is not hidden by tee.
+        shell: bash
         env:
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
