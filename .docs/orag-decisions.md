@@ -38,6 +38,22 @@ every target, so there is no dynamic `libgomp`/`libomp` (`check-llama-build.sh`)
 Model files live outside the executable. GPU drivers are documented system
 prerequisites, not bundled.
 
+**Vulkan executable (v0.6, step 83).** `x86_64-pc-windows-msvc` and
+`x86_64-unknown-linux-gnu` also ship `orag-vulkan`: the same service built
+with llama.cpp's Vulkan backend (`--features vulkan`, `scripts/build-vulkan.sh`,
+its own target directory). Its only non-system import is the Vulkan loader
+(`vulkan-1.dll`, `libvulkan.so.1`), which every current GPU driver installs;
+`check-binary-deps.sh --vulkan` allows that one library and nothing else, and
+the CPU `orag` may not import it. Without the loader `orag-vulkan` cannot
+start, and the desktop app then runs `orag` (plan
+`.docs/plans/2026-10-21-orag-v0.6-gpu-plan.md`, G-3). Two executables rather
+than llama.cpp's runtime-loaded backends: in llama-cpp-sys-2 0.1.158
+`dynamic-backends` also turns on shared llama/ggml libraries and all CPU
+variants, so the service would stop being one file; and the CPU executable
+cannot load Vulkan by accident. Vulkan rather than CUDA first: one build
+covers NVIDIA, AMD and Intel with the driver the GPU already has; CUDA needs
+its runtime libraries in the package and covers one vendor.
+
 **Windows (v0.2, step 37).** The C runtime is linked statically
 (`+crt-static`,
 `LLAMA_STATIC_CRT=1` and the Windows-only toolchain file

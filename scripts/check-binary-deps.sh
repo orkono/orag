@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # D-001: the release binary must not depend on non-system dynamic libraries.
+# --vulkan: the binary is `orag-vulkan`, which may also import the system
+# Vulkan loader (vulkan-1.dll, libvulkan.so.1) and nothing else.
 set -euo pipefail
-usage="usage: $0 <binary> [--release-floor]"
-case $# in
-  1) bin="$1"; release_floor=0 ;;
-  2) [ "$2" = "--release-floor" ] || { echo "unknown option: $2 ($usage)" >&2; exit 2; }
-     bin="$1"; release_floor=1 ;;
-  *) echo "$usage" >&2; exit 2 ;;
-esac
+usage="usage: $0 <binary> [--release-floor] [--vulkan]"
+[ $# -ge 1 ] || { echo "$usage" >&2; exit 2; }
+bin="$1"; shift
+release_floor=0; flavor=cpu
+for option in "$@"; do
+  case "$option" in
+    --release-floor) release_floor=1 ;;
+    --vulkan) flavor=vulkan ;;
+    *) echo "unknown option: $option ($usage)" >&2; exit 2 ;;
+  esac
+done
 [ -f "$bin" ] || { echo "no such binary: $bin ($usage)" >&2; exit 2; }
 
 . "$(dirname "$0")/platform-floors.sh"
@@ -31,7 +37,7 @@ check_symbol_floor() {
 case "$(uname -s)" in
   Darwin)
     deps=$(otool -L "$bin" | tail -n +2 | awk '{print $1}')
-    bad=$(echo "$deps" | grep -vE '^(/usr/lib/|/System/Library/)' || true)
+    bad=$(disallowed_deps macos "$flavor" <<<"$deps")
     ;;
   Linux)
     # One ldd run, read from a variable: no `ldd | grep -q` (SIGPIPE under pipefail).
@@ -44,7 +50,7 @@ case "$(uname -s)" in
     fi
     # Resolved path of every dependency; only the base system loader/libc family may appear.
     deps=$(awk '/=>/ {print $3} !/=>/ {print $1}' <<<"$linked" | grep -v '^$')
-    bad=$(echo "$deps" | grep -vE '^(linux-vdso\.so[.0-9]*|/(usr/)?lib(64)?/([^/]+/)?(ld-linux[^/]*|lib(c|m|dl|rt|pthread|gcc_s|stdc\+\+))\.so[.0-9]*)$' || true)
+    bad=$(disallowed_deps linux "$flavor" <<<"$deps")
     ;;
   MINGW*|MSYS*|CYGWIN*)
     # Imported DLLs from the PE import table (llvm-readobj ships with the
@@ -57,7 +63,7 @@ case "$(uname -s)" in
       echo "no DLL imports read from $bin; cannot check them" >&2
       exit 1
     fi
-    bad=$(grep -vE "$WINDOWS_SYSTEM_DLLS" <<<"$deps" || true)
+    bad=$(disallowed_deps windows "$flavor" <<<"$deps")
     ;;
   *)
     echo "unsupported OS" >&2

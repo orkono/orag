@@ -38,6 +38,8 @@ jobs:
       - run: scripts/check-version.sh
       # The release checksum list (scripts/write-checksums.sh), on every OS.
       - run: scripts/test-write-checksums.sh
+      # The binary dependency allow-lists (CPU orag, orag-vulkan), on every OS.
+      - run: scripts/test-binary-deps-allowlist.sh
       # The page's pure logic (crates/orag/src/server/ui/format.js); Node's
       # built-in runner, no dependencies. The runner image ships Node.
       # The Windows pack script pins exactly what the bash one pins.
@@ -72,3 +74,74 @@ jobs:
           scripts/build-windows-installer.sh dist
           . scripts/version-lib.sh
           scripts/smoke-windows-installer.sh "dist/ORAG-Setup-$(cargo_version).exe"
+
+  # `orag-vulkan` (v0.6 plan, step 83): llama.cpp's Vulkan backend in a second
+  # service executable, built in target/vulkan so the CPU build above is never
+  # touched. Hosted runners have no GPU: this job proves the build, the link of
+  # the memory fit and the imports (only the system Vulkan loader is added).
+  vulkan:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      ORAG_REQUIRE_FIXTURES: "1"
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install
+      - if: startsWith(matrix.os, 'windows')
+        run: rustup component add llvm-tools
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: vulkan
+      # The SDK brings the headers, the loader's import library, glslc and the
+      # SPIRV-Headers CMake package ggml-vulkan needs. On Windows the runtime
+      # (vulkan-1.dll) too: without it orag-vulkan.exe cannot start at all.
+      - id: vulkan
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
+        with:
+          vulkan_version: 1.4.363.0
+          install_runtime: ${{ startsWith(matrix.os, 'windows') }}
+          cache: true
+          stripdown: true
+      - if: startsWith(matrix.os, 'windows')
+        run: echo "$VULKAN_SDK/runtime/x64" >> "$GITHUB_PATH"
+      # cl.exe on PATH for the Ninja build (scripts/build-vulkan.sh).
+      - if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        with:
+          arch: x64
+      # Every later cargo step reuses the same llama.cpp build directory, so they
+      # all need the generator and linker build-vulkan.sh uses.
+      - if: startsWith(matrix.os, 'windows')
+        run: |
+          echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+          # Git's /usr/bin/link shadows MSVC's link.exe in Git Bash.
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$(dirname "$(command -v cl)")/link.exe")" >> "$GITHUB_ENV"
+      # The loader a user's driver installs, at the system path the allow-list
+      # accepts (the SDK's own copy is only for building).
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: test-fixtures
+          key: fixtures-stories260K-047bf46455a5
+      - run: scripts/fetch-test-fixtures.sh
+      - run: scripts/build-vulkan.sh --release
+      - env:
+          CARGO_TARGET_DIR: target/vulkan
+        run: cargo clippy --locked -p orag --features vulkan --all-targets -- -D warnings
+      - env:
+          CARGO_TARGET_DIR: target/vulkan
+        run: |
+          cargo test --release --locked -p orag --features vulkan --test cli gpu_probe
+      # The shipped executable itself calls the fit (plan Task 1, Step 0b),
+      # and its import table is the one checked.
+      - run: target/vulkan/release/orag-vulkan$EXE gpu-probe --fit test-fixtures/stories260K.gguf
+      - run: env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan

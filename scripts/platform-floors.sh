@@ -12,6 +12,29 @@ WINDOWS_CPU_FLOOR="avx2 fma f16c bmi2"
 # DLLs a Windows binary may import: system libraries present on every
 # Windows 10/11. Static CRT, so no VCRUNTIME*/MSVCP*/api-ms-win-crt-*.
 WINDOWS_SYSTEM_DLLS='^(kernel32|kernelbase|advapi32|ntdll|ws2_32|bcrypt|bcryptprimitives|userenv|shell32|ole32|oleaut32|crypt32|secur32|user32|gdi32|shlwapi|iphlpapi|dbghelp|psapi|powrprof|synchronization|api-ms-win-core-[a-z0-9-]+)\.dll$'
+# The Vulkan loader, which a GPU driver installs: allowed only in `orag-vulkan`
+# (v0.6), from the system library directories on Linux.
+WINDOWS_VULKAN_DLL='^vulkan-1\.dll$'
+LINUX_SYSTEM_LIBS='^(linux-vdso\.so[.0-9]*|/(usr/)?lib(64)?/([^/]+/)?(ld-linux[^/]*|lib(c|m|dl|rt|pthread|gcc_s|stdc\+\+))\.so[.0-9]*)$'
+LINUX_VULKAN_LIB='^/(usr/)?lib(64)?/([^/]+/)?libvulkan\.so\.1$'
+MACOS_SYSTEM_LIBS='^(/usr/lib/|/System/Library/)'
+
+# disallowed_deps OS FLAVOR: prints the dependencies read from stdin (one per
+# line: a lower-case DLL name on Windows, a resolved path on Linux, an install
+# name on macOS) that FLAVOR may not have. OS: windows, linux, macos; FLAVOR:
+# cpu (the `orag` build) or vulkan (`orag-vulkan`; not on macOS).
+disallowed_deps() {
+  local os="$1" flavor="$2" allowed
+  case "$os/$flavor" in
+    windows/cpu) allowed="$WINDOWS_SYSTEM_DLLS" ;;
+    windows/vulkan) allowed="$WINDOWS_SYSTEM_DLLS|$WINDOWS_VULKAN_DLL" ;;
+    linux/cpu) allowed="$LINUX_SYSTEM_LIBS" ;;
+    linux/vulkan) allowed="$LINUX_SYSTEM_LIBS|$LINUX_VULKAN_LIB" ;;
+    macos/cpu) allowed="$MACOS_SYSTEM_LIBS" ;;
+    *) echo "no dependency allow-list for $os/$flavor" >&2; return 2 ;;
+  esac
+  grep -vE "$allowed" || true
+}
 
 # version_le A B: true if version A <= B ("14" and "14.0" are equal).
 version_le() {

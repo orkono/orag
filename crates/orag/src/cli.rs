@@ -44,6 +44,13 @@ pub enum Command {
     /// Internal: parse one document from stdin in an isolated child process.
     #[command(name = "__parse", hide = true)]
     Parse { format: String },
+    /// Internal: GPU checks for the desktop app (v0.6). `--fit <gguf>` runs
+    /// llama.cpp's memory fit once; only `orag-vulkan` has it.
+    #[command(name = "gpu-probe", hide = true)]
+    GpuProbe {
+        #[arg(long)]
+        fit: std::path::PathBuf,
+    },
     /// Evaluation tools.
     Eval {
         #[command(subcommand)]
@@ -267,6 +274,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             judge,
             dev_fake_models,
         ),
+        Command::GpuProbe { fit } => gpu_probe_fit(&fit),
         Command::Parse { format } => Ok(crate::ingest::isolate::run_child(
             &format,
             crate::ingest::parse::parse_in_process,
@@ -285,6 +293,22 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
 fn load_config() -> anyhow::Result<crate::config::Config> {
     let home = crate::config::resolve_home(&|key| std::env::var_os(key))?;
     Ok(crate::config::Config::load(&home)?)
+}
+
+#[cfg(feature = "vulkan")]
+fn gpu_probe_fit(gguf: &std::path::Path) -> anyhow::Result<()> {
+    // The context size only shapes the estimate; the probe proves the link.
+    let outcome = crate::infer::llama::fit::fit_once(gguf, 512)?;
+    println!(
+        "{}",
+        serde_json::json!({"backend": "vulkan", "fit": outcome.label()})
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "vulkan"))]
+fn gpu_probe_fit(_gguf: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("this is the CPU build; GPU checks need orag-vulkan")
 }
 
 fn run_models(command: ModelsCommand) -> anyhow::Result<()> {
