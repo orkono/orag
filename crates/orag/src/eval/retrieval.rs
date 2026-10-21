@@ -385,11 +385,22 @@ fn corpus_files(corpus: &Path) -> Result<Vec<PathBuf>> {
 /// would be indexed by the querying backend beside the other one's vectors.
 fn check_reused_index(store: &Store, corpus: &Path) -> Result<usize> {
     use sha2::{Digest, Sha256};
-    let mut expected = std::collections::BTreeSet::new();
+    let mut expected = std::collections::BTreeMap::new();
     for path in corpus_files(corpus)? {
         let bytes = std::fs::read(&path)?;
-        expected.insert(hex::encode(Sha256::digest(&bytes)));
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        if let Some(first) = expected.insert(hex::encode(Sha256::digest(&bytes)), name.clone()) {
+            // Indexing refuses this too (one document, labels name the first).
+            return Err(OragError::InvalidInput(format!(
+                "{name} has the same content as {first}; remove one, labels can only name the first"
+            )));
+        }
     }
+    let expected: std::collections::BTreeSet<String> = expected.into_keys().collect();
     let mut stored = std::collections::BTreeSet::new();
     let mut after_id = None;
     loop {

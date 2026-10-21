@@ -590,3 +590,42 @@ fn a_reused_index_refuses_a_changed_corpus() {
     let err = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap_err();
     assert!(err.to_string().contains("corpus changed"), "{err}");
 }
+
+/// Two files with the same bytes are one document, which indexing refuses;
+/// reusing an index refuses them the same way.
+#[test]
+fn a_reused_index_refuses_duplicate_corpus_files() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let corpus = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("corpus/seed")).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, corpus.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let work = tempfile::tempdir().unwrap();
+    let run = |embedder: Arc<dyn Embedder>, reuse_index| {
+        run_retrieval_eval_run(
+            embedder,
+            corpus.path(),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank: None,
+                reuse_index,
+            },
+        )
+    };
+    run(Arc::new(FakeEmbedder::new()), false).unwrap();
+    let first = std::fs::read_dir(corpus.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::copy(&first, corpus.path().join("zz-copy.md")).unwrap();
+    let err = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap_err();
+    assert!(err.to_string().contains("same content"), "{err}");
+}
