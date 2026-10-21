@@ -115,11 +115,15 @@ impl Bench {
                 break;
             }
             let outcome = match skip_reason(job, gpu_failed.as_deref(), &done) {
-                Some(reason) => Outcome {
-                    job,
-                    status: Status::Skipped(reason),
-                    report: None,
-                },
+                Some(reason) => {
+                    state.answers_done += job.answers(questions);
+                    Outcome {
+                        job,
+                        status: Status::Skipped(reason),
+                        report: None,
+                        first_answer_ms: None,
+                    }
+                }
                 None => {
                     let mut answered = 0;
                     let outcome = run::run_job(job, &setup, self.timeout, cancelled, &mut || {
@@ -132,14 +136,17 @@ impl Bench {
                     outcome
                 }
             };
-            if outcome.status == Status::Failed("cancelled".into()) {
+            // A timeout goes on, but the file can no longer pass.
+            if outcome.status == Status::Failed("timeout".into()) {
                 complete = false;
             }
+            let stop = outcome.status == Status::Failed("cancelled".into()) || cancelled();
             done.push((job, done_of(&outcome.status)));
             outcomes.push(outcome);
             state.jobs_done += 1;
             progress(&state);
-            if !complete {
+            if stop {
+                complete = false;
                 break;
             }
         }

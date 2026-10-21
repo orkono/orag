@@ -49,11 +49,14 @@ fn retrieval(exe: Exe, recall: f64) -> serde_json::Value {
     })
 }
 
+/// The first answer comes 900 ms after the process starts.
 fn ok(job: Job, report: serde_json::Value) -> Outcome {
+    let first = report["results"][0]["ms"].as_f64().map(|ms| ms + 900.0);
     Outcome {
         job,
         status: Status::Ok,
         report: Some(report),
+        first_answer_ms: first,
     }
 }
 
@@ -91,7 +94,7 @@ fn full_bench(cpu_ms: f64, vulkan_ms: f64) -> Vec<Outcome> {
             exe: Exe::Cpu,
             index: Index::A,
         },
-        json!({"status": "ok"}),
+        json!({"status": "ok", "embedder_offload": null}),
     )];
     for round in 1..=3 {
         for (exe, ms) in [(Exe::Cpu, cpu_ms), (Exe::Vulkan, vulkan_ms)] {
@@ -113,13 +116,14 @@ fn full_bench(cpu_ms: f64, vulkan_ms: f64) -> Vec<Outcome> {
         },
         status: Status::NotInstalled,
         report: None,
+        first_answer_ms: None,
     });
     outcomes.push(ok(
         Job::Index {
             exe: Exe::Vulkan,
             index: Index::B,
         },
-        json!({"status": "ok"}),
+        json!({"status": "ok", "embedder_offload": offload(29, 29)}),
     ));
     for (exe, index, recall) in [
         (Exe::Cpu, Index::A, 0.95),
@@ -137,7 +141,7 @@ fn a_full_fast_bench_passes_the_gate() {
     let file = merge(&full_bench(10_000.0, 1_000.0), Some(&reference()), true);
     let tier = &file.tiers[0];
     assert_eq!(tier.tier, "default");
-    assert_eq!(tier.cpu.cold_answer_ms, vec![10_000.0; 3]);
+    assert_eq!(tier.cpu.cold_ms, vec![10_900.0; 3]);
     assert_eq!(tier.cpu.warm_ms, vec![20_000.0, 30_000.0]);
     assert_eq!(tier.cpu.warm_p50_ms, Some(25_000.0));
     assert_eq!(tier.speedup_warm_p50, Some(10.0));
@@ -257,6 +261,7 @@ fn no_gpu_is_recorded_and_fails_the_gate() {
                     job: o.job,
                     status: Status::Skipped("no-eligible-device".into()),
                     report: None,
+                    first_answer_ms: None,
                 }
             } else {
                 o
@@ -270,4 +275,66 @@ fn no_gpu_is_recorded_and_fails_the_gate() {
     );
     assert_eq!(file.tiers[0].speedup_warm_p50, None);
     assert!(!file.gate.pass);
+}
+
+#[test]
+fn a_tier_that_failed_to_run_fails_the_gate() {
+    let mut outcomes = full_bench(10_000.0, 1_000.0);
+    let large = outcomes
+        .iter_mut()
+        .find(|o| {
+            o.job
+                == Job::Answers {
+                    exe: Exe::Cpu,
+                    tier: Tier::Large,
+                    round: 1,
+                }
+        })
+        .unwrap();
+    large.status = Status::Failed("exit-9".into());
+    let file = merge(&outcomes, Some(&reference()), true);
+    assert_eq!(file.tiers[1].status, "cpu-round-1-failed");
+    assert!(
+        file.gate.failed.iter().any(|f| f.starts_with("large")),
+        "{:?}",
+        file.gate.failed
+    );
+}
+
+#[test]
+fn a_failed_later_round_fails_the_gate() {
+    let mut outcomes = full_bench(10_000.0, 1_000.0);
+    outcomes[4].status = Status::Failed("exit-9".into());
+    outcomes[4].report = None;
+    let file = merge(&outcomes, Some(&reference()), true);
+    assert!(!file.gate.pass);
+}
+
+#[test]
+fn index_b_must_have_been_built_on_the_gpu() {
+    let mut outcomes = full_bench(10_000.0, 1_000.0);
+    let b = outcomes
+        .iter_mut()
+        .find(|o| {
+            o.job
+                == Job::Index {
+                    exe: Exe::Vulkan,
+                    index: Index::B,
+                }
+        })
+        .unwrap();
+    b.report = Some(json!({"status": "ok", "embedder_offload": null}));
+    let file = merge(&outcomes, Some(&reference()), true);
+    assert!(!file.retrieval.within_tolerance);
+    assert_eq!(file.indexes.len(), 2);
+}
+
+#[test]
+fn the_gate_compares_the_unrounded_speed_up() {
+    let file = merge(&full_bench(4_999.6, 1_000.0), Some(&reference()), true);
+    assert!(
+        file.gate.failed.iter().any(|f| f.contains("speed")),
+        "{:?}",
+        file.gate.failed
+    );
 }

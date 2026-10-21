@@ -21,7 +21,8 @@ struct Setup {
 /// A wrapper script per backend, so each has its own state and modes.
 fn wrapper(dir: &Path, name: &str, state: &Path, modes: &str) -> PathBuf {
     let exe = env!("CARGO_BIN_EXE_orag-desktop");
-    if cfg!(windows) {
+    #[cfg(windows)]
+    {
         let path = dir.join(format!("{name}.cmd"));
         std::fs::write(
             &path,
@@ -32,7 +33,9 @@ fn wrapper(dir: &Path, name: &str, state: &Path, modes: &str) -> PathBuf {
         )
         .unwrap();
         path
-    } else {
+    }
+    #[cfg(unix)]
+    {
         let path = dir.join(name);
         std::fs::write(
             &path,
@@ -125,6 +128,19 @@ fn a_full_bench_runs_every_job_in_order_and_writes_the_file() {
             .chain(&vulkan)
             .all(|c| c.contains("--exit-on-stdin-close"))
     );
+    // Retrieval sets `gpu = "off"` aside like the answer runs do.
+    assert!(
+        vulkan
+            .iter()
+            .filter(|c| c.contains("retrieval"))
+            .all(|c| c.contains("--gpu-auto"))
+    );
+    let cold = tier["vulkan"]["cold_ms"].as_array().unwrap();
+    assert_eq!(cold.len(), 3);
+    assert!(
+        cold.iter().all(|ms| ms.as_f64().unwrap() > 0.0),
+        "process start to first answer"
+    );
     let last = seen.last().unwrap();
     assert_eq!(
         (last.answers_done, last.jobs_done),
@@ -136,13 +152,14 @@ fn a_full_bench_runs_every_job_in_order_and_writes_the_file() {
 #[test]
 fn no_gpu_skips_every_vulkan_job_and_still_writes_the_file() {
     let s = Setup::new();
+    let mut last: Option<Progress> = None;
     let path = s
         .bench("ok", "ok")
         .run(
             "t2",
             || ProbeOutcome::Failed("loader-missing".into()),
             &|| false,
-            &mut |_| {},
+            &mut |p| last = Some(p.clone()),
         )
         .unwrap();
     let file = read(&path);
@@ -153,6 +170,13 @@ fn no_gpu_skips_every_vulkan_job_and_still_writes_the_file() {
     );
     assert_eq!(file["gate"]["pass"], false);
     assert!(Setup::calls(s.vulkan.path()).is_empty());
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text.matches("\"schema\"").count(), 1, "one schema key");
+    let last = last.unwrap();
+    assert_eq!(
+        last.answers_done, last.answers_total,
+        "skipped answers count as done"
+    );
 }
 
 #[test]
@@ -244,4 +268,26 @@ fn an_existing_results_file_is_never_replaced() {
         std::fs::read_to_string(s.data.path().join("orag-bench-t6.json")).unwrap(),
         "keep"
     );
+}
+
+#[test]
+fn a_timed_out_job_makes_the_bench_incomplete_but_it_goes_on() {
+    let s = Setup::new();
+    let mut bench = s.bench("ok", "ok,ok,hang,ok");
+    bench.timeout = Duration::from_secs(6);
+    let path = bench
+        .run("t7", || ProbeOutcome::Chosen(0), &|| false, &mut |_| {})
+        .unwrap();
+    let file = read(&path);
+    assert_eq!(file["complete"], false);
+    assert_eq!(
+        file["tiers"][0]["vulkan"]["runs"][2]["status"],
+        "failed:timeout"
+    );
+    assert_eq!(
+        file["order"].as_array().unwrap().len(),
+        18,
+        "the bench went on"
+    );
+    assert_eq!(file["gate"]["pass"], false);
 }

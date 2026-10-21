@@ -93,7 +93,7 @@ pub fn command(job: Job, setup: &Setup) -> Command {
         }
         Job::Retrieval { index, .. } => {
             command
-                .args(["eval", "retrieval", "--no-context-budget"])
+                .args(["eval", "retrieval", "--no-context-budget", "--gpu-auto"])
                 .arg("--index-dir")
                 .arg(index_dir(&setup.work, index));
         }
@@ -144,7 +144,10 @@ pub fn run_job(
         job,
         status: Status::Failed(reason.into()),
         report: None,
+        first_answer_ms: None,
     };
+    let started = Instant::now();
+    let mut first_answer_ms = None;
     let mut child = match crate::contain::spawn(&mut command) {
         Ok(child) => child,
         Err(_) => return failed("not-started"),
@@ -153,11 +156,15 @@ pub fn run_job(
     let stdin = child.stdin.take();
     let lines = read_lines(child.stdout.take());
     let deadline = Instant::now() + timeout;
+    let mut answer_line = |line: &str| {
+        if line.starts_with("{\"event\":\"answer\"") {
+            first_answer_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1000.0);
+            on_answer();
+        }
+    };
     let status = loop {
         while let Ok(line) = lines.try_recv() {
-            if line.starts_with("{\"event\":\"answer\"") {
-                on_answer();
-            }
+            answer_line(&line);
         }
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
@@ -176,10 +183,9 @@ pub fn run_job(
             return failed(reason);
         }
     };
-    for line in lines.try_iter() {
-        if line.starts_with("{\"event\":\"answer\"") {
-            on_answer();
-        }
+    // The reader may still hold the last lines; it ends with the child.
+    for line in lines.iter() {
+        answer_line(&line);
     }
     if !status.success() {
         return failed(&crate::gpu::exit_reason(status.code()));
@@ -192,11 +198,13 @@ pub fn run_job(
             job,
             status: Status::NotInstalled,
             report: Some(report),
+            first_answer_ms,
         },
         Some(report) => Outcome {
             job,
             status: Status::Ok,
             report: Some(report),
+            first_answer_ms,
         },
         None => failed("no-report"),
     }

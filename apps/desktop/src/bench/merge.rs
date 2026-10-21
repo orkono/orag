@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::bench::plan::{Exe, Index, Job, ROUNDS, TIERS, Tier};
 
-pub const SCHEMA: &str = "orag-bench/1";
 /// The warm GPU median must be at least this many times faster (G-7).
 pub const MIN_SPEEDUP: f64 = 5.0;
 /// A cross-backend retrieval run within this of its same-backend reference.
@@ -41,6 +40,8 @@ pub struct Outcome {
     pub job: Job,
     pub status: Status,
     pub report: Option<serde_json::Value>,
+    /// From the child's start to its first answer line: the cold time.
+    pub first_answer_ms: Option<f64>,
 }
 
 /// The reference CPU run's answers per tier (the CPU floor).
@@ -86,6 +87,11 @@ impl Offload {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+struct IndexReport {
+    embedder_offload: Option<Offload>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 struct RunReport {
     generator: Option<String>,
     embedder: Option<String>,
@@ -108,9 +114,9 @@ pub struct Run {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Side {
     pub runs: Vec<Run>,
-    /// Question 1's answer time over the cold starts.
-    pub cold_answer_ms: Vec<f64>,
-    pub cold_answer_p50_ms: Option<f64>,
+    /// Process start to the first answer, over the cold starts.
+    pub cold_ms: Vec<f64>,
+    pub cold_p50_ms: Option<f64>,
     /// Questions 2.. of round 1.
     pub warm_ms: Vec<f64>,
     pub warm_p50_ms: Option<f64>,
@@ -134,7 +140,12 @@ pub struct TierResult {
     pub cpu: Side,
     pub vulkan: Side,
     pub vulkan_full_offload: bool,
+    /// Rounded for reading; the gate uses the medians themselves.
     pub speedup_warm_p50: Option<f64>,
+    /// Every run of both backends ended well.
+    pub all_runs_ok: bool,
+    #[serde(skip)]
+    speedup_exact: Option<f64>,
     pub checks: Vec<Check>,
     pub all_pass: bool,
     /// `ok`, `failed` or `no-reference`.
@@ -167,10 +178,18 @@ pub struct Gate {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct IndexRun {
+    pub exe: Exe,
+    pub index: Index,
+    pub status: String,
+    pub embedder_offload: Option<Offload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Merged {
-    pub schema: &'static str,
     pub complete: bool,
     pub order: Vec<Job>,
+    pub indexes: Vec<IndexRun>,
     pub tiers: Vec<TierResult>,
     pub retrieval: Retrieval,
     pub gate: Gate,
@@ -183,12 +202,28 @@ pub fn merge(outcomes: &[Outcome], reference: Option<&Reference>, complete: bool
         .iter()
         .map(|&tier| tier_result(tier, outcomes, reference))
         .collect();
-    let retrieval = retrieval(outcomes);
+    let indexes: Vec<IndexRun> = [(Exe::Cpu, Index::A), (Exe::Vulkan, Index::B)]
+        .into_iter()
+        .map(|(exe, index)| {
+            let outcome = find(outcomes, Job::Index { exe, index });
+            IndexRun {
+                exe,
+                index,
+                status: outcome.map_or("missing".into(), |o| o.status.text()),
+                embedder_offload: outcome
+                    .filter(|o| o.status == Status::Ok)
+                    .and_then(|o| o.report.clone())
+                    .and_then(|v| serde_json::from_value::<IndexReport>(v).ok())
+                    .and_then(|r| r.embedder_offload),
+            }
+        })
+        .collect();
+    let retrieval = retrieval(outcomes, &indexes[1]);
     let gate = gate(complete, &tiers, &retrieval);
     Merged {
-        schema: SCHEMA,
         complete,
         order: outcomes.iter().map(|o| o.job).collect(),
+        indexes,
         tiers,
         retrieval,
         gate,
@@ -215,9 +250,9 @@ fn side(tier: Tier, exe: Exe, outcomes: &[Outcome]) -> (Side, Option<RunReport>)
         };
         let report = report(outcome);
         if outcome.status == Status::Ok
-            && let Some(q1) = report.results.first()
+            && let Some(ms) = outcome.first_answer_ms
         {
-            side.cold_answer_ms.push(q1.ms);
+            side.cold_ms.push(ms);
         }
         if round == 1 && outcome.status == Status::Ok {
             side.warm_ms = report.results.iter().skip(1).map(|a| a.ms).collect();
@@ -233,7 +268,7 @@ fn side(tier: Tier, exe: Exe, outcomes: &[Outcome]) -> (Side, Option<RunReport>)
             first = Some(report);
         }
     }
-    side.cold_answer_p50_ms = median(&side.cold_answer_ms);
+    side.cold_p50_ms = median(&side.cold_ms);
     side.warm_p50_ms = median(&side.warm_ms);
     (side, first)
 }
@@ -280,10 +315,13 @@ fn tier_result(tier: Tier, outcomes: &[Outcome], reference: Option<&Reference>) 
             .iter()
             .filter(|r| r.status == "ok")
             .all(|r| r.generator_offload.as_ref().is_some_and(Offload::is_full));
-    let speedup_warm_p50 = match (cpu.warm_p50_ms, vulkan.warm_p50_ms) {
-        (Some(c), Some(v)) if v > 0.0 => Some(round3(c / v)),
+    let speedup_exact = match (cpu.warm_p50_ms, vulkan.warm_p50_ms) {
+        (Some(c), Some(v)) if v > 0.0 => Some(c / v),
         _ => None,
     };
+    let all_runs_ok = [&cpu, &vulkan].iter().all(|side| {
+        side.runs.len() == usize::from(ROUNDS) && side.runs.iter().all(|r| r.status == "ok")
+    });
     let cpu_floor = match reference.and_then(|r| r.tiers.get(tier.name())) {
         None => "no-reference",
         Some(answers) if cpu_floor_holds(answers, cpu_answers) => "ok",
@@ -298,7 +336,9 @@ fn tier_result(tier: Tier, outcomes: &[Outcome], reference: Option<&Reference>) 
         cpu,
         vulkan,
         vulkan_full_offload,
-        speedup_warm_p50,
+        speedup_warm_p50: speedup_exact.map(round3),
+        all_runs_ok,
+        speedup_exact,
         checks,
         all_pass,
         cpu_floor,
@@ -329,7 +369,8 @@ fn cpu_floor_holds(reference: &[RefAnswer], cpu: &[Answer]) -> bool {
     found + 1 >= wanted && abstains && cpu.len() == reference.len()
 }
 
-fn retrieval(outcomes: &[Outcome]) -> Retrieval {
+/// Retrieval across the indexes; index B counts only when the GPU built it.
+fn retrieval(outcomes: &[Outcome], index_b: &IndexRun) -> Retrieval {
     let runs: Vec<RetrievalRun> = [
         (Exe::Cpu, Index::A),
         (Exe::Vulkan, Index::A),
@@ -368,7 +409,12 @@ fn retrieval(outcomes: &[Outcome]) -> Retrieval {
             .as_ref()
             .is_some_and(|o| o.layers_on_gpu > 0)
     });
+    let b_on_gpu = index_b
+        .embedder_offload
+        .as_ref()
+        .is_some_and(|o| o.layers_on_gpu > 0);
     let within_tolerance = gpu_used
+        && b_on_gpu
         && [cross_a_delta, cross_b_delta]
             .iter()
             .all(|d| d.is_some_and(|d| d.abs() <= RETRIEVAL_TOLERANCE + 1e-9));
@@ -389,6 +435,13 @@ fn gate(complete: bool, tiers: &[TierResult], retrieval: &Retrieval) -> Gate {
     if measured.is_empty() {
         failed.push("no tier was measured".into());
     }
+    // Only a tier that is not installed is exempt.
+    for tier in tiers
+        .iter()
+        .filter(|t| t.status != "measured" && t.status != "not-installed")
+    {
+        failed.push(format!("{}: {}", tier.tier, tier.status));
+    }
     for tier in measured {
         let name = tier.tier;
         let times = [&tier.cpu, &tier.vulkan].iter().all(|side| {
@@ -408,7 +461,10 @@ fn gate(complete: bool, tiers: &[TierResult], retrieval: &Retrieval) -> Gate {
         if !tier.all_pass {
             failed.push(format!("{name}: a GPU answer failed its checks"));
         }
-        if !tier.speedup_warm_p50.is_some_and(|s| s >= MIN_SPEEDUP) {
+        if !tier.all_runs_ok {
+            failed.push(format!("{name}: a run did not end well"));
+        }
+        if !tier.speedup_exact.is_some_and(|s| s >= MIN_SPEEDUP) {
             failed.push(format!(
                 "{name}: warm speed-up {:?} below {MIN_SPEEDUP}",
                 tier.speedup_warm_p50

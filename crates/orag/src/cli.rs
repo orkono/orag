@@ -117,6 +117,10 @@ pub enum EvalCommand {
         /// Exit when stdin closes (the desktop's GPU bench, v0.6).
         #[arg(long, hide = true)]
         exit_on_stdin_close: bool,
+        /// Place the embedder by itself, setting `gpu = "off"` aside (the
+        /// desktop's GPU bench, v0.6; `serve` keeps the setting).
+        #[arg(long, hide = true)]
+        gpu_auto: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -235,6 +239,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     rerank_window,
                     index_dir,
                     exit_on_stdin_close,
+                    gpu_auto,
                     dev_fake_models,
                 },
         } => {
@@ -258,6 +263,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     rerank_pin_leaders,
                     rerank_window,
                     index_dir: index_dir.as_deref(),
+                    gpu_auto,
                     dev_fake_models,
                 },
             )
@@ -456,6 +462,7 @@ fn run_eval_retrieval(
         rerank_pin_leaders,
         rerank_window,
         index_dir,
+        gpu_auto,
         dev_fake_models,
     } = options;
     if !(8..=50).contains(&rerank_depth) {
@@ -494,7 +501,7 @@ fn run_eval_retrieval(
     {
         anyhow::bail!("{} already exists; choose a new --out file", path.display());
     }
-    let (embedder, generator) = load_eval_models(dev_fake_models, no_context_budget)?;
+    let (embedder, generator) = load_eval_models(dev_fake_models, no_context_budget, gpu_auto)?;
     // Exclusively created and removed on drop; never touches pre-existing
     // paths. With --index-dir the index is kept there instead.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
@@ -558,6 +565,7 @@ struct EvalRetrievalOptions<'a> {
     rerank_pin_leaders: bool,
     rerank_window: Option<usize>,
     index_dir: Option<&'a std::path::Path>,
+    gpu_auto: bool,
     dev_fake_models: bool,
 }
 
@@ -680,12 +688,19 @@ type EvalModels = (
 /// The embedder, and the answer model when the context is budgeted (D-018). The
 /// answer model only counts tokens here; when it is not installed the context
 /// is scored unbudgeted and the report says so (`context budget: none`).
-fn load_eval_models(dev_fake_models: bool, no_context_budget: bool) -> anyhow::Result<EvalModels> {
+fn load_eval_models(
+    dev_fake_models: bool,
+    no_context_budget: bool,
+    gpu_auto: bool,
+) -> anyhow::Result<EvalModels> {
     if dev_fake_models {
         let (embedder, generator) = load_answer_models(true)?;
         return Ok((embedder, (!no_context_budget).then_some(generator)));
     }
-    let config = load_config()?;
+    let mut config = load_config()?;
+    if gpu_auto {
+        config.gpu = crate::gpu::GpuSetting::Auto;
+    }
     let embedder = crate::app::load_embedder(&config)?;
     if no_context_budget {
         return Ok((embedder, None));
