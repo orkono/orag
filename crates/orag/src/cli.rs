@@ -109,6 +109,11 @@ pub enum EvalCommand {
         /// many characters per chunk (100-4000).
         #[arg(long, hide = true)]
         rerank_window: Option<usize>,
+        /// Keep the index in this directory, or query the index a run
+        /// with the same directory left there (v0.6: one backend's index,
+        /// another's queries).
+        #[arg(long, hide = true)]
+        index_dir: Option<std::path::PathBuf>,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -221,6 +226,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     rerank_depth,
                     rerank_pin_leaders,
                     rerank_window,
+                    index_dir,
                     dev_fake_models,
                 },
         } => run_eval_retrieval(
@@ -239,6 +245,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                 rerank_depth,
                 rerank_pin_leaders,
                 rerank_window,
+                index_dir: index_dir.as_deref(),
                 dev_fake_models,
             },
         ),
@@ -432,6 +439,7 @@ fn run_eval_retrieval(
         rerank_depth,
         rerank_pin_leaders,
         rerank_window,
+        index_dir,
         dev_fake_models,
     } = options;
     if !(8..=50).contains(&rerank_depth) {
@@ -471,8 +479,21 @@ fn run_eval_retrieval(
         anyhow::bail!("{} already exists; choose a new --out file", path.display());
     }
     let (embedder, generator) = load_eval_models(dev_fake_models, no_context_budget)?;
-    // Exclusively created and removed on drop; never touches pre-existing paths.
+    // Exclusively created and removed on drop; never touches pre-existing
+    // paths. With --index-dir the index is kept there instead.
     let work = tempfile::Builder::new().prefix("orag-eval-").tempdir()?;
+    let (work_dir, reuse_index) = match index_dir {
+        Some(dir) => {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("--index-dir {}", dir.display()))?;
+            let reuse = dir.join("eval.db").exists();
+            if reuse {
+                eprintln!("reusing the index in {}", dir.display());
+            }
+            (dir, reuse)
+        }
+        None => (work.path(), false),
+    };
     let rerank = match rerank_model {
         None => None,
         Some(id) => {
@@ -495,12 +516,13 @@ fn run_eval_retrieval(
         embedder,
         corpus,
         &queries,
-        work.path(),
+        work_dir,
         config,
         crate::eval::retrieval::EvalRun {
             rank_depth,
             generator,
             rerank,
+            reuse_index,
         },
     )?;
     print_stdout(report.to_markdown().trim_end())?;
@@ -519,6 +541,7 @@ struct EvalRetrievalOptions<'a> {
     rerank_depth: usize,
     rerank_pin_leaders: bool,
     rerank_window: Option<usize>,
+    index_dir: Option<&'a std::path::Path>,
     dev_fake_models: bool,
 }
 

@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.4] - 2026-10-21
+
+- Step 85b: the gpu-retrieval workflow runs seed retrieval with the real embedder on `orag`, on `orag-vulkan` (Mesa's lavapipe as the GPU) and across them: a CPU-built index queried on the GPU and the reverse. Each must reach hybrid recall@10 0.9 with x-001..x-003 in the answer context and stay within 0.02 of the CPU run (`scripts/check-gpu-retrieval.sh`). `orag eval retrieval` gains a hidden `--index-dir` that keeps an index or reuses the one a run left there.
+
 ## [0.6.0-alpha.3] - 2026-10-21
 
 - Step 85: `orag-vulkan` puts each model on one GPU, fitted to its free memory by llama.cpp's fit with exactly the context the model then uses (embedder, generator, reranker), or loads it CPU-only with no GPU device at all. The device is decided once per process: `gpu = "off"` in `config.toml` (new key, default `"auto"`), then `ORAG_GPU_DEVICE`, then the automatic choice; a fit that finds no room, a fit with zero GPU layers, or a model or first context that cannot be allocated after the fit falls back to a CPU-only load with its reason. A mixture-of-experts fit that keeps expert tensors in host memory counts as a partial offload. CI checks every branch on Mesa's lavapipe. The CPU `orag` and macOS are unchanged.

@@ -1,0 +1,65 @@
+name: gpu-retrieval
+# Seed retrieval with the real embedder on orag and orag-vulkan, and across
+# them (v0.6 plan, Task 3 Steps 2 and 2b; scripts/check-gpu-retrieval.sh).
+# Mesa's lavapipe is the GPU: it proves the Vulkan path gives the same
+# retrieval, not its speed. It downloads the 640 MB embedder pack (cached),
+# so it runs only when the code it checks changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "step/**"]
+    paths:
+      - "crates/orag/src/infer/**"
+      - "crates/orag/src/gpu/**"
+      - "crates/orag/src/eval/**"
+      - "crates/orag/src/app.rs"
+      - "crates/orag/Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/check-gpu-retrieval.sh"
+      - "scripts/build-vulkan.sh"
+      - ".github/workflows/gpu-retrieval.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: gpu-retrieval
+      - uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
+        with:
+          vulkan_version: 1.4.363.0
+          cache: true
+          stripdown: true
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers jq
+      - run: cargo build --release --locked
+      - run: scripts/build-vulkan.sh --release
+      # Pinned revision and SHA-256 in fetch-model-pack.sh: the cache key.
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/packs
+          key: pack-qwen3-embedding-0.6b-q8_0-06507c7b4268
+      - name: Install the embedder
+        run: |
+          set -euo pipefail
+          packs="$RUNNER_TEMP/packs"
+          [ -d "$packs/qwen3-embedding-0.6b-q8_0" ] || scripts/fetch-model-pack.sh qwen3-embedding-0.6b-q8_0 "$packs"
+          mkdir -p "$RUNNER_TEMP/import-home"
+          ORAG_HOME="$RUNNER_TEMP/import-home" target/release/orag models import "$packs/qwen3-embedding-0.6b-q8_0"
+      - name: CPU, Vulkan (lavapipe) and mixed seed retrieval
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          GGML_VK_VISIBLE_DEVICES: "0"
+          ORAG_VULKAN_ALLOW_SOFTWARE: "1"
+        run: |
+          scripts/check-gpu-retrieval.sh target/release/orag target/vulkan/release/orag-vulkan \
+            "$RUNNER_TEMP/import-home/models" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

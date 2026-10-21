@@ -217,6 +217,7 @@ pub fn run_retrieval_eval_deep(
         rank_depth,
         generator,
         rerank: None,
+        reuse_index: false,
     };
     run_retrieval_eval_run(embedder, corpus, dataset, work_dir, config, run)
 }
@@ -229,6 +230,10 @@ pub struct EvalRun {
     pub generator: Option<Arc<dyn Generator>>,
     /// Reranks hybrid candidates (v0.4 candidate).
     pub rerank: Option<Rerank>,
+    /// Query the index an earlier run left in `work_dir` instead of
+    /// building one: its vectors stay as that run's embedder made them
+    /// (v0.6: indexed by `orag`, queried by `orag-vulkan`, and the reverse).
+    pub reuse_index: bool,
 }
 
 /// `run_retrieval_eval_deep` with an optional reranker.
@@ -244,6 +249,7 @@ pub fn run_retrieval_eval_run(
         rank_depth,
         generator,
         rerank,
+        reuse_index,
     } = run;
     if !(EVAL_DEPTH..=MAX_RANK_DEPTH).contains(&rank_depth) {
         return Err(OragError::InvalidInput(format!(
@@ -251,11 +257,20 @@ pub fn run_retrieval_eval_run(
         )));
     }
     let db = work_dir.join("eval.db");
-    if db.exists() {
-        return Err(OragError::InvalidInput(format!(
-            "{} already exists; use an empty work dir",
-            db.display()
-        )));
+    match (db.exists(), reuse_index) {
+        (true, false) => {
+            return Err(OragError::InvalidInput(format!(
+                "{} already exists; use an empty work dir",
+                db.display()
+            )));
+        }
+        (false, true) => {
+            return Err(OragError::InvalidInput(format!(
+                "no index to reuse at {}",
+                db.display()
+            )));
+        }
+        _ => {}
     }
     let store = Arc::new(Store::open(&db)?);
     let corpus_documents = index_corpus(&store, embedder.clone(), corpus)?;
