@@ -322,3 +322,26 @@ fn gone_within(pid: u32, limit: Duration) -> bool {
     }
     false
 }
+
+/// v0.6 step 88: the GPU bench pauses the supervisor and resumes it with
+/// the same policy, so a session that fell back to the CPU stays there even
+/// when its marker could not be written.
+#[test]
+fn a_paused_supervisor_resumes_with_the_session_fallback() {
+    let s = Setup::new();
+    let supervisor = s.start("exit:127,ready", "chosen:0", "ready");
+    assert!(fallback(&next(&supervisor), "loader-missing"));
+    assert!(is_ready(&next(&supervisor)));
+    // As if the marker could not be written: only the session knows.
+    std::fs::remove_file(s.home.path().join("gpu-fallback.json")).unwrap();
+    let backends = supervisor.pause().expect("the policy comes back");
+    let resumed = Supervisor::resume(backends);
+    assert!(is_ready(&next(&resumed)));
+    assert_eq!(
+        (Setup::starts(s.vulkan.path()), Setup::starts(s.cpu.path())),
+        (1, 2),
+        "the CPU again, no GPU start"
+    );
+    assert!(Setup::env(s.cpu.path(), 1).contains("reason=loader-missing"));
+    resumed.shutdown();
+}

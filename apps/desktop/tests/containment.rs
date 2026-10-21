@@ -99,3 +99,43 @@ fn killing_a_ready_app_stops_its_sidecar() {
 fn killing_the_app_right_after_spawn_stops_its_sidecar() {
     app_killed_hard_leaves_no_sidecar("spawned");
 }
+
+/// v0.6 step 88: a bench job outlives no killed app either. The fake app
+/// runs the bench on itself (`ORAG_DESKTOP_FAKE_EVAL=hang`), so this needs
+/// no staged sidecar.
+#[test]
+fn killing_the_app_during_a_bench_stops_the_running_job() {
+    use orag_desktop::fake::MODES_ENV;
+    use orag_desktop::fake_eval::EVAL_ENV;
+    let state = tempfile::tempdir().unwrap();
+    let mut app = Command::new(env!("CARGO_BIN_EXE_orag-desktop"))
+        .env(PARENT_ENV, "bench")
+        .env(MODES_ENV, "ready")
+        .env(STATE_ENV, state.path())
+        .env(EVAL_ENV, "ok,hang")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(app.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let pid: u32 = line
+        .strip_prefix("child ")
+        .unwrap_or_else(|| panic!("unexpected: {line:?}"))
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(alive(pid), "the job runs while the app does");
+    app.kill().unwrap();
+    app.wait().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while alive(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "bench job {pid} outlived the app"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
