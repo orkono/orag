@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.5] - 2026-10-21
+
+- Step 86: the desktop app chooses `orag-vulkan` or `orag` on every start (`apps/desktop/src/gpu.rs`): `gpu = "off"`, then a fallback marker (`gpu-fallback.json` in the service home, this version, under 7 days), then `orag-vulkan gpu-probe` (killed after 10 s). A GPU sidecar that never gets ready, hangs past the startup timeout or crashes a second time moves the session to the CPU, writes the marker and passes the reason in `ORAG_GPU_FALLBACK_REASON`; exit 75 restarts the same sidecar; exit 76 clears the marker and tries the GPU again. On Windows the app turns system error dialogs off before its first spawn, so a missing `vulkan-1.dll` shows none. Bundles do not carry `orag-vulkan` yet (step 86b).
+
 ## [0.6.0-alpha.4] - 2026-10-21
 
 - Step 85b: the gpu-retrieval workflow runs seed retrieval with the real embedder on `orag`, on `orag-vulkan` (Mesa's lavapipe as the GPU) and across them: a CPU-built index queried on the GPU and the reverse. Each must reach hybrid recall@10 0.9 with x-001..x-003 in the answer context and stay within 0.02 of the CPU run (`scripts/check-gpu-retrieval.sh`). `orag eval retrieval` gains a hidden `--index-dir` that keeps an index or reuses the one a run left there.

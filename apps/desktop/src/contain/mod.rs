@@ -16,10 +16,12 @@ use std::process::{Child, Command};
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
-mod windows;
+pub mod windows;
 
 /// Spawns `command` contained as the module documentation describes.
 pub fn spawn(command: &mut Command) -> io::Result<Child> {
+    #[cfg(windows)]
+    windows::quiet_errors();
     #[cfg(windows)]
     if let Err(err) = windows::enter_app_job() {
         // Not fatal: the stdin-close stop still ends the sidecar with the app.

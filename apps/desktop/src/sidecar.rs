@@ -14,6 +14,21 @@ pub fn bundled_name() -> &'static str {
     if cfg!(windows) { "orag.exe" } else { "orag" }
 }
 
+/// The GPU sidecar (`orag-vulkan`, v0.6) next to `orag`, when the bundle
+/// has one: Windows and Linux bundles do, macOS (Metal in `orag`) does not.
+pub fn vulkan_beside(orag: &Path) -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return None;
+    }
+    let name = if cfg!(windows) {
+        "orag-vulkan.exe"
+    } else {
+        "orag-vulkan"
+    };
+    let path = orag.parent()?.join(name);
+    path.is_file().then_some(path)
+}
+
 /// Resolves the sidecar path. `dev_override` is the value of
 /// `ORAG_DESKTOP_SIDECAR`, honoured only when `allow_override` is true.
 pub fn resolve(
@@ -47,6 +62,22 @@ mod tests {
             resolve(exe, None, false).unwrap(),
             Path::new("/Applications/ORAG.app/Contents/MacOS").join(bundled_name())
         );
+    }
+
+    #[test]
+    fn the_gpu_sidecar_is_used_only_when_the_bundle_has_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let orag = dir.path().join(bundled_name());
+        std::fs::write(&orag, "").unwrap();
+        assert_eq!(vulkan_beside(&orag), None);
+        let name = if cfg!(windows) {
+            "orag-vulkan.exe"
+        } else {
+            "orag-vulkan"
+        };
+        std::fs::write(dir.path().join(name), "").unwrap();
+        let expected = (!cfg!(target_os = "macos")).then(|| dir.path().join(name));
+        assert_eq!(vulkan_beside(&orag), expected);
     }
 
     #[test]

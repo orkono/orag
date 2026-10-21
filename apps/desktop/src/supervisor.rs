@@ -6,6 +6,11 @@
 //! crash) at most [`MAX_RESTARTS`] times within [`RESTART_WINDOW`], and stops
 //! it by closing its stdin (`--exit-on-stdin-close`), killing it only after
 //! [`SidecarSpec::stop_grace`].
+//!
+//! Which executable each start runs is a [`Backends`] policy: a single
+//! [`SidecarSpec`] always runs itself; `crate::gpu::GpuBackends` chooses
+//! between `orag-vulkan` and `orag` and can switch to the CPU when the GPU
+//! sidecar fails (v0.6 plan, G-3).
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -80,6 +85,49 @@ pub enum SidecarEvent {
     },
 }
 
+/// How one run ended, as the [`Backends`] policy sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ended {
+    /// It never became ready: it could not start, exited first (`code`),
+    /// or missed the startup timeout (`timed_out`; it was killed).
+    NotReady {
+        code: Option<i32>,
+        timed_out: bool,
+        message: String,
+    },
+    /// It exited after `Ready` with this code (None: killed by a signal).
+    Exited(Option<i32>),
+}
+
+/// What the supervisor does after a run ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// The usual handling: restart within the limit, or fail.
+    Default,
+    /// The policy moved to the CPU for this reason: start again with a fresh
+    /// restart count.
+    Fallback(String),
+    /// The policy was reset (the GPU retry): start again, fresh count.
+    Fresh,
+}
+
+/// Chooses the executable of each start and reacts to how runs end.
+pub trait Backends: Send + 'static {
+    fn next(&mut self) -> SidecarSpec;
+    fn ended(&mut self, ended: &Ended) -> Verdict;
+}
+
+/// One executable, always: the behaviour before v0.6.
+impl Backends for SidecarSpec {
+    fn next(&mut self) -> SidecarSpec {
+        self.clone()
+    }
+
+    fn ended(&mut self, _ended: &Ended) -> Verdict {
+        Verdict::Default
+    }
+}
+
 pub struct Supervisor {
     events: Receiver<SidecarEvent>,
     stop: Sender<()>,
@@ -89,13 +137,19 @@ pub struct Supervisor {
 
 impl Supervisor {
     pub fn start(spec: SidecarSpec) -> Supervisor {
+        Self::start_with(spec)
+    }
+
+    /// Supervises the executables `backends` chooses.
+    pub fn start_with(backends: impl Backends) -> Supervisor {
+        let mut backends = backends;
         let (events_tx, events) = mpsc::channel();
         let (stop, stop_rx) = mpsc::channel();
         let pid = Arc::new(AtomicU32::new(0));
         let thread_pid = pid.clone();
         let thread = std::thread::Builder::new()
             .name("sidecar-supervisor".into())
-            .spawn(move || run(&spec, &events_tx, &stop_rx, &thread_pid))
+            .spawn(move || run(&mut backends, &events_tx, &stop_rx, &thread_pid))
             .ok();
         if thread.is_none() {
             // The receiver is still here, so a failed spawn is reported, not lost.
@@ -162,17 +216,52 @@ enum RunEnd {
     Stopped,
     /// Could not be used; stop supervising.
     Fatal(String),
+    /// Missed the startup timeout and was killed.
+    TimedOut(String),
 }
 
-fn run(spec: &SidecarSpec, events: &Sender<SidecarEvent>, stop: &Receiver<()>, pid: &AtomicU32) {
+fn run(
+    backends: &mut dyn Backends,
+    events: &Sender<SidecarEvent>,
+    stop: &Receiver<()>,
+    pid: &AtomicU32,
+) {
     let mut restarts: Vec<Instant> = Vec::new();
     loop {
+        let spec = backends.next();
+        let spec = &spec;
         let tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL)));
+        let mut was_ready = false;
         let end = match crate::contain::spawn(&mut command(spec)) {
-            Ok(child) => run_once(spec, child, &tail, events, stop, pid),
+            Ok(child) => run_once(spec, child, &tail, events, stop, pid, &mut was_ready),
             Err(err) => RunEnd::Fatal(format!("could not start {}: {err}", spec.program.display())),
         };
         pid.store(0, Ordering::SeqCst);
+        if let Some(ended) = ended_of(&end, was_ready) {
+            match backends.ended(&ended) {
+                Verdict::Default => {}
+                Verdict::Fallback(reason) => {
+                    restarts.clear();
+                    let reason = format!("the GPU could not be used ({reason}); using the CPU");
+                    if events.send(SidecarEvent::Restarting { reason }).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                Verdict::Fresh => {
+                    restarts.clear();
+                    let reason = "trying the GPU again".to_string();
+                    if events.send(SidecarEvent::Restarting { reason }).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+            }
+        }
+        let end = match end {
+            RunEnd::TimedOut(message) => RunEnd::Fatal(message),
+            other => other,
+        };
         let reason = match end {
             RunEnd::Stopped => return,
             RunEnd::Fatal(message) => {
@@ -185,6 +274,7 @@ fn run(spec: &SidecarSpec, events: &Sender<SidecarEvent>, stop: &Receiver<()>, p
             RunEnd::Exited(Some(EXIT_RESTART)) => "loading the new models".to_string(),
             RunEnd::Exited(Some(code)) => format!("the service stopped (exit code {code})"),
             RunEnd::Exited(None) => "the service was ended by the system".to_string(),
+            RunEnd::TimedOut(_) => unreachable!("mapped to Fatal above"),
         };
         let now = Instant::now();
         restarts.retain(|at| now.duration_since(*at) < RESTART_WINDOW);
@@ -206,6 +296,29 @@ fn run(spec: &SidecarSpec, events: &Sender<SidecarEvent>, stop: &Receiver<()>, p
     }
 }
 
+/// The policy's view of a run's end; a stop is not shown to it.
+fn ended_of(end: &RunEnd, was_ready: bool) -> Option<Ended> {
+    Some(match (end, was_ready) {
+        (RunEnd::Stopped, _) => return None,
+        (RunEnd::Exited(code), true) => Ended::Exited(*code),
+        (RunEnd::Exited(code), false) => Ended::NotReady {
+            code: *code,
+            timed_out: false,
+            message: format!("exited before it was ready (exit code {code:?})"),
+        },
+        (RunEnd::TimedOut(message), _) => Ended::NotReady {
+            code: None,
+            timed_out: true,
+            message: message.clone(),
+        },
+        (RunEnd::Fatal(message), _) => Ended::NotReady {
+            code: None,
+            timed_out: false,
+            message: message.clone(),
+        },
+    })
+}
+
 fn command(spec: &SidecarSpec) -> Command {
     let mut command = Command::new(&spec.program);
     command
@@ -224,6 +337,7 @@ fn run_once(
     events: &Sender<SidecarEvent>,
     stop: &Receiver<()>,
     pid: &AtomicU32,
+    was_ready: &mut bool,
 ) -> RunEnd {
     pid.store(child.id(), Ordering::SeqCst);
     let stdin = child.stdin.take();
@@ -233,6 +347,7 @@ fn run_once(
         Ok(ready) => ready,
         Err(end) => return finish(spec, child, stdin, end),
     };
+    *was_ready = true;
     if events.send(ready).is_err() {
         return finish(spec, child, stdin, RunEnd::Stopped);
     }
@@ -299,16 +414,16 @@ fn wait_ready(
             return Err(RunEnd::Stopped);
         }
         if Instant::now() >= deadline {
-            let message = if api.is_some() {
-                "the service started without its web page (ui_bind is \"off\" in config.toml)"
-                    .to_string()
-            } else {
-                format!(
-                    "the service did not start within {} s",
-                    spec.startup_timeout.as_secs()
-                )
-            };
-            return Err(RunEnd::Fatal(message));
+            if api.is_some() {
+                return Err(RunEnd::Fatal(
+                    "the service started without its web page (ui_bind is \"off\" in config.toml)"
+                        .to_string(),
+                ));
+            }
+            return Err(RunEnd::TimedOut(format!(
+                "the service did not start within {} s",
+                spec.startup_timeout.as_secs()
+            )));
         }
     }
 }

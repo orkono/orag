@@ -9,12 +9,18 @@
 //! `api-only` (only the listening line), `hang` (no output, never exits),
 //! `stubborn` (both lines, ignores stdin closing), `mute` (closes stdout
 //! without a line and keeps running until stdin closes).
+//!
+//! Each start also writes `env-<run>` (the GPU variables it was given), and
+//! `orag-vulkan gpu-probe` is answered from `ORAG_DESKTOP_FAKE_PROBE`:
+//! `chosen:N`, `none`, `exit:N` or `hang` (writes `probe-pid` first; the
+//! probe does not count as a start).
 
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
 pub const MODES_ENV: &str = "ORAG_DESKTOP_FAKE_SIDECAR";
+pub const PROBE_ENV: &str = "ORAG_DESKTOP_FAKE_PROBE";
 pub const STATE_ENV: &str = "ORAG_DESKTOP_FAKE_STATE";
 /// A stand-in for the app instead: supervises the real `orag` at this path
 /// (home `ORAG_DESKTOP_FAKE_STATE`, fake models), prints `child <pid>` as soon
@@ -33,10 +39,28 @@ pub fn run_if_requested() -> Option<i32> {
     }
     let modes = std::env::var(MODES_ENV).ok()?;
     let state = std::env::var(STATE_ENV).ok()?;
+    if std::env::args().nth(1).as_deref() == Some("gpu-probe") {
+        return Some(probe(Path::new(&state)));
+    }
     let run = next_run(Path::new(&state));
     let modes: Vec<&str> = modes.split(',').collect();
     let mode = modes[run.min(modes.len() - 1)];
     Some(behave(mode, run))
+}
+
+fn probe(state: &Path) -> i32 {
+    let _ = std::fs::write(state.join("probe-pid"), std::process::id().to_string());
+    let mode = std::env::var(PROBE_ENV).unwrap_or_else(|_| "none".into());
+    let (name, arg) = mode.split_once(':').unwrap_or((mode.as_str(), ""));
+    match name {
+        "chosen" => println!("{{\"backend\":\"vulkan\",\"devices\":[],\"chosen\":{arg}}}"),
+        "exit" => return arg.parse().unwrap_or(1),
+        "hang" => loop {
+            std::thread::sleep(Duration::from_secs(60));
+        },
+        _ => println!("{{\"backend\":\"vulkan\",\"devices\":[],\"chosen\":null}}"),
+    }
+    0
 }
 
 fn next_run(state: &Path) -> usize {
@@ -49,6 +73,21 @@ fn next_run(state: &Path) -> usize {
     let _ = std::fs::write(
         state.join(format!("pid-{run}")),
         std::process::id().to_string(),
+    );
+    let var = |key: &str| std::env::var(key).unwrap_or_default();
+    let _ = std::fs::write(
+        state.join(format!("env-{run}")),
+        format!(
+            "device={}\nreason={}\nretry={}\n",
+            var(crate::gpu::GPU_DEVICE_ENV),
+            var(crate::gpu::FALLBACK_REASON_ENV),
+            var(crate::gpu::GPU_RETRY_ENV)
+        ),
+    );
+    #[cfg(windows)]
+    let _ = std::fs::write(
+        state.join(format!("error-mode-{run}")),
+        crate::contain::windows::error_mode().to_string(),
     );
     run
 }

@@ -4,6 +4,7 @@
 pub mod app;
 pub mod contain;
 pub mod fake;
+pub mod gpu;
 pub mod home;
 pub mod prefs;
 pub mod sidecar;
