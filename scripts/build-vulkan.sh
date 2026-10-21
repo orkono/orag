@@ -24,6 +24,12 @@ case "$(uname -s)" in
     command -v ninja >/dev/null || { echo "ninja not found" >&2; exit 2; }
     command -v cl >/dev/null || { echo "cl.exe not on PATH: run from an MSVC developer environment" >&2; exit 2; }
     export CMAKE_GENERATOR=Ninja
+    # With the MSVC environment on PATH in Git Bash, Git's own /usr/bin/link
+    # still shadows MSVC's link.exe; name the linker next to cl.exe.
+    if [ -z "${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER:-}" ]; then
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$(dirname "$(command -v cl)")/link.exe")
+      export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER
+    fi
     ;;
   Darwin) echo "orag-vulkan is not built on macOS (Metal is in orag)" >&2; exit 2 ;;
 esac

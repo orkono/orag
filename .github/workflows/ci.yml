@@ -118,9 +118,12 @@ jobs:
         with:
           arch: x64
       # Every later cargo step reuses the same llama.cpp build directory, so they
-      # all need the generator build-vulkan.sh uses.
+      # all need the generator and linker build-vulkan.sh uses.
       - if: startsWith(matrix.os, 'windows')
-        run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+        run: |
+          echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+          # Git's /usr/bin/link shadows MSVC's link.exe in Git Bash.
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$(dirname "$(command -v cl)")/link.exe")" >> "$GITHUB_ENV"
       # The loader a user's driver installs, at the system path the allow-list
       # accepts (the SDK's own copy is only for building).
       - if: startsWith(matrix.os, 'ubuntu')
