@@ -41,7 +41,30 @@ jobs:
       # Builds the release binary and checks Metal (macOS) and no OpenMP.
       - run: scripts/check-llama-build.sh --release
       - run: scripts/check-binary-deps.sh "target/release/orag$EXE" --release-floor
-      # Only the binary that passed the checks above, in this run, is uploaded.
+      # Windows and Linux also ship orag-vulkan (v0.6, D-001): in the CLI
+      # archive and beside orag in the desktop bundle. Built with the Vulkan
+      # SDK (Windows: Ninja and the MSVC environment, MSVC's linker named for
+      # every later cargo step); its only extra import is the Vulkan loader.
+      - if: ${{ !startsWith(matrix.os, 'macos') }}
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
+        with:
+          vulkan_version: 1.4.363.0
+          stripdown: true
+      - if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        with:
+          arch: x64
+      - if: startsWith(matrix.os, 'windows')
+        run: echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$(dirname "$(command -v cl)")/link.exe")" >> "$GITHUB_ENV"
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1
+      - if: ${{ !startsWith(matrix.os, 'macos') }}
+        run: |
+          scripts/build-vulkan.sh --release
+          # The SDK action points LD_LIBRARY_PATH at its own loader; a user's
+          # system has only the distribution's.
+          env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan
+      # Only the binaries that passed the checks above, in this run, are uploaded.
       - name: Name the artifact
         id: name
         run: |
@@ -54,6 +77,9 @@ jobs:
           dir="${{ steps.name.outputs.artifact }}"
           mkdir -p "dist/$dir/docs" "dist/$dir/assets"
           cp "target/release/orag$EXE" "dist/$dir/orag$EXE"
+          if [ "$RUNNER_OS" != macOS ]; then
+            cp "target/vulkan/release/orag-vulkan$EXE" "dist/$dir/orag-vulkan$EXE"
+          fi
           cp LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "dist/$dir/"
           cp docs/api.md "dist/$dir/docs/"
           cp assets/orag-icon.svg "dist/$dir/assets/"   # the README's header image
@@ -63,10 +89,14 @@ jobs:
             (cd dist && 7z a -tzip -bso0 "$dir.zip" "$dir")
             # 7-Zip lists Windows paths with backslashes and CRLF line ends.
             7z l "dist/$dir.zip" | tr -d '\r' | tr '\\' / | grep -qE " $dir/orag\.exe$"
+            7z l "dist/$dir.zip" | tr -d '\r' | tr '\\' / | grep -qE " $dir/orag-vulkan\.exe$"
             echo "file=$dir.zip" >> "$GITHUB_ENV"
           else
             tar -C dist -czf "dist/$dir.tar.gz" "$dir"
             tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag$' | grep -q '^-rwx'
+            if [ "$RUNNER_OS" = Linux ]; then
+              tar -tzvf "dist/$dir.tar.gz" | grep -E ' [^ ]*/orag-vulkan$' | grep -q '^-rwx'
+            fi
             echo "file=$dir.tar.gz" >> "$GITHUB_ENV"
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -124,17 +154,27 @@ jobs:
           fi
           cargo install tauri-cli --version 2.12.3 --locked
           scripts/stage-sidecar.sh
-          scripts/check-binary-deps.sh apps/desktop/binaries/orag-*$EXE --release-floor
+          for bin in apps/desktop/binaries/orag-*$EXE; do
+            case "$bin" in
+              */orag-vulkan-*) env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "$bin" --release-floor --vulkan ;;
+              *) scripts/check-binary-deps.sh "$bin" --release-floor ;;
+            esac
+          done
           case "$RUNNER_OS" in
             macOS) bundles=dmg ;;
             Windows) bundles=nsis ;;
             *) bundles=appimage,deb ;;
           esac
           (cd apps/desktop && cargo tauri build --bundles "$bundles" -- --locked)
+          # Windows and Linux: the app tries orag-vulkan first and, on a
+          # runner without a GPU, runs the CPU with the reason in its marker
+          # (desktop.yml's missing-loader job covers a PC without Vulkan).
+          gpu=()
+          if [ "$RUNNER_OS" != macOS ]; then gpu=(--expect-gpu-fallback); fi
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a scripts/smoke-desktop.sh "target/release/orag-desktop"
+            env -u LD_LIBRARY_PATH xvfb-run -a scripts/smoke-desktop.sh "target/release/orag-desktop" "${gpu[@]}"
           else
-            scripts/smoke-desktop.sh "target/release/orag-desktop$EXE"
+            scripts/smoke-desktop.sh "target/release/orag-desktop$EXE" "${gpu[@]}"
           fi
           mkdir -p desktop-dist
           find target/release/bundle \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.AppImage' -o -name '*.deb' \) \
