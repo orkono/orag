@@ -870,9 +870,19 @@ fn the_gpu_retry_exits_76_only_for_the_desktop_app() {
         ],
     );
     let version = http_get(&addr, "/v1/version", &addr);
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        // Metal: the models are on the GPU; nothing falls back, nothing to retry.
-        assert!(version.contains(r#""backend":"metal""#), "{version}");
+    let build = orag::gpu::Build::current();
+    if build != orag::gpu::Build::Cpu {
+        // Metal and `orag-vulkan` are not the desktop's CPU fallback sidecar:
+        // only that one offers the retry.
+        let backend = if build == orag::gpu::Build::Metal {
+            "metal"
+        } else {
+            "vulkan"
+        };
+        assert!(
+            version.contains(&format!(r#""backend":"{backend}""#)),
+            "{version}"
+        );
         assert!(version.contains(r#""retry":false"#), "{version}");
         assert!(post_gpu_retry(&addr).starts_with("HTTP/1.1 409"));
         assert!(desktop.child.try_wait().unwrap().is_none(), "still serving");

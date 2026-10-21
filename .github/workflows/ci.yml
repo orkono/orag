@@ -146,6 +146,7 @@ jobs:
           CARGO_TARGET_DIR: target/vulkan
         run: |
           cargo test --release --locked -p orag --features vulkan --test cli gpu_probe
+          cargo test --release --locked -p orag --features vulkan --test cli the_gpu_retry_exits_76
           cargo test --release --locked -p orag --features vulkan --lib -- gpu:: infer::llama::fit infer::llama::offload
       # The shipped executable itself calls the fit (plan Task 1, Step 0b),
       # and its import table is the one checked.
