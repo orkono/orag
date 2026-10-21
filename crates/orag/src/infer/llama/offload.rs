@@ -39,6 +39,14 @@ pub(crate) fn test_context_failure() -> bool {
     test_hook() == Some(TestHook::ContextFailure)
 }
 
+/// A CPU-only model's parameters: no layer and no device for the GPU.
+pub(crate) fn cpu_params() -> Result<LlamaModelParams> {
+    LlamaModelParams::default()
+        .with_n_gpu_layers(0)
+        .with_devices(&[])
+        .map_err(model_error)
+}
+
 /// The model parameters a fit starts from: llama.cpp's defaults (the fit
 /// changes only fields still at their default), restricted to one device.
 pub(crate) fn gpu_params(index: usize) -> Result<LlamaModelParams> {
@@ -101,10 +109,7 @@ fn cpu_only(path: &Path, reason: &'static str) -> Result<Loaded> {
         "gpu_offload=none: cpu-only load of {}",
         path.display()
     );
-    let params = LlamaModelParams::default()
-        .with_n_gpu_layers(0)
-        .with_devices(&[])
-        .map_err(model_error)?;
+    let params = cpu_params()?;
     let model = LlamaModel::load_from_file(backend()?, path, &params).map_err(model_error)?;
     let layers_total = offloadable_layers(&model);
     Ok(Loaded {

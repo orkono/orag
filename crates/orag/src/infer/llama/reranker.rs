@@ -63,8 +63,12 @@ impl LlamaReranker {
     }
 
     /// Checks the loaded model. On a GPU it also creates and drops one
-    /// scoring context, so a context that does not fit fails here, where the
-    /// load can still retry CPU-only, and not on the first call.
+    /// scoring context, so a context that does not fit at load time retries
+    /// CPU-only here. Each `score` call creates its own context (a context
+    /// borrows the model, so it cannot be kept beside it); GPU memory taken
+    /// by another program after the load makes that call fail with an
+    /// error, as any other model error. The reranker runs only in
+    /// evaluations (D-005), not in `serve`.
     fn start(
         installed: &InstalledModel,
         spec: &RerankerSpec,

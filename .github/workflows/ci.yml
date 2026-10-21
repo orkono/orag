@@ -150,4 +150,15 @@ jobs:
         run: scripts/check-gpu-probe.sh target/vulkan/release/orag-vulkan
       - if: startsWith(matrix.os, 'ubuntu')
         run: scripts/check-gpu-offload.sh target/vulkan/release/orag-vulkan test-fixtures/stories260K.gguf
+      # The real role loaders on lavapipe, one test at a time (the fit and the
+      # test hooks are process-wide).
+      - if: startsWith(matrix.os, 'ubuntu')
+        env:
+          CARGO_TARGET_DIR: target/vulkan
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          GGML_VK_VISIBLE_DEVICES: "0"
+          ORAG_VULKAN_ALLOW_SOFTWARE: "1"
+          ORAG_REQUIRE_GPU: "1"
+        run: cargo test --release --locked -p orag --features vulkan --test gpu_offload -- --test-threads=1
       - run: env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan
