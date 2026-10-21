@@ -108,7 +108,11 @@ jobs:
         with:
           vulkan_version: 1.4.363.0
           install_runtime: ${{ startsWith(matrix.os, 'windows') }}
-          cache: true
+          # Not on Windows: the action's cache key does not say whether the
+          # runtime is in it, and an SDK cached without it (a restored cache
+          # also skips the installer's System32 copy) leaves orag-vulkan.exe
+          # unable to start. A Windows cache that holds it cannot be told apart.
+          cache: ${{ !startsWith(matrix.os, 'windows') }}
           stripdown: true
       - if: startsWith(matrix.os, 'windows')
         run: echo "$VULKAN_SDK/runtime/x64" >> "$GITHUB_PATH"
