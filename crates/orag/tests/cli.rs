@@ -740,6 +740,20 @@ fn gpu_probe_fit_runs_only_in_the_vulkan_build() {
         let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
         assert_eq!(json["backend"], "vulkan");
         assert!(json["fit"].as_str().is_some_and(|fit| !fit.is_empty()));
+        // A missing model is the fit's own error, reported as a value, not
+        // a crash. Each fit runs in its own process: llama.cpp's fit swaps
+        // the process-wide logger and is not thread-safe.
+        let missing = orag()
+            .args(["gpu-probe", "--fit", "/nonexistent/model.gguf"])
+            .output()
+            .expect("run orag");
+        assert!(
+            missing.status.success(),
+            "{}",
+            String::from_utf8_lossy(&missing.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&missing.stdout).expect("json");
+        assert_eq!(json["fit"], "error");
     } else {
         assert!(!out.status.success());
         let stderr = String::from_utf8_lossy(&out.stderr);

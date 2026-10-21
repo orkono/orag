@@ -140,7 +140,6 @@ jobs:
       - env:
           CARGO_TARGET_DIR: target/vulkan
         run: |
-          cargo test --release --locked -p orag --features vulkan --lib infer::llama::fit
           cargo test --release --locked -p orag --features vulkan --test cli gpu_probe
       # The shipped executable itself calls the fit (plan Task 1, Step 0b),
       # and its import table is the one checked.

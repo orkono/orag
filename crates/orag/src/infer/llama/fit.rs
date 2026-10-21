@@ -38,7 +38,9 @@ impl FitOutcome {
 }
 
 /// Runs one fit of `path` with default parameters and a context of
-/// `n_ctx` tokens. Every outcome of the fit itself is returned as a value;
+/// `n_ctx` tokens. Not thread-safe: llama.cpp's fit swaps the process-wide
+/// logger, so callers run one fit at a time (its tests run it in a child
+/// process, `tests/cli.rs`). Every outcome of the fit itself is returned as a value;
 /// only a path that cannot be passed to C or a backend that does not start
 /// is an error.
 pub fn fit_once(path: &Path, n_ctx: u32) -> Result<FitOutcome> {
@@ -63,38 +65,4 @@ pub fn fit_once(path: &Path, n_ctx: u32) -> Result<FitOutcome> {
         Err(FitError::Failure) => FitOutcome::DoesNotFit,
         Err(FitError::Error) => FitOutcome::Failed,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fixture() -> Option<std::path::PathBuf> {
-        let gguf =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-fixtures/stories260K.gguf");
-        if gguf.exists() {
-            return Some(gguf);
-        }
-        assert!(
-            std::env::var_os("ORAG_REQUIRE_FIXTURES").is_none(),
-            "missing {}",
-            gguf.display()
-        );
-        None
-    }
-
-    #[test]
-    fn the_fit_links_and_returns_an_outcome_for_the_fixture() {
-        let Some(gguf) = fixture() else { return };
-        // Any outcome proves the link; on a machine with no GPU device the
-        // routine still answers.
-        let outcome = fit_once(&gguf, 256).unwrap();
-        assert!(!outcome.label().is_empty());
-    }
-
-    #[test]
-    fn a_missing_model_is_a_fit_error_not_a_panic() {
-        let outcome = fit_once(Path::new("/nonexistent/model.gguf"), 256).unwrap();
-        assert_eq!(outcome, FitOutcome::Failed);
-    }
 }
