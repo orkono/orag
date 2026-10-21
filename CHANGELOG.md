@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.9] - 2026-10-21
+
+- Step 88b: the desktop app's GPU bench core (`apps/desktop/src/bench`), not wired to a button yet: the run order (index A on the CPU, per tier three paired CPU/Vulkan rounds, index B on the GPU, retrieval across both indexes in both directions) with its skip rules; each job as a contained child with `--exit-on-stdin-close`, a 2 h timeout, answer-line progress and its report; the merge into `orag-bench/1` (cold and warm medians, warm speed-up, the per-fact pass rule, unanswerable questions by abstention, the CPU floor against a reference, retrieval within 0.02, full offload, and the gate inputs); the v0.2 corpus, the 10 bench questions and the retrieval labels built into the desktop app only; the results file written whole through a temp file. The supervisor can pause and resume with the same GPU policy, so a session's CPU fallback survives the bench. `orag eval bench --index-only` needs only the embedder; `orag eval retrieval` takes a hidden `--exit-on-stdin-close`.
+
 ## [0.6.0-alpha.8] - 2026-10-21
 
 - Step 88a: a hidden `orag eval bench` runs the GPU bench's fixed questions (`eval/datasets/v06-bench.jsonl`, 10 v0.2 dev lines) on one backend for one tier: `--build-index --index-only` builds the index once, later runs reuse it with nothing embedded again, `--first-only` answers only the first question for another cold start. It prints one JSON line per answer, writes a run report (build, models, sampler, load time, both models' offload, every answer with `found_facts`), reports a tier whose models are not installed as `not-installed`, sets `gpu = "off"` aside, and exits when stdin closes with `--exit-on-stdin-close`. Answer eval results gain `found_facts`: which expected texts were found, by index.

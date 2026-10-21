@@ -34,12 +34,23 @@ pub fn run_if_requested() -> Option<i32> {
     if !cfg!(debug_assertions) {
         return None;
     }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // A bench job of the fake app (below) inherits its PARENT_ENV.
+    if args.first().map(String::as_str) == Some("eval")
+        && let Ok(state) = std::env::var(STATE_ENV)
+    {
+        return Some(crate::fake_eval::eval(Path::new(&state), &args));
+    }
     if let Ok(orag) = std::env::var(PARENT_ENV) {
-        return Some(parent(&orag));
+        return Some(if orag == "bench" {
+            bench_parent()
+        } else {
+            parent(&orag)
+        });
     }
     let modes = std::env::var(MODES_ENV).ok()?;
     let state = std::env::var(STATE_ENV).ok()?;
-    if std::env::args().nth(1).as_deref() == Some("gpu-probe") {
+    if args.first().map(String::as_str) == Some("gpu-probe") {
         return Some(probe(Path::new(&state)));
     }
     let run = next_run(Path::new(&state));
@@ -171,6 +182,50 @@ fn parent(orag: &str) -> i32 {
     }
     loop {
         std::thread::sleep(Duration::from_secs(60));
+    }
+}
+
+/// The fake app running the bench on itself (`PARENT_ENV=bench`): prints
+/// `child <pid>` once a job hangs (`eval-pid` in the state folder) and
+/// waits to be killed.
+fn bench_parent() -> i32 {
+    let Ok(state) = std::env::var(STATE_ENV) else {
+        return 2;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return 2;
+    };
+    let state = std::path::PathBuf::from(state);
+    let bench = crate::bench::Bench {
+        cpu: exe.clone(),
+        vulkan: exe,
+        home: state.clone(),
+        data: state.clone(),
+        app_version: "fake".into(),
+        reference: None,
+        timeout: Duration::from_secs(600),
+        extra_args: Vec::new(),
+    };
+    std::thread::spawn(move || {
+        let _ = bench.run(
+            "fake",
+            || crate::gpu::ProbeOutcome::Chosen(0),
+            &|| false,
+            &mut |_| {},
+        );
+    });
+    let pid_file = state.join("eval-pid");
+    loop {
+        if let Ok(pid) = std::fs::read_to_string(&pid_file)
+            && std::fs::read_to_string(state.join("eval-starts")).is_ok_and(|n| n.trim() == "2")
+        {
+            println!("child {}", pid.trim());
+            let _ = std::io::stdout().flush();
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 

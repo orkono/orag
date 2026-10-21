@@ -114,6 +114,9 @@ pub enum EvalCommand {
         /// another's queries).
         #[arg(long, hide = true)]
         index_dir: Option<std::path::PathBuf>,
+        /// Exit when stdin closes (the desktop's GPU bench, v0.6).
+        #[arg(long, hide = true)]
+        exit_on_stdin_close: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
@@ -231,28 +234,34 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     rerank_pin_leaders,
                     rerank_window,
                     index_dir,
+                    exit_on_stdin_close,
                     dev_fake_models,
                 },
-        } => run_eval_retrieval(
-            &corpus,
-            &dataset,
-            out.as_deref(),
-            EvalGates {
-                min_recall_at_10,
-                require_in_context,
-            },
-            EvalRetrievalOptions {
-                lexical_query: lexical_query.as_deref(),
-                rank_depth,
-                no_context_budget,
-                rerank_model: rerank_model.as_deref(),
-                rerank_depth,
-                rerank_pin_leaders,
-                rerank_window,
-                index_dir: index_dir.as_deref(),
-                dev_fake_models,
-            },
-        ),
+        } => {
+            if exit_on_stdin_close {
+                crate::eval::bench::exit_when_stdin_closes();
+            }
+            run_eval_retrieval(
+                &corpus,
+                &dataset,
+                out.as_deref(),
+                EvalGates {
+                    min_recall_at_10,
+                    require_in_context,
+                },
+                EvalRetrievalOptions {
+                    lexical_query: lexical_query.as_deref(),
+                    rank_depth,
+                    no_context_budget,
+                    rerank_model: rerank_model.as_deref(),
+                    rerank_depth,
+                    rerank_pin_leaders,
+                    rerank_window,
+                    index_dir: index_dir.as_deref(),
+                    dev_fake_models,
+                },
+            )
+        }
         Command::Eval {
             command:
                 EvalCommand::VectorScale {

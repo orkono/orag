@@ -134,7 +134,8 @@ pub struct Supervisor {
     events: Receiver<SidecarEvent>,
     stop: Sender<()>,
     pid: Arc<AtomicU32>,
-    thread: Option<JoinHandle<()>>,
+    /// Hands the policy back when supervising ends ([`Supervisor::pause`]).
+    thread: Option<JoinHandle<Box<dyn Backends>>>,
 }
 
 impl Supervisor {
@@ -144,6 +145,12 @@ impl Supervisor {
 
     /// Supervises the executables `backends` chooses.
     pub fn start_with(backends: impl Backends) -> Supervisor {
+        Self::resume(Box::new(backends))
+    }
+
+    /// Supervises with a policy a [`Supervisor::pause`] handed back: its
+    /// session state (a CPU fallback, crash counts) carries on.
+    pub fn resume(backends: Box<dyn Backends>) -> Supervisor {
         let mut backends = backends;
         let (events_tx, events) = mpsc::channel();
         let (stop, stop_rx) = mpsc::channel();
@@ -151,7 +158,10 @@ impl Supervisor {
         let thread_pid = pid.clone();
         let thread = std::thread::Builder::new()
             .name("sidecar-supervisor".into())
-            .spawn(move || run(&mut backends, &events_tx, &stop_rx, &thread_pid))
+            .spawn(move || {
+                run(backends.as_mut(), &events_tx, &stop_rx, &thread_pid);
+                backends
+            })
             .ok();
         if thread.is_none() {
             // The receiver is still here, so a failed spawn is reported, not lost.
@@ -196,11 +206,16 @@ impl Supervisor {
         self.stop_and_join();
     }
 
-    fn stop_and_join(&mut self) {
+    /// Stops the service like [`Supervisor::shutdown`] and hands back the
+    /// policy for [`Supervisor::resume`] (the GPU bench, v0.6 step 88);
+    /// None when the supervisor thread never ran or panicked.
+    pub fn pause(mut self) -> Option<Box<dyn Backends>> {
+        self.stop_and_join()
+    }
+
+    fn stop_and_join(&mut self) -> Option<Box<dyn Backends>> {
         let _ = self.stop.send(());
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        self.thread.take().and_then(|thread| thread.join().ok())
     }
 }
 

@@ -2,8 +2,10 @@
 //! shows its built-in page in a window.
 
 pub mod app;
+pub mod bench;
 pub mod contain;
 pub mod fake;
+pub mod fake_eval;
 pub mod gpu;
 pub mod home;
 pub mod prefs;

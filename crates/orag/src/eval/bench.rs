@@ -221,7 +221,7 @@ fn bench_run(args: &BenchArgs) -> anyhow::Result<BenchRun> {
     let tier_id = tier_model(&args.tier)?;
     let probes = crate::eval::answers::load_probes(&args.dataset)
         .with_context(|| format!("dataset {}", args.dataset.display()))?;
-    let run = match load_models(tier_id, args.dev_fake_models)? {
+    let run = match load_models(tier_id, args.index_only, args.dev_fake_models)? {
         Err(missing) => BenchRun::not_installed(&args.tier, &missing),
         Ok(models) => {
             let questions = if args.index_only {
@@ -271,10 +271,12 @@ fn tier_model(name: &str) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("no offered {name} tier"))
 }
 
-/// The tier's models, or the id of the first one not installed. The bench
-/// places by its own probe: `gpu = "off"` is set aside on this path only.
+/// The tier's models, or the id of the first one not installed; an
+/// index-only run needs the embedder only. The bench places by its own
+/// probe: `gpu = "off"` is set aside on this path only.
 fn load_models(
     tier_id: String,
+    index_only: bool,
     fake: bool,
 ) -> anyhow::Result<std::result::Result<BenchModels, String>> {
     let started = std::time::Instant::now();
@@ -290,10 +292,11 @@ fn load_models(
     config.generation_model = tier_id;
     config.gpu = crate::gpu::GpuSetting::Auto;
     use crate::infer::models::ModelRole;
-    for (id, role) in [
-        (&config.embedding_model, ModelRole::Embedding),
-        (&config.generation_model, ModelRole::Generation),
-    ] {
+    let mut needed = vec![(&config.embedding_model, ModelRole::Embedding)];
+    if !index_only {
+        needed.push((&config.generation_model, ModelRole::Generation));
+    }
+    for (id, role) in needed {
         match crate::infer::models::find_model(&config.models_dir(), id, role) {
             Ok(_) => {}
             Err(crate::error::OragError::ModelNotInstalled { .. }) => return Ok(Err(id.clone())),
@@ -301,7 +304,13 @@ fn load_models(
         }
     }
     let embedder = crate::app::load_embedder(&config)?;
-    let generator = crate::app::load_generator(&config)?;
+    let generator: Arc<dyn Generator> = if index_only {
+        Arc::new(crate::infer::missing::MissingGenerator::new(
+            &config.generation_model,
+        ))
+    } else {
+        crate::app::load_generator(&config)?
+    };
     Ok(Ok(BenchModels {
         embedder,
         generator,
@@ -310,7 +319,7 @@ fn load_models(
 }
 
 /// The desktop stops a bench child by closing its stdin, like the sidecar.
-fn exit_when_stdin_closes() {
+pub fn exit_when_stdin_closes() {
     std::thread::spawn(|| {
         let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
         std::process::exit(EXIT_STDIN_CLOSED);
