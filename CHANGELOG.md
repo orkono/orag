@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.8] - 2026-10-21
+
+- Step 88a: a hidden `orag eval bench` runs the GPU bench's fixed questions (`eval/datasets/v06-bench.jsonl`, 10 v0.2 dev lines) on one backend for one tier: `--build-index --index-only` builds the index once, later runs reuse it with nothing embedded again, `--first-only` answers only the first question for another cold start. It prints one JSON line per answer, writes a run report (build, models, sampler, load time, both models' offload, every answer with `found_facts`), reports a tier whose models are not installed as `not-installed`, sets `gpu = "off"` aside, and exits when stdin closes with `--exit-on-stdin-close`. Answer eval results gain `found_facts`: which expected texts were found, by index.
+
 ## [0.6.0-alpha.7] - 2026-10-21
 
 - Step 87: `GET /v1/version` and `GET /v1/models` report `gpu` (backend, whether the answer model is on a graphics card and how much of it, the card, and why not), computed from where the model was really loaded; the desktop's fallback reason only fills `reason`. The page's sidebar shows the graphics card line, the last answer's time and where it ran, and "Ekran kartını yeniden dene" after a desktop fallback: `POST /v1/system/gpu-retry` exits with 76 for the desktop app to try the card again, and answers 409 anywhere else (`orag start` removes `ORAG_GPU_RETRY` from its child). `speed.gpu_p50_answer_s` is `null` until it is measured on a real card.

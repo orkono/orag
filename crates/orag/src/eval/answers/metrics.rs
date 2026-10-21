@@ -36,19 +36,8 @@ pub fn score_answer(
     invalid_citations: usize,
     cited_texts: &[String],
 ) -> AnswerScore {
-    let answer = normalized(answer);
     let alternatives = |text: &str| text.split('|').map(normalized).collect::<Vec<_>>();
-    // A refusal does not give the fact, even when it quotes it in passing.
-    let found = probe
-        .expect
-        .iter()
-        .filter(|_| !abstained)
-        .filter(|text| {
-            alternatives(text)
-                .iter()
-                .any(|alt| contains_term(&answer, alt))
-        })
-        .count();
+    let found = found_facts(probe, answer, abstained).len();
     let cited: Vec<String> = cited_texts.iter().map(|t| normalized(t)).collect();
     let cited_evidence = probe.expect.iter().any(|text| {
         alternatives(text)
@@ -62,6 +51,27 @@ pub fn score_answer(
         // A refusal cites in passing at most; it does not cover the evidence.
         cited_evidence: probe.answerable && !abstained && cited_evidence,
     }
+}
+
+/// The indexes of the `expect` texts the answer contains (one of their `|`
+/// alternatives); a refusal gives none, even when it quotes a fact in
+/// passing. The v0.6 bench compares backends fact by fact with these.
+pub fn found_facts(probe: &AnswerProbe, answer: &str, abstained: bool) -> Vec<usize> {
+    if abstained {
+        return Vec::new();
+    }
+    let answer = normalized(answer);
+    probe
+        .expect
+        .iter()
+        .enumerate()
+        .filter(|(_, text)| {
+            text.split('|')
+                .map(normalized)
+                .any(|alt| contains_term(&answer, &alt))
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// Abstention with "the question has no answer in the corpus" as positive.
@@ -394,5 +404,35 @@ mod tests {
             finish_reason: FinishReason::Stop,
         }];
         assert_eq!(aggregate(&only_unanswerable).expected_fact_rate, None);
+    }
+}
+
+#[cfg(test)]
+mod found_fact_tests {
+    use super::*;
+
+    fn probe(expect: &[&str]) -> AnswerProbe {
+        AnswerProbe {
+            id: "p".into(),
+            lang: "tr".into(),
+            query: "q".into(),
+            expect: expect.iter().map(|s| s.to_string()).collect(),
+            answerable: true,
+            category: None,
+            split: None,
+            family: None,
+        }
+    }
+
+    #[test]
+    fn found_facts_names_which_expect_texts_were_found() {
+        let p = probe(&["2009", "18 TL|18 lira"]);
+        assert_eq!(found_facts(&p, "since 2009 [1]", false), vec![0]);
+        assert_eq!(found_facts(&p, "18 lira, not 2010 [1]", false), vec![1]);
+        assert_eq!(found_facts(&p, "2009 and 18 TL", false), vec![0, 1]);
+        // A refusal gives no fact, as in `score_answer`.
+        assert!(found_facts(&p, "2009 is not in the sources", true).is_empty());
+        let score = score_answer(&p, "2009 and 18 TL", false, 1, 0, &[]);
+        assert_eq!(score.found, found_facts(&p, "2009 and 18 TL", false).len());
     }
 }

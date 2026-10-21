@@ -259,6 +259,27 @@ pub fn run_retrieval_eval_run(
             "rank depth must be between {EVAL_DEPTH} and {MAX_RANK_DEPTH}, got {rank_depth}"
         )));
     }
+    let (store, corpus_documents) = open_index(work_dir, corpus, embedder.clone(), reuse_index)?;
+    check_labels(&store, dataset)?;
+    let retriever = Retriever {
+        index: Arc::new(SqliteVecIndex::new(store.clone())),
+        store,
+        embedder: embedder.clone(),
+        config,
+        reranker: rerank,
+    };
+    run_strategies(retriever, dataset, rank_depth, generator, corpus_documents)
+}
+
+/// The index in `work_dir/eval.db`: built from `corpus` into an empty
+/// directory, or reused as an earlier run left it (nothing embedded again;
+/// it must hold exactly the corpus). Returns the store and its document count.
+pub(crate) fn open_index(
+    work_dir: &Path,
+    corpus: &Path,
+    embedder: Arc<dyn Embedder>,
+    reuse_index: bool,
+) -> Result<(Arc<Store>, usize)> {
     let db = work_dir.join("eval.db");
     match (db.exists(), reuse_index) {
         (true, false) => {
@@ -279,16 +300,19 @@ pub fn run_retrieval_eval_run(
     let corpus_documents = if reuse_index {
         check_reused_index(&store, corpus)?
     } else {
-        index_corpus(&store, embedder.clone(), corpus)?
+        index_corpus(&store, embedder, corpus)?
     };
-    check_labels(&store, dataset)?;
-    let retriever = Retriever {
-        index: Arc::new(SqliteVecIndex::new(store.clone())),
-        store,
-        embedder: embedder.clone(),
-        config,
-        reranker: rerank,
-    };
+    Ok((store, corpus_documents))
+}
+
+fn run_strategies(
+    retriever: Retriever,
+    dataset: &[EvalQuery],
+    rank_depth: usize,
+    generator: Option<Arc<dyn Generator>>,
+    corpus_documents: usize,
+) -> Result<RetrievalReport> {
+    let embedder = retriever.embedder.clone();
     let answerable: Vec<&EvalQuery> = dataset.iter().filter(|q| q.answerable).collect();
     let strategies = [Strategy::Lexical, Strategy::Dense, Strategy::Hybrid]
         .into_iter()
