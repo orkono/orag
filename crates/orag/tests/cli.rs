@@ -846,3 +846,52 @@ fn gpu_probe_lists_devices_and_the_choice() {
         );
     }
 }
+
+fn post_gpu_retry(addr: &str) -> String {
+    http_send(
+        addr,
+        &format!(
+            "POST /v1/system/gpu-retry HTTP/1.1\r\nHost: {addr}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        ),
+    )
+}
+
+/// v0.6 step 87: the desktop app's CPU sidecar after a GPU fallback exits
+/// with 76 on the page's retry; the same request to a service the desktop
+/// did not start is refused and the service keeps running.
+#[test]
+fn the_gpu_retry_exits_76_only_for_the_desktop_app() {
+    let home = ephemeral_home();
+    let (mut desktop, addr) = start_server_with(
+        home.path(),
+        &[
+            ("ORAG_GPU_FALLBACK_REASON", "crashed-twice"),
+            ("ORAG_GPU_RETRY", "1"),
+        ],
+    );
+    let version = http_get(&addr, "/v1/version", &addr);
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        // Metal: the models are on the GPU; nothing falls back, nothing to retry.
+        assert!(version.contains(r#""backend":"metal""#), "{version}");
+        assert!(version.contains(r#""retry":false"#), "{version}");
+        assert!(post_gpu_retry(&addr).starts_with("HTTP/1.1 409"));
+        assert!(desktop.child.try_wait().unwrap().is_none(), "still serving");
+    } else {
+        assert!(version.contains(r#""reason":"crashed-twice""#), "{version}");
+        assert!(version.contains(r#""retry":true"#), "{version}");
+        let response = post_gpu_retry(&addr);
+        assert!(response.starts_with("HTTP/1.1 202"), "{response}");
+        let status = wait_with_deadline(&mut desktop.child, PROCESS_LIMIT).expect("it exits");
+        assert_eq!(status.code(), Some(76), "{}", desktop.stderr());
+    }
+
+    let other = ephemeral_home();
+    let (mut plain, addr) = start_server_with(
+        other.path(),
+        &[("ORAG_GPU_FALLBACK_REASON", "crashed-twice")],
+    );
+    let response = post_gpu_retry(&addr);
+    assert!(response.starts_with("HTTP/1.1 409"), "{response}");
+    assert!(plain.child.try_wait().unwrap().is_none(), "still serving");
+    assert!(http_get(&addr, "/v1/health", &addr).contains("ok"));
+}

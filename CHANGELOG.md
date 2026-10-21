@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.7] - 2026-10-21
+
+- Step 87: `GET /v1/version` and `GET /v1/models` report `gpu` (backend, whether the answer model is on a graphics card and how much of it, the card, and why not), computed from where the model was really loaded; the desktop's fallback reason only fills `reason`. The page's sidebar shows the graphics card line, the last answer's time and where it ran, and "Ekran kartını yeniden dene" after a desktop fallback: `POST /v1/system/gpu-retry` exits with 76 for the desktop app to try the card again, and answers 409 anywhere else (`orag start` removes `ORAG_GPU_RETRY` from its child). `speed.gpu_p50_answer_s` is `null` until it is measured on a real card.
+
 ## [0.6.0-alpha.6] - 2026-10-21
 
 - Step 86b: the Windows and Linux desktop bundles and CLI archives carry `orag-vulkan` beside `orag` (`tauri.windows.conf.json`, `tauri.linux.conf.json`, `scripts/stage-sidecar.sh`), so the app's GPU choice from step 86 is live; macOS is unchanged. Its imports are checked with `check-binary-deps.sh --vulkan` in the desktop and release workflows. The desktop smoke test on Windows and Linux runners, which have no GPU, checks that the app tried `orag-vulkan` and runs on the CPU with the reason in `gpu-fallback.json`; on Windows without a Vulkan loader the reason must be `loader-missing`. `docs/desktop.md` and the README explain the graphics card choice.

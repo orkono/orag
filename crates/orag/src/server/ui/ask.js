@@ -93,6 +93,9 @@ function handleEvent(turn, { event, data }) {
       settle(turn);
       turn.copy.hidden = false;
       showNotice(turn, ...answerNoticeKeys(data));
+      document.dispatchEvent(
+        new CustomEvent("orag:answered", { detail: { generationMs: data.trace?.generation_ms } }),
+      );
       return true;
     case "error": {
       const err = new Error(`${data.error.message} (${data.error.code})`);

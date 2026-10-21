@@ -48,14 +48,20 @@ pub fn run(config: &Config) -> anyhow::Result<i32> {
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(stop.clone())?;
     let exe = std::env::current_exe().context("locating the orag executable")?;
-    let mut spawn = || {
-        Command::new(&exe)
-            .arg("serve")
-            .env(SUPERVISED_ENV, "1")
-            .stdout(Stdio::piped())
-            .spawn()
-    };
+    let mut spawn = || serve_command(&exe).spawn();
     supervise(&mut spawn, &open_in_browser, &stop)
+}
+
+/// `orag serve` as `orag start` runs it: supervised (restarted on 75), and
+/// never with the desktop app's GPU retry, which ends with 76.
+fn serve_command(exe: &std::path::Path) -> Command {
+    let mut command = Command::new(exe);
+    command
+        .arg("serve")
+        .env(SUPERVISED_ENV, "1")
+        .env_remove(crate::gpu::GPU_RETRY_ENV)
+        .stdout(Stdio::piped());
+    command
 }
 
 /// Runs the child until it exits with something other than `EXIT_RESTART`
@@ -181,6 +187,17 @@ fn open_in_browser(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orag_start_never_passes_the_desktop_gpu_retry_on() {
+        let command = serve_command(std::path::Path::new("orag"));
+        let envs: Vec<_> = command.get_envs().collect();
+        assert!(envs.contains(&(std::ffi::OsStr::new(crate::gpu::GPU_RETRY_ENV), None)));
+        assert!(envs.contains(&(
+            std::ffi::OsStr::new(SUPERVISED_ENV),
+            Some(std::ffi::OsStr::new("1"))
+        )));
+    }
 
     /// A fake `orag serve`: prints the UI line (port 9, or 10 once restarted
     /// when `port_moves`), then exits 75 until `marker` exists (creating it),

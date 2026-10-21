@@ -156,6 +156,107 @@ impl Offload {
     }
 }
 
+/// Which inference backend this executable was built with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Build {
+    /// Apple Silicon: every layer on the GPU through Metal.
+    Metal,
+    /// `orag-vulkan`.
+    Vulkan,
+    /// The CPU `orag` on Windows and Linux.
+    Cpu,
+}
+
+impl Build {
+    pub fn current() -> Build {
+        if cfg!(feature = "vulkan") {
+            Build::Vulkan
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Build::Metal
+        } else {
+            Build::Cpu
+        }
+    }
+}
+
+/// The env var the desktop app passes a CPU sidecar after a GPU fallback.
+pub const FALLBACK_REASON_ENV: &str = "ORAG_GPU_FALLBACK_REASON";
+/// Set only by the desktop supervisor, which restarts on `EXIT_GPU_RETRY`.
+pub const GPU_RETRY_ENV: &str = "ORAG_GPU_RETRY";
+
+/// What the page shows about the GPU (`GET /v1/version`, `GET /v1/models`;
+/// v0.6 plan, G-5). Computed once at start from the generator's recorded
+/// offload; the desktop's fallback marker only supplies `reason`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GpuStatus {
+    /// `metal`, `vulkan` or `cpu`: what this executable can use.
+    pub backend: &'static str,
+    /// The answer model has layers on a GPU.
+    pub in_use: bool,
+    /// ... all of them, and no tensor kept in host memory.
+    pub full: bool,
+    pub layers_on_gpu: Option<u32>,
+    pub layers_total: Option<u32>,
+    pub device: Option<String>,
+    /// Why the answer model is not on a GPU; `None` when that is a choice
+    /// (`gpu = "off"`, the CPU `orag` run directly) or it is on one.
+    pub reason: Option<String>,
+    /// The page may offer "try the graphics card again" (`POST
+    /// /v1/system/gpu-retry`): a desktop fallback, under the desktop app.
+    pub retry: bool,
+}
+
+impl GpuStatus {
+    pub fn of(
+        build: Build,
+        generator: Option<&Offload>,
+        fallback_reason: Option<String>,
+        retry_supported: bool,
+    ) -> GpuStatus {
+        let (in_use, full) = match (build, generator) {
+            (Build::Metal, _) => (true, true),
+            (_, Some(offload)) => (offload.layers_on_gpu > 0, offload.is_full()),
+            (_, None) => (false, false),
+        };
+        // A model on a GPU needs no reason (Metal never falls back).
+        let reason = if in_use {
+            None
+        } else {
+            fallback_reason.filter(|r| !r.is_empty()).or_else(|| {
+                generator
+                    .and_then(|offload| offload.reason)
+                    .filter(|reason| *reason != "gpu_off")
+                    .map(String::from)
+            })
+        };
+        let retry = retry_supported && build == Build::Cpu && reason.is_some();
+        GpuStatus {
+            backend: match build {
+                Build::Metal => "metal",
+                Build::Vulkan => "vulkan",
+                Build::Cpu => "cpu",
+            },
+            in_use,
+            full,
+            layers_on_gpu: generator.map(|o| o.layers_on_gpu),
+            layers_total: generator.map(|o| o.layers_total),
+            device: generator.and_then(|o| o.device.clone()),
+            reason,
+            retry,
+        }
+    }
+
+    /// From this process's environment.
+    pub fn from_env(generator: Option<&Offload>) -> GpuStatus {
+        GpuStatus::of(
+            Build::current(),
+            generator,
+            std::env::var(FALLBACK_REASON_ENV).ok(),
+            std::env::var_os(GPU_RETRY_ENV).is_some_and(|v| v == "1"),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,6 +419,89 @@ mod tests {
         assert!(!offload(20, 0).is_full(), "some layers on the CPU");
         assert!(!offload(33, 2).is_full(), "experts kept in host memory");
         assert!(!offload(0, 0).is_full());
+    }
+
+    fn gen_offload(on: u32, reason: Option<&'static str>) -> Offload {
+        Offload {
+            layers_on_gpu: on,
+            layers_total: 33,
+            cpu_tensor_overrides: 0,
+            device: (on > 0).then(|| "NVIDIA GeForce RTX 3060".into()),
+            reason,
+        }
+    }
+
+    #[test]
+    fn the_status_comes_from_the_generator_offload_never_the_marker() {
+        let full = GpuStatus::of(Build::Vulkan, Some(&gen_offload(33, None)), None, true);
+        assert_eq!(
+            (
+                full.in_use,
+                full.full,
+                full.device.as_deref(),
+                full.reason,
+                full.retry
+            ),
+            (true, true, Some("NVIDIA GeForce RTX 3060"), None, false)
+        );
+        let partial = GpuStatus::of(Build::Vulkan, Some(&gen_offload(20, None)), None, true);
+        assert_eq!((partial.in_use, partial.full), (true, false));
+        assert_eq!(
+            (partial.layers_on_gpu, partial.layers_total),
+            (Some(20), Some(33))
+        );
+    }
+
+    #[test]
+    fn a_desktop_fallback_reason_comes_from_the_environment_and_offers_a_retry() {
+        for reason in ["crashed-twice", "no-eligible-device", "loader-missing"] {
+            let cpu = GpuStatus::of(Build::Cpu, None, Some(reason.into()), true);
+            assert_eq!(
+                (cpu.in_use, cpu.reason.as_deref(), cpu.retry),
+                (false, Some(reason), true)
+            );
+        }
+        // Without the desktop supervisor's retry, no button.
+        let cli = GpuStatus::of(Build::Cpu, None, Some("crashed-twice".into()), false);
+        assert!(!cli.retry);
+    }
+
+    #[test]
+    fn the_cpu_by_choice_has_no_reason() {
+        let direct = GpuStatus::of(Build::Cpu, None, None, false);
+        assert_eq!(
+            (direct.in_use, direct.reason.clone(), direct.retry),
+            (false, None, false)
+        );
+        let off = GpuStatus::of(
+            Build::Vulkan,
+            Some(&gen_offload(0, Some("gpu_off"))),
+            None,
+            true,
+        );
+        assert_eq!(
+            (off.in_use, off.reason.clone(), off.retry),
+            (false, None, false)
+        );
+        let metal = GpuStatus::of(Build::Metal, None, Some("crashed-twice".into()), true);
+        assert_eq!(
+            (metal.backend, metal.in_use, metal.reason, metal.retry),
+            ("metal", true, None, false)
+        );
+    }
+
+    #[test]
+    fn a_cpu_load_inside_orag_vulkan_says_why() {
+        let failed = GpuStatus::of(
+            Build::Vulkan,
+            Some(&gen_offload(0, Some("fit_failed"))),
+            None,
+            true,
+        );
+        assert_eq!(
+            (failed.in_use, failed.reason.as_deref(), failed.retry),
+            (false, Some("fit_failed"), false)
+        );
     }
 
     #[test]

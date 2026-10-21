@@ -40,6 +40,7 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<Value>> {
         "generation": { "id": state.models.generation, "installed": generation },
         "models_dir": state.models.models_dir,
         "machine": machine,
+        "gpu": *state.gpu,
         "download": availability(&state, &missing, &options),
     })))
 }

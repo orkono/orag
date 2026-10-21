@@ -283,6 +283,10 @@ impl Generator for LlamaGenerator {
         self.spec.context_tokens
     }
 
+    fn offload(&self) -> Option<Offload> {
+        self.offload.clone()
+    }
+
     fn max_output_tokens(&self) -> usize {
         self.spec.max_output_tokens
     }
