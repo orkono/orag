@@ -155,6 +155,10 @@ pub enum EvalCommand {
         #[arg(long, hide = true)]
         dev_fake_models: bool,
     },
+    /// One run of the desktop's GPU bench (v0.6): the fixed questions on
+    /// this executable's backend, over an index built once and reused.
+    #[command(hide = true)]
+    Bench(crate::eval::bench::BenchArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -287,6 +291,9 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             judge,
             dev_fake_models,
         ),
+        Command::Eval {
+            command: EvalCommand::Bench(args),
+        } => crate::eval::bench::run_cli(&args),
         Command::GpuProbe {
             fit: Some(gguf), ..
         } => gpu_probe_fit(&gguf),

@@ -106,6 +106,8 @@ pub struct ProbeResult {
     /// Answered without any valid `[n]` (step 67).
     pub uncited: bool,
     pub found: usize,
+    /// Which `expect` texts were found, by index.
+    pub found_facts: Vec<usize>,
     pub expected: usize,
     pub valid_citations: bool,
     pub cited_evidence: bool,
@@ -331,7 +333,11 @@ fn evaluate_profile(
     })
 }
 
-fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe, with_judge: bool) -> Result<ProbeResult> {
+pub(crate) fn run_probe(
+    engine: &AnswerEngine,
+    probe: &AnswerProbe,
+    with_judge: bool,
+) -> Result<ProbeResult> {
     let started = Instant::now();
     let mut summary: Option<AnswerSummary> = None;
     let mut sources: Vec<SourceRef> = Vec::new();
@@ -387,6 +393,7 @@ fn run_probe(engine: &AnswerEngine, probe: &AnswerProbe, with_judge: bool) -> Re
         abstained: summary.abstained,
         uncited: summary.uncited,
         found: score.found,
+        found_facts: metrics::found_facts(probe, &summary.answer, summary.abstained),
         expected: probe.expect.len(),
         valid_citations: score.valid_citations,
         cited_evidence: score.cited_evidence,

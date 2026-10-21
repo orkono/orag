@@ -168,6 +168,15 @@ pub enum Build {
 }
 
 impl Build {
+    /// `metal`, `vulkan` or `cpu`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Build::Metal => "metal",
+            Build::Vulkan => "vulkan",
+            Build::Cpu => "cpu",
+        }
+    }
+
     pub fn current() -> Build {
         if cfg!(feature = "vulkan") {
             Build::Vulkan
@@ -231,11 +240,7 @@ impl GpuStatus {
         };
         let retry = retry_supported && build == Build::Cpu && reason.is_some();
         GpuStatus {
-            backend: match build {
-                Build::Metal => "metal",
-                Build::Vulkan => "vulkan",
-                Build::Cpu => "cpu",
-            },
+            backend: build.name(),
             in_use,
             full,
             layers_on_gpu: generator.map(|o| o.layers_on_gpu),
