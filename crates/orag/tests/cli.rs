@@ -716,3 +716,33 @@ fn eval_retrieval_can_rerank_and_checks_the_depth() {
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("between 8 and 50"));
 }
+
+/// v0.6 step 83: the hidden `gpu-probe --fit` runs llama.cpp's fit only in
+/// the Vulkan build; the CPU `orag` refuses it with a clear message.
+#[test]
+fn gpu_probe_fit_runs_only_in_the_vulkan_build() {
+    let gguf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-fixtures/stories260K.gguf");
+    let out = orag()
+        .args(["gpu-probe", "--fit"])
+        .arg(&gguf)
+        .output()
+        .expect("run orag");
+    if cfg!(feature = "vulkan") {
+        if !gguf.exists() {
+            assert!(std::env::var_os("ORAG_REQUIRE_FIXTURES").is_none());
+            return;
+        }
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+        assert_eq!(json["backend"], "vulkan");
+        assert!(json["fit"].as_str().is_some_and(|fit| !fit.is_empty()));
+    } else {
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("orag-vulkan"), "{stderr}");
+    }
+}

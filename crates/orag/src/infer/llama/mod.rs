@@ -2,6 +2,8 @@
 //! types. Pinned to llama-cpp-2 =0.1.158; binding API changes are absorbed here.
 
 pub mod embedder;
+#[cfg(feature = "vulkan")]
+pub mod fit;
 pub mod generator;
 pub mod reranker;
 

@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.1] - 2026-10-21
+
+- GPU support for Windows and Linux begins (plan `.docs/plans/2026-10-21-orag-v0.6-gpu-plan.md`, reviewed by muse and gpt-6-astra). Step 83 adds the `orag-vulkan` build: the service with llama.cpp's Vulkan backend (`scripts/build-vulkan.sh`, feature `vulkan`), whose only extra import is the system Vulkan loader (`check-binary-deps.sh --vulkan`; D-001 amended). A hidden `gpu-probe --fit <gguf>` runs llama.cpp's memory fit in that build to prove it links. The CPU `orag` is unchanged and nothing ships yet.
+
 ## [0.5.0] - 2026-10-20
 
 - **ORAG v0.5.0.** The setup page shows this computer and the answer models that fit it, and downloads the one the user picks: the default `qwen3.5-4b-q4_k_m` (recommended) or `qwen3.5-9b-q4_k_m` (larger, slower). Each tier has a RAM floor and a recommended RAM measured on Mac (Metal) and Linux (CPU); a hand-set generator is kept; the choice is written to `config.toml` only after the download verifies (steps 81-82). Packages are still unsigned.

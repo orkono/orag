@@ -14,6 +14,12 @@ if [ "$(uname -s)" = "Darwin" ]; then
     exit 1
   fi
 fi
+# `--features vulkan` (scripts/build-vulkan.sh) is the `orag-vulkan` build:
+# llama.cpp's Vulkan backend must be in it, and in no other build.
+vulkan=0
+for arg in "$@"; do
+  case "$arg" in vulkan|--features=vulkan) vulkan=1 ;; esac
+done
 # Compiler errors stay visible on stderr; only the JSON stream is captured.
 if ! json=$(cargo build --locked --message-format=json-render-diagnostics "$@"); then
   echo "cargo build failed (see the errors above)" >&2
@@ -48,6 +54,15 @@ if [ ! -f "$cache" ]; then
 fi
 if ! grep -qx 'GGML_OPENMP:BOOL=OFF' "$cache" || grep -qxE '(gomp|omp|iomp5)' <<<"$names"; then
   echo "OpenMP is enabled or linked: $cache" >&2
+  exit 1
+fi
+if [ "$vulkan" = 1 ]; then
+  if ! grep -qx 'GGML_VULKAN:BOOL=ON' "$cache" || ! grep -qxE 'vulkan(-1)?' <<<"$names"; then
+    echo "the Vulkan backend was not built or not linked: $cache" >&2
+    exit 1
+  fi
+elif grep -qx 'GGML_VULKAN:BOOL=ON' "$cache" || grep -qxE 'vulkan(-1)?' <<<"$names"; then
+  echo "the CPU build has the Vulkan backend (only orag-vulkan may): $cache" >&2
   exit 1
 fi
 if [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] && ! grep -qx 'ggml-metal' <<<"$names"; then

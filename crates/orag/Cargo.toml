@@ -16,6 +16,9 @@ clap = { version = "4.6.7", features = ["derive"] }
 hex = "0.4.3"
 html-escape = "0.2.15"
 llama-cpp-2 = { version = "=0.1.158", default-features = false, optional = true }
+# Only for the `vulkan` build: the fit call's log-level constant. Same version
+# as llama-cpp-2's own dependency, so it adds no crate to the tree.
+llama-cpp-sys-2 = { version = "=0.1.158", default-features = false, optional = true }
 # Not used directly: pdf_oxide 0.3.78 does not compile with office_oxide >= 0.1.10
 # (upstream added a struct field in a patch release). Remove when pdf_oxide is bumped.
 office_oxide = "=0.1.9"
@@ -56,6 +59,10 @@ tower = { version = "0.5.3", features = ["util"] }
 [features]
 default = ["llama"]
 llama = ["dep:llama-cpp-2"]
+# The `orag-vulkan` executable (v0.6, D-001): llama.cpp's Vulkan backend and
+# the Rust API of its memory fit. Built by scripts/build-vulkan.sh into its own
+# target directory; the CPU `orag` never enables it.
+vulkan = ["llama", "llama-cpp-2/vulkan", "llama-cpp-2/common", "dep:llama-cpp-sys-2"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
