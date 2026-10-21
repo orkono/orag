@@ -14,8 +14,11 @@
 const STORAGE_KEY = "orag.lang";
 /** When the choice was made (ms since 1970). */
 const AT_KEY = "orag.lang.at";
-const STATES = ["loading", "restarting", "failed"];
+const STATES = ["loading", "restarting", "failed", "bench", "benchdone"];
 const REPORT_URL = "orag-lang://choice";
+/** The GPU bench's commands (src/bench/channel.rs); the app cancels them. */
+const BENCH_CANCEL = "orag-bench://cancel";
+const BENCH_RESUME = "orag-bench://resume";
 
 const MESSAGES = {
   tr: {
@@ -24,6 +27,15 @@ const MESSAGES = {
     failed: "ORAG başlatılamadı.",
     hint: "Uygulamayı kapatıp yeniden açmayı deneyin. Sorun sürerse yukarıdaki satırları sorun bildirimine ekleyin.",
     language: "Dil",
+    bench: "Ekran kartı ölçümü sürüyor…",
+    benchCancelling: "Ölçüm durduruluyor…",
+    benchProgress: "{answers} / {answersTotal} yanıt · {jobs} / {jobsTotal} adım",
+    benchHint: "Ölçüm 30–60 dakika sürebilir. Bu sürede bilgisayarı kullanmayın; prize takılı ve uyku kapalı olsun.",
+    benchStop: "Durdur",
+    benchdone: "Ekran kartı ölçümü bitti.",
+    benchFailed: "Ölçüm dosyası yazılamadı.",
+    benchDoneHint: "Sonuç dosyası aşağıda; klasörü açıldı. Dosyayı gönderin, sonra Devam'a basın.",
+    benchResume: "Devam",
   },
   en: {
     loading: "Starting the service…",
@@ -31,6 +43,15 @@ const MESSAGES = {
     failed: "ORAG could not start.",
     hint: "Try closing the app and opening it again. If the problem persists, add the lines above to your bug report.",
     language: "Language",
+    bench: "The graphics card bench is running…",
+    benchCancelling: "Stopping the bench…",
+    benchProgress: "{answers} / {answersTotal} answers · {jobs} / {jobsTotal} steps",
+    benchHint: "The bench can take 30–60 minutes. Do not use the computer meanwhile; keep it plugged in with sleep off.",
+    benchStop: "Stop",
+    benchdone: "The graphics card bench is done.",
+    benchFailed: "The results file could not be written.",
+    benchDoneHint: "The results file is below; its folder was opened. Send the file, then press Continue.",
+    benchResume: "Continue",
   },
 };
 
@@ -67,14 +88,67 @@ let lastStatus = null;
 
 const text = (key) => MESSAGES[language][key];
 
+/** The bench's progress line, Stop or Continue, and the results path. */
+function renderBench(state, status) {
+  const progress = document.getElementById("progress");
+  const path = document.getElementById("bench-path");
+  const button = document.getElementById("bench-action");
+  progress.hidden = state !== "bench";
+  path.hidden = !(state === "benchdone" && status.path);
+  button.hidden = globalThis.__ORAG_DESKTOP__ !== true || (state !== "bench" && state !== "benchdone");
+  if (state === "bench") {
+    progress.textContent = text("benchProgress")
+      .replace("{answers}", String(Number(status.answers_done) || 0))
+      .replace("{answersTotal}", String(Number(status.answers_total) || 0))
+      .replace("{jobs}", String(Number(status.jobs_done) || 0))
+      .replace("{jobsTotal}", String(Number(status.jobs_total) || 0));
+    button.textContent = text("benchStop");
+    if (status.cancelling) button.disabled = true;
+  } else if (state === "benchdone") {
+    path.textContent = status.path || "";
+    button.textContent = text("benchResume");
+    button.disabled = false;
+  }
+}
+
+/** Stop while it runs, Continue once it is done; one press each. */
+function benchAction() {
+  const button = document.getElementById("bench-action");
+  const state = lastStatus && lastStatus.state;
+  if (button.disabled || (state !== "bench" && state !== "benchdone")) return;
+  button.disabled = true;
+  navigate(state === "bench" ? BENCH_CANCEL : BENCH_RESUME);
+}
+
+function navigate(url) {
+  try {
+    location.href = url;
+  } catch {
+    // The app did not take it; the page stays.
+  }
+}
+
+function headline(state, status) {
+  if (state === "bench" && status.cancelling) return text("benchCancelling");
+  if (state === "benchdone" && !status.path) return text("benchFailed");
+  return text(state);
+}
+
 function render(status) {
   lastStatus = status;
   const state = STATES.includes(status && status.state) ? status.state : "loading";
   const main = document.getElementById("main");
   main.className = state;
-  document.getElementById("status").textContent = text(state);
+  document.getElementById("status").textContent = headline(state, status);
   const message = document.getElementById("message");
-  const reason = state === "restarting" ? status.reason : state === "failed" ? status.message : "";
+  const reason =
+    state === "restarting"
+      ? status.reason
+      : state === "failed"
+        ? status.message
+        : state === "benchdone"
+          ? status.error
+          : "";
   message.textContent = reason || "";
   message.hidden = !reason;
   const details = document.getElementById("details");
@@ -82,8 +156,9 @@ function render(status) {
   details.textContent = lines.join("\n");
   details.hidden = lines.length === 0;
   const hint = document.getElementById("hint");
-  hint.textContent = text("hint");
-  hint.hidden = state !== "failed";
+  hint.textContent = text(state === "bench" ? "benchHint" : state === "benchdone" ? "benchDoneHint" : "hint");
+  hint.hidden = !["failed", "bench", "benchdone"].includes(state);
+  renderBench(state, status);
 }
 
 function applyLanguage() {
@@ -136,6 +211,7 @@ function handOver(lang, at) {
   if (chosen.language !== handed.language || chosen.at !== handed.at) report(chosen);
 }
 
+document.getElementById("bench-action").addEventListener("click", benchAction);
 document.getElementById("language-select").addEventListener("change", (event) => chooseOnPage(event.target.value));
 applyLanguage();
 

@@ -151,3 +151,53 @@ test("without the app's marker the page never reports a choice", () => {
   assert.equal(page.$("status").textContent, "Hizmet başlatılıyor…");
   assert.deepEqual(page.location.navigations, []);
 });
+
+const running = {
+  state: "bench", answers_done: 7, answers_total: 48, jobs_done: 3, jobs_total: 18, cancelling: false,
+};
+
+test("the running bench shows its progress and a stop button", () => {
+  const page = loadPage();
+  page.window.oragStatus(running);
+  assert.equal(page.$("status").textContent, "Ekran kartı ölçümü sürüyor…");
+  assert.equal(page.$("progress").textContent, "7 / 48 yanıt · 3 / 18 adım");
+  assert.equal(page.$("progress").hidden, false);
+  assert.match(page.$("hint").textContent, /bilgisayarı kullanmayın/);
+  const button = page.$("bench-action");
+  assert.equal(button.hidden, false);
+  assert.equal(button.textContent, "Durdur");
+  button.dispatchEvent(new Event("click"));
+  assert.deepEqual(page.location.navigations, ["orag-bench://cancel"]);
+  assert.equal(button.disabled, true, "one stop is enough");
+  page.window.oragStatus({ ...running, answers_done: 8, cancelling: true });
+  assert.equal(page.$("bench-action").disabled, true);
+  assert.equal(page.$("status").textContent, "Ölçüm durduruluyor…");
+});
+
+test("a finished bench names its file and resumes the service", () => {
+  const page = loadPage({ "orag.lang": "en" });
+  const path = "C:\\Users\\x\\AppData\\Roaming\\ORAG\\orag-bench-1.json<b>";
+  page.window.oragStatus({ state: "benchdone", path, error: null });
+  assert.equal(page.$("status").textContent, "The graphics card bench is done.");
+  assert.equal(page.$("bench-path").textContent, path, "as text, never HTML");
+  assert.equal(page.$("bench-path").hidden, false);
+  const button = page.$("bench-action");
+  assert.equal(button.textContent, "Continue");
+  button.disabled = false;
+  button.dispatchEvent(new Event("click"));
+  assert.deepEqual(page.location.navigations, ["orag-bench://resume"]);
+
+  const failed = loadPage();
+  failed.window.oragStatus({ state: "benchdone", path: null, error: "disk full" });
+  assert.equal(failed.$("status").textContent, "Ölçüm dosyası yazılamadı.");
+  assert.equal(failed.$("message").textContent, "disk full");
+  assert.equal(failed.$("bench-action").textContent, "Devam");
+});
+
+test("outside the app the bench buttons are never shown", () => {
+  const page = loadPage({}, { desktop: false });
+  page.window.oragStatus(running);
+  assert.equal(page.$("bench-action").hidden, true);
+  page.window.oragStatus({ state: "loading" });
+  assert.equal(page.$("progress").hidden, true);
+});

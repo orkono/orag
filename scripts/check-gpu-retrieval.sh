@@ -62,4 +62,30 @@ for name in gpu gpu_queries_cpu_index cpu_queries_gpu_index; do
   echo "$name: hybrid recall@10 $value (CPU $base)"
 done
 echo "embedder on $(jq -r .embedding_offload.device "$tmp/gpu.json"): $(jq -r '.embedding_offload | "\(.layers_on_gpu)/\(.layers_total)"' "$tmp/gpu.json") layers"
+# The desktop's GPU bench (v0.6 step 88) sets `gpu = "off"` aside on its
+# own runs only: an index-only `eval bench` and `eval retrieval --gpu-auto`
+# on orag-vulkan stay on the GPU; plain `eval retrieval` keeps the setting.
+off="$tmp/home-off"
+mkdir -p "$off"
+ln -s "$(cd "$models" && pwd)" "$off/models"
+printf 'bind = "127.0.0.1:0"\nui_bind = "off"\ngpu = "off"\n' >"$off/config.toml"
+echo "== bench index on the GPU with gpu = \"off\""
+ORAG_HOME="$off" "$gpu" eval bench --corpus eval/corpus/seed \
+  --dataset eval/datasets/v06-bench.jsonl --index-dir "$tmp/bench-index" \
+  --tier default --build-index --index-only --out "$tmp/bench-index.json" \
+  || fail "bench: the index-only run failed"
+jq -e '.status == "ok" and .embedder_offload.layers_on_gpu > 0' "$tmp/bench-index.json" >/dev/null \
+  || fail "bench: the embedder was not on the GPU: $(jq -c .embedder_offload "$tmp/bench-index.json")"
+ORAG_HOME="$off" "$gpu" eval retrieval --no-context-budget --gpu-auto \
+  --corpus eval/corpus/seed --dataset eval/datasets/seed.jsonl \
+  --index-dir "$tmp/bench-index" --out "$tmp/bench-retrieval.json" \
+  || fail "bench: retrieval on the bench index failed"
+jq -e '.embedding_offload.layers_on_gpu > 0' "$tmp/bench-retrieval.json" >/dev/null \
+  || fail "bench: --gpu-auto did not set gpu = \"off\" aside"
+ORAG_HOME="$off" "$gpu" eval retrieval --no-context-budget \
+  --corpus eval/corpus/seed --dataset eval/datasets/seed.jsonl --out "$tmp/off.json" \
+  || fail "gpu = off: retrieval failed"
+jq -e '.embedding_offload.reason == "gpu_off"' "$tmp/off.json" >/dev/null \
+  || fail "gpu = off: plain retrieval did not keep the setting: $(jq -c .embedding_offload "$tmp/off.json")"
+echo "bench runs set gpu = off aside; plain runs keep it"
 echo "gpu retrieval ok"

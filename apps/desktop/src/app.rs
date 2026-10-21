@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewWindowBuilder};
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow};
 
+use crate::bench::channel::{self, Phase, Shown};
 use crate::prefs::Choice;
-use crate::supervisor::{SidecarEvent, SidecarSpec, Supervisor};
+use crate::supervisor::{Backends, SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
     Action, DESKTOP_MARKER_SCRIPT, SMOKE_SCRIPT, Status, action_for, external_allowed,
     is_language_report, language_report, language_script, local_origin, navigation_allowed,
@@ -38,6 +39,16 @@ struct Pages {
     /// The app data folder, where the page port and the language are kept
     /// (`prefs`); None until it is known.
     data: Mutex<Option<PathBuf>>,
+    /// The service page has finished loading and is still shown.
+    on_service: AtomicBool,
+    /// The serve spec of this run, for the GPU bench's executables and home.
+    spec: Mutex<Option<SidecarSpec>>,
+    bench: Mutex<Phase>,
+    /// Set by "Durdur" and on quit; the running bench job is killed.
+    bench_cancel: Arc<AtomicBool>,
+    bench_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The paused supervisor's policy, until "Devam" resumes it.
+    paused: Mutex<Option<Box<dyn Backends>>>,
     /// The language last chosen on either page, with when it was chosen.
     /// Each page reports a choice the moment it is made (`orag-lang:`, see
     /// `window::language_report`); the app saves it at once and hands it to
@@ -86,6 +97,12 @@ pub fn run() {
         smoke_file: std::env::var_os(SMOKE_FILE_ENV).map(PathBuf::from),
         smoke_sent: AtomicBool::new(false),
         on_local: AtomicBool::new(false),
+        on_service: AtomicBool::new(false),
+        spec: Mutex::new(None),
+        bench: Mutex::new(Phase::Idle),
+        bench_cancel: Arc::new(AtomicBool::new(false)),
+        bench_thread: Mutex::new(None),
+        paused: Mutex::new(None),
         data: Mutex::new(None),
         language: Mutex::new(Choice::default()),
     });
@@ -112,6 +129,7 @@ pub fn run() {
     // nothing to read from the window (whose address WKWebView may not have).
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            stop_bench(handle);
             stop_sidecar(handle);
         }
     });
@@ -133,6 +151,10 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
                 if let Some(choice) = language_report(url) {
                     nav_pages.take_language(choice);
                 }
+                return false;
+            }
+            if channel::is_bench(url) {
+                bench_command(&nav_app, &nav_pages, url);
                 return false;
             }
             if let Some(report) = smoke_report(url) {
@@ -163,14 +185,16 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 fn page_loaded(window: &WebviewWindow, pages: &Pages, url: &Url) {
     let local = navigation_allowed(url, &pages.local, None);
     pages.on_local.store(local, Ordering::SeqCst);
+    let on_service = !local
+        && locked(&pages.service)
+            .as_ref()
+            .is_some_and(|service| navigation_allowed(url, &pages.local, Some(service)));
+    pages.on_service.store(on_service, Ordering::SeqCst);
     if local {
         let _ = window.eval(language_script(locked(&pages.language)));
         let _ = window.eval(status_script(&locked(&pages.status)));
         return;
     }
-    let on_service = locked(&pages.service)
-        .as_ref()
-        .is_some_and(|service| navigation_allowed(url, &pages.local, Some(service)));
     if on_service && pages.smoke_file.is_some() && !pages.smoke_sent.swap(true, Ordering::SeqCst) {
         let _ = window.eval(SMOKE_SCRIPT);
     }
@@ -207,6 +231,7 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
             return;
         }
     };
+    set(&app.state::<Arc<Pages>>().spec, Some(spec.clone()));
     // Windows and Linux bundles carry orag-vulkan too: the GPU policy picks
     // one per start and falls back to the CPU (v0.6 plan, G-3).
     let supervisor = match crate::sidecar::vulkan_beside(&spec.program) {
@@ -218,6 +243,11 @@ fn start_sidecar(app: &AppHandle, window: WebviewWindow) {
         }
         None => Supervisor::start(spec),
     };
+    watch(app, window, supervisor);
+}
+
+/// Keeps `supervisor` as the app's sidecar and shows its events.
+fn watch(app: &AppHandle, window: WebviewWindow, supervisor: Supervisor) {
     // Stored before its events are read, so a Ready finds its child pid.
     let events = {
         let sidecar = app.state::<Sidecar>();
@@ -264,6 +294,10 @@ fn handle_event(app: &AppHandle, window: &WebviewWindow, event: &SidecarEvent) {
     match action_for(event) {
         Action::Open(url) => {
             let pages = app.state::<Arc<Pages>>();
+            // A bench paused the service after this event was sent.
+            if *pages.bench.lock().unwrap_or_else(|e| e.into_inner()) != Phase::Idle {
+                return;
+            }
             // A choice made on the status page goes along to the service page.
             pages.on_local.store(false, Ordering::SeqCst);
             set(&pages.service, Some(url.clone()));
@@ -282,6 +316,7 @@ fn show(app: &AppHandle, window: &WebviewWindow, status: Status) {
     // Leaving the service page: its language (reported when chosen) goes
     // along to the status page (`page_loaded`).
     set(&pages.service, None);
+    pages.on_service.store(false, Ordering::SeqCst);
     set(&pages.status, status.clone());
     if pages.on_local.load(Ordering::SeqCst) {
         let _ = window.eval(status_script(&status));
@@ -314,5 +349,166 @@ fn stop_sidecar(app: &AppHandle) {
         .take();
     if let Some(supervisor) = supervisor {
         supervisor.shutdown();
+    }
+}
+
+/// Acts on a bench command the page shown may give (`bench::channel`).
+fn bench_command(app: &AppHandle, pages: &Arc<Pages>, url: &Url) {
+    let Some(command) = channel::command(url) else {
+        return;
+    };
+    let shown = if pages.on_local.load(Ordering::SeqCst) {
+        Shown::Local
+    } else if pages.on_service.load(Ordering::SeqCst) {
+        Shown::Service
+    } else {
+        Shown::Other
+    };
+    let mut phase = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
+    if !channel::allowed(command, shown, *phase) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    match command {
+        channel::Command::Run => {
+            *phase = Phase::Running;
+            drop(phase);
+            start_bench(app, pages, window);
+        }
+        channel::Command::Cancel => {
+            pages.bench_cancel.store(true, Ordering::SeqCst);
+        }
+        channel::Command::Resume => {
+            *phase = Phase::Idle;
+            drop(phase);
+            let backends = pages
+                .paused
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            show(app, &window, Status::Loading);
+            match backends {
+                Some(backends) => watch(app, window, Supervisor::resume(backends)),
+                None => start_sidecar(app, window),
+            }
+        }
+    }
+}
+
+/// Pauses the service and runs the bench on a thread of its own.
+fn start_bench(app: &AppHandle, pages: &Arc<Pages>, window: WebviewWindow) {
+    pages.bench_cancel.store(false, Ordering::SeqCst);
+    let supervisor = app
+        .state::<Sidecar>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    set(&pages.paused, supervisor.and_then(Supervisor::pause));
+    let progress = crate::bench::Progress {
+        answers_done: 0,
+        answers_total: 0,
+        jobs_done: 0,
+        jobs_total: 0,
+    };
+    show(app, &window, bench_status(&progress, false));
+    let (Some(spec), Some(data)) = (locked(&pages.spec), locked(&pages.data)) else {
+        let status = Status::BenchDone {
+            path: None,
+            error: Some("the service was never started".into()),
+        };
+        set(&pages.bench, Phase::Done);
+        show(app, &window, status);
+        return;
+    };
+    let app = app.clone();
+    let pages_for_thread = pages.clone();
+    let handle = std::thread::spawn(move || {
+        let pages = pages_for_thread;
+        let status = match run_bench(&app, &pages, &window, &spec, data) {
+            Ok(path) => {
+                use tauri_plugin_opener::OpenerExt;
+                let _ = app.opener().reveal_item_in_dir(&path);
+                Status::BenchDone {
+                    path: Some(path.display().to_string()),
+                    error: None,
+                }
+            }
+            Err(err) => Status::BenchDone {
+                path: None,
+                error: Some(err.to_string()),
+            },
+        };
+        set(&pages.bench, Phase::Done);
+        show(&app, &window, status);
+    });
+    set(&pages.bench_thread, Some(handle));
+}
+
+fn run_bench(
+    app: &AppHandle,
+    pages: &Arc<Pages>,
+    window: &WebviewWindow,
+    spec: &SidecarSpec,
+    data: PathBuf,
+) -> std::io::Result<PathBuf> {
+    let vulkan = crate::sidecar::vulkan_beside(&spec.program);
+    let bench = crate::bench::Bench {
+        cpu: spec.program.clone(),
+        vulkan: vulkan.clone().unwrap_or_default(),
+        home: home_of(spec),
+        data,
+        app_version: env!("CARGO_PKG_VERSION").into(),
+        reference: crate::bench::reference(),
+        timeout: crate::bench::run::JOB_TIMEOUT,
+        extra_args: Vec::new(),
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+        .to_string();
+    let cancel = pages.bench_cancel.clone();
+    let cancelled = move || cancel.load(Ordering::SeqCst);
+    let probe = || match &vulkan {
+        Some(program) => {
+            let mut probe_spec = spec.clone();
+            probe_spec.program = program.clone();
+            crate::gpu::run_probe(&probe_spec, crate::gpu::PROBE_TIMEOUT, &cancelled)
+        }
+        None => crate::gpu::ProbeOutcome::Failed("orag-vulkan-missing".into()),
+    };
+    let flag = pages.bench_cancel.clone();
+    bench.run(&stamp, probe, &cancelled, &mut |progress| {
+        show(
+            app,
+            window,
+            bench_status(progress, flag.load(Ordering::SeqCst)),
+        );
+    })
+}
+
+fn bench_status(progress: &crate::bench::Progress, cancelling: bool) -> Status {
+    Status::Bench {
+        answers_done: progress.answers_done,
+        answers_total: progress.answers_total,
+        jobs_done: progress.jobs_done,
+        jobs_total: progress.jobs_total,
+        cancelling,
+    }
+}
+
+/// On quit: the running job is killed and the bench thread waited for.
+fn stop_bench(app: &AppHandle) {
+    let pages = app.state::<Arc<Pages>>();
+    pages.bench_cancel.store(true, Ordering::SeqCst);
+    let handle = pages
+        .bench_thread
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(handle) = handle {
+        let _ = handle.join();
     }
 }

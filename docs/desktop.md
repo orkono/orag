@@ -39,6 +39,21 @@ try the card again. Reasons: `loader-missing` (no Vulkan driver),
 start try the card. On Windows a missing `vulkan-1.dll` shows no system
 error window; the app just uses the CPU.
 
+### Graphics card bench (pre-releases)
+
+Pre-releases of the Windows and Linux apps have a link at the bottom of the
+help panel, **Ekran kartı ölçümü / Graphics card bench**, which opens a page
+with one button. The bench stops the service, then answers the same 10
+questions on `orag` and on `orag-vulkan` (three cold starts each, per
+installed model size), checks every graphics card answer against the
+processor's, and compares retrieval across indexes built on either. It can
+take 30 to 60 minutes; leave the computer alone, plugged in, with sleep off.
+The app shows the progress and a **Durdur / Stop** button. At the end it
+writes `orag-bench-<time>.json` into the app data folder and opens that
+folder; **Devam / Continue** starts the service again on the same processor
+or graphics card choice as before. The bench sets `gpu = "off"` aside for
+its own runs only; it never touches `gpu-fallback.json`.
+
 ## First start
 
 The app starts the service in **setup mode** until the two models are

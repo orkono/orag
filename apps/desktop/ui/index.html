@@ -19,6 +19,10 @@
   pre { background: var(--box); padding: 12px; border-radius: 6px; overflow: auto;
         max-height: 40vh; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
   [hidden] { display: none; }
+  #progress { font-variant-numeric: tabular-nums; margin: 12px 0 0; }
+  #bench-action { font: inherit; padding: 6px 16px; border-radius: 6px; border: 1px solid var(--muted);
+                  background: var(--box); color: var(--fg); cursor: pointer; }
+  #bench-action:disabled { opacity: .5; cursor: default; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
   .head h1 { margin: 0; }
   #language-select { font: inherit; font-size: 13px; color: var(--muted); background: transparent;
@@ -36,8 +40,11 @@
     </div>
     <p id="status">Hizmet başlatılıyor…</p>
     <p id="message" hidden></p>
+    <p id="progress" hidden></p>
     <pre id="details" hidden></pre>
+    <pre id="bench-path" hidden></pre>
     <p id="hint" hidden>Uygulamayı kapatıp yeniden açmayı deneyin. Sorun sürerse yukarıdaki satırları sorun bildirimine ekleyin.</p>
+    <button id="bench-action" type="button" hidden></button>
   </main>
   <script src="status.js"></script>
 </body>

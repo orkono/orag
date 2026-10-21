@@ -2,6 +2,7 @@
 //! stops its service and runs `eval bench` and `eval retrieval` on `orag`
 //! and `orag-vulkan` in turn, then writes one results file.
 
+pub mod channel;
 pub mod data;
 pub mod merge;
 pub mod plan;
@@ -169,6 +170,12 @@ impl Bench {
         write_whole(&path, &serde_json::to_vec_pretty(&results)?)?;
         Ok(path)
     }
+}
+
+/// The CPU reference the bench's CPU floor is checked against (step 88d);
+/// None until it is measured, and the gate then reports `no-reference`.
+pub fn reference() -> Option<Reference> {
+    None
 }
 
 fn done_of(status: &Status) -> Done {

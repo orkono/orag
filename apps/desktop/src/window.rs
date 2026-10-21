@@ -18,6 +18,19 @@ pub enum Status {
         message: String,
         details: Vec<String>,
     },
+    /// The GPU bench is running (v0.6 step 88).
+    Bench {
+        answers_done: usize,
+        answers_total: usize,
+        jobs_done: usize,
+        jobs_total: usize,
+        cancelling: bool,
+    },
+    /// The GPU bench wrote its results file (or could not, `error`).
+    BenchDone {
+        path: Option<String>,
+        error: Option<String>,
+    },
 }
 
 /// The origin Tauri serves the app's own files from (`ui/`): fixed per OS,

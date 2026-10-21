@@ -221,9 +221,23 @@
       <dt><kbd>Esc</kbd></dt><dd data-i18n="help.key.close">Bu pencereyi kapatır</dd>
     </dl>
 
+    <p><a id="bench-link" href="?bench=1" hidden data-i18n="bench.link">Ekran kartı ölçümü (deneme sürümü)</a></p>
+
     <div class="dialog-actions">
       <span class="help-later" data-i18n="help.later">Bu pencereyi sol alttaki "Nasıl kullanılır?" ile yeniden açabilirsiniz.</span>
       <button id="help-close" type="submit" class="button primary" data-i18n="help.start">Başlayalım</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bench-dialog" class="dialog" aria-labelledby="bench-title">
+  <form method="dialog">
+    <h2 id="bench-title" data-i18n="bench.title">Ekran kartı ölçümü</h2>
+    <p data-i18n="bench.text">ORAG aynı 10 soruyu önce işlemciyle, sonra ekran kartıyla yanıtlar ve hızlarını karşılaştırır. Sonuç bir dosyaya yazılır.</p>
+    <p data-i18n="bench.warn">Ölçüm 30–60 dakika sürebilir. Bu sürede bilgisayarı kullanmayın; prize takılı ve uyku kapalı olsun. Ölçüm sırasında soru sorulamaz.</p>
+    <div class="dialog-actions">
+      <button type="submit" value="cancel" class="button ghost" data-i18n="common.cancel">Vazgeç</button>
+      <button id="bench-start" type="button" class="button primary" data-i18n="bench.start">Ölçümü başlat</button>
     </div>
   </form>
 </dialog>
