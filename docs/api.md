@@ -612,3 +612,22 @@ data: {"answer":"This is a development answer from fake models [1].","citations"
 Errors before streaming starts (unknown collection, invalid query,
 `reindex_required`, `busy`) are ordinary JSON error responses with their
 status code, not events.
+
+### GPU state (`gpu` in `GET /v1/version` and `GET /v1/models`, v0.6)
+
+| Field | Meaning |
+|---|---|
+| `backend` | `metal` (Apple Silicon), `vulkan` (`orag-vulkan`) or `cpu` (the CPU `orag`) |
+| `in_use` | The answer model has layers on a GPU (always true with Metal) |
+| `full` | All of its layers, and no tensor kept in host memory |
+| `layers_on_gpu`, `layers_total` | The answer model's layers on the GPU and in all, from its load; `null` with Metal, without models (setup mode) or on the CPU `orag` |
+| `device` | The graphics card's name, or `null` |
+| `reason` | Why the answer model is not on a GPU: the desktop app's fallback reason (`loader-missing`, `no-eligible-device`, `probe-timeout`, `start-timeout`, `start-failed`, `crashed-twice`, `exit-<n>`) or `orag-vulkan`'s own (`fit_failed`, `fit_zero_layers`, `alloc_failed`, `no_eligible_device`); `null` when the CPU is a choice (`gpu = "off"`, the CPU `orag` run directly) or the model is on a GPU |
+| `retry` | `POST /v1/system/gpu-retry` is offered: a desktop app's CPU service after a GPU fallback |
+
+`POST /v1/system/gpu-retry` → `202 {"status":"restarting"}` and the process
+exits with 76, on which the desktop app deletes its fallback marker and tries
+the graphics card again. Without `retry` (any service the desktop app did not
+start after a fallback, `orag start` included) it answers `409 conflict` and
+keeps running.
+

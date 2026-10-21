@@ -134,3 +134,60 @@ async fn cross_site_requests_without_origin_are_rejected() {
         .unwrap();
     assert_eq!(send(&app, same).await.0, StatusCode::OK);
 }
+
+fn gpu_status(reason: Option<&str>, retry: bool) -> orag::gpu::GpuStatus {
+    orag::gpu::GpuStatus::of(orag::gpu::Build::Cpu, None, reason.map(String::from), retry)
+}
+
+/// v0.6 step 87: the page reads the GPU state from `/v1/version` and
+/// `/v1/models`.
+#[tokio::test]
+async fn the_gpu_status_is_reported_with_the_version_and_the_models() {
+    let app = app().map_state(|state| state.with_gpu(gpu_status(Some("crashed-twice"), true)));
+    for uri in ["/v1/version", "/v1/models"] {
+        let (status, body) = send(&app, get(uri)).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(
+            (
+                &body["gpu"]["backend"],
+                &body["gpu"]["in_use"],
+                &body["gpu"]["reason"],
+                &body["gpu"]["retry"]
+            ),
+            (
+                &json!("cpu"),
+                &json!(false),
+                &json!("crashed-twice"),
+                &json!(true)
+            ),
+            "{uri}: {body}"
+        );
+    }
+}
+
+/// The retry ends the process with 76 only where the desktop supervisor
+/// asked for it (`ORAG_GPU_RETRY=1`); elsewhere 409, and it keeps running.
+#[tokio::test]
+async fn the_gpu_retry_restarts_only_under_the_desktop_app() {
+    let refused = app().map_state(|state| state.with_gpu(gpu_status(Some("crashed-twice"), false)));
+    let request = local(Request::post("/v1/system/gpu-retry"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&refused, request).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"]["code"], "conflict");
+    assert!(!refused.state.shutdown_started());
+    assert_eq!(refused.state.exit_code(), None);
+
+    let desktop = app().map_state(|state| state.with_gpu(gpu_status(Some("crashed-twice"), true)));
+    let request = local(Request::post("/v1/system/gpu-retry"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = send(&desktop, request).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert!(desktop.state.shutdown_started());
+    assert_eq!(
+        desktop.state.exit_code(),
+        Some(orag::server::EXIT_GPU_RETRY)
+    );
+}

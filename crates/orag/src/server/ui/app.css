@@ -198,6 +198,8 @@ input[type="text"]:focus { outline: none; border-color: var(--accent); box-shado
 .side-foot .button { justify-content: flex-start; }
 .app-info { padding: 0 10px; color: var(--subtle); font-size: 11.5px; line-height: 1.45; }
 .app-models { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-gpu, .app-answer-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-info .button { margin: 4px 0 2px; }
 
 /* Workspace */
 .topbar {

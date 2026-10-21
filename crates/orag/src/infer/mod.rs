@@ -125,6 +125,10 @@ pub trait Generator: Send + Sync {
     fn max_output_tokens(&self) -> usize;
     /// Exact prompt size after applying the chat template.
     fn count_prompt_tokens(&self, messages: &[ChatMessage]) -> Result<usize>;
+    /// What the load did with the GPU (`orag-vulkan`); `None` elsewhere.
+    fn offload(&self) -> Option<crate::gpu::Offload> {
+        None
+    }
     /// Streams text pieces to `on_token`; `ControlFlow::Break(())` cancels.
     fn generate(
         &self,

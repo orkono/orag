@@ -112,6 +112,9 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     // Only weak handles stay here: once serving ends, a live model means a
     // detached blocking task (an embedding batch, a prefill) still uses it.
     let models_in_use = ModelsInUse::watch(&embedder, &generator);
+    let gpu = crate::gpu::GpuStatus::from_env(generator.offload().as_ref());
+    let gpu = if setup { gpu.in_setup() } else { gpu };
+    tracing::info!(?gpu, "gpu status");
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -120,6 +123,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
         let local_addr = listener.local_addr()?;
         let mut state = AppState::new(store.clone(), embedder.clone(), generator, config.max_document_bytes())
             .with_models(models, setup, supervised)
+            .with_gpu(gpu)
             .with_downloads(Downloads::production(config.models.download).with_config_file(config.config_path()));
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0

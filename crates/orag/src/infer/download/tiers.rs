@@ -73,6 +73,10 @@ pub struct SpeedHint {
     /// Median seconds per answer on the CPU reference (a 4-vCPU GitHub
     /// Linux x86-64 runner).
     pub cpu_p50_answer_s: Option<f32>,
+    /// Median seconds per answer fully on a reference graphics card through
+    /// `orag-vulkan`; `None` until it is measured on real hardware (v0.6
+    /// plan, Task 6).
+    pub gpu_p50_answer_s: Option<f32>,
 }
 
 /// One generator the page may offer.
@@ -100,6 +104,7 @@ pub fn builtin_tiers() -> Vec<Tier> {
         speed: SpeedHint {
             metal_p50_answer_s: metal,
             cpu_p50_answer_s: cpu,
+            gpu_p50_answer_s: None,
         },
         offered,
     };

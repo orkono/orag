@@ -15,7 +15,7 @@ pub mod ui;
 use std::future::{Future, IntoFuture};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use axum::Router;
@@ -55,6 +55,9 @@ pub fn upload_body_limit(max_upload_bytes: usize) -> DefaultBodyLimit {
 
 /// Process exit code that asks `orag start` to run `serve` again (D-023).
 pub const EXIT_RESTART: u8 = 75;
+/// Process exit code that asks the desktop app to try the GPU again (v0.6
+/// plan, G-3 step 6); only a service the desktop started may use it.
+pub const EXIT_GPU_RETRY: u8 = 76;
 
 /// The configured model packs and where they are installed.
 #[derive(Debug, Clone, Default)]
@@ -87,7 +90,10 @@ pub struct AppState {
     pub imports: Arc<Semaphore>,
     /// The setup page's model download (step 76).
     pub downloads: Arc<download::Downloads>,
-    restart: Arc<AtomicBool>,
+    /// What the page shows about the GPU (`app.rs` sets it after the load).
+    pub gpu: Arc<crate::gpu::GpuStatus>,
+    /// The exit code a requested restart ends the process with (0: none).
+    restart: Arc<AtomicU8>,
     /// The single shutdown signal: `true` once shutdown starts. Private, so
     /// `begin_shutdown()` is the only way to set it.
     shutdown: Arc<tokio::sync::watch::Sender<bool>>,
@@ -132,7 +138,13 @@ impl AppState {
             supervised: false,
             imports: Arc::new(Semaphore::new(1)),
             downloads: Arc::new(download::Downloads::production(true)),
-            restart: Arc::new(AtomicBool::new(false)),
+            gpu: Arc::new(crate::gpu::GpuStatus::of(
+                crate::gpu::Build::Cpu,
+                None,
+                None,
+                false,
+            )),
+            restart: Arc::new(AtomicU8::new(0)),
             shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         }
     }
@@ -143,6 +155,14 @@ impl AppState {
             models: Arc::new(models),
             setup,
             supervised,
+            ..self
+        }
+    }
+
+    /// Sets the GPU state the page shows.
+    pub fn with_gpu(self, gpu: crate::gpu::GpuStatus) -> AppState {
+        AppState {
+            gpu: Arc::new(gpu),
             ..self
         }
     }
@@ -169,13 +189,25 @@ impl AppState {
 
     /// Ends this process so `orag start` runs `serve` again (exit code 75).
     pub fn request_restart(&self) {
-        self.restart.store(true, Ordering::SeqCst);
+        self.end_with(EXIT_RESTART);
+    }
+
+    /// Ends this process so the desktop app tries the GPU again (exit 76).
+    pub fn request_gpu_retry(&self) {
+        self.end_with(EXIT_GPU_RETRY);
+    }
+
+    fn end_with(&self, code: u8) {
+        // The first request wins: an import's restart is not turned into a retry.
+        let _ = self
+            .restart
+            .compare_exchange(0, code, Ordering::SeqCst, Ordering::SeqCst);
         self.begin_shutdown();
     }
 
     /// The exit code the process must end with, if it is not the usual one.
     pub fn exit_code(&self) -> Option<u8> {
-        self.restart.load(Ordering::SeqCst).then_some(EXIT_RESTART)
+        Some(self.restart.load(Ordering::SeqCst)).filter(|code| *code != 0)
     }
 
     /// Whether shutdown has started.
@@ -227,6 +259,7 @@ fn api_routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/v1/health", get(system::health))
         .route("/v1/version", get(system::version))
+        .route("/v1/system/gpu-retry", post(system::gpu_retry))
         .route(
             "/v1/collections",
             get(collections::list).post(collections::create),
