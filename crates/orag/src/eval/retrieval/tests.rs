@@ -444,6 +444,7 @@ fn a_reranked_run_names_its_reranker_and_only_changes_hybrid() {
                 rank_depth: EVAL_DEPTH,
                 generator: None,
                 rerank,
+                reuse_index: false,
             },
         )
         .unwrap()
@@ -474,4 +475,157 @@ fn a_reranked_run_names_its_reranker_and_only_changes_hybrid() {
             assert!(b.per_query.iter().all(|q| q.rerank_whole.is_some()));
         }
     }
+}
+
+/// Queries only: a reused index must never embed a document again.
+struct QueryOnly(FakeEmbedder);
+
+impl Embedder for QueryOnly {
+    fn descriptor(&self) -> &crate::domain::space::SpaceDescriptor {
+        self.0.descriptor()
+    }
+    fn count_tokens(&self, text: &str) -> usize {
+        self.0.count_tokens(text)
+    }
+    fn embed_documents(&self, _texts: &[String]) -> crate::error::Result<Vec<Vec<f32>>> {
+        panic!("a reused index embedded documents")
+    }
+    fn embed_query(&self, text: &str) -> crate::error::Result<Vec<f32>> {
+        self.0.embed_query(text)
+    }
+}
+
+/// v0.6 step 85b: one backend's index queried by another (`orag` indexes,
+/// `orag-vulkan` queries, and the reverse) runs on a kept index.
+#[test]
+fn a_kept_index_is_reused_without_embedding_documents_again() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let run = |embedder: Arc<dyn Embedder>, reuse_index| {
+        run_retrieval_eval_run(
+            embedder,
+            &root.join("corpus/seed"),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank: None,
+                reuse_index,
+            },
+        )
+    };
+    let fresh = run(Arc::new(FakeEmbedder::new()), false).unwrap();
+    let again = run(Arc::new(FakeEmbedder::new()), false).unwrap_err();
+    assert!(again.to_string().contains("already exists"), "{again}");
+    let reused = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap();
+    assert_eq!(reused.corpus_documents, fresh.corpus_documents);
+    for (a, b) in fresh.strategies.iter().zip(&reused.strategies) {
+        assert_eq!(
+            (a.recall_at_10, a.mrr_at_10),
+            (b.recall_at_10, b.mrr_at_10),
+            "{}",
+            a.strategy
+        );
+    }
+    let empty = tempfile::tempdir().unwrap();
+    let missing = run_retrieval_eval_run(
+        Arc::new(FakeEmbedder::new()),
+        &root.join("corpus/seed"),
+        &dataset,
+        empty.path(),
+        RetrievalConfig::default(),
+        EvalRun {
+            rank_depth: EVAL_DEPTH,
+            generator: None,
+            rerank: None,
+            reuse_index: true,
+        },
+    )
+    .unwrap_err();
+    assert!(missing.to_string().contains("no index"), "{missing}");
+}
+
+/// A reused index must hold exactly the corpus it is run with: a changed or
+/// added file would otherwise be embedded by the querying backend and stored
+/// beside the other backend's vectors.
+#[test]
+fn a_reused_index_refuses_a_changed_corpus() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let corpus = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("corpus/seed")).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, corpus.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let work = tempfile::tempdir().unwrap();
+    let run = |embedder: Arc<dyn Embedder>, reuse_index| {
+        run_retrieval_eval_run(
+            embedder,
+            corpus.path(),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank: None,
+                reuse_index,
+            },
+        )
+    };
+    let fresh = run(Arc::new(FakeEmbedder::new()), false).unwrap();
+    assert_eq!(fresh.embedding_offload, None, "fake models have no GPU");
+    let first = std::fs::read_dir(corpus.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut text = std::fs::read(&first).unwrap();
+    text.extend_from_slice(b"\nOne more line.\n");
+    std::fs::write(&first, text).unwrap();
+    let err = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap_err();
+    assert!(err.to_string().contains("corpus changed"), "{err}");
+}
+
+/// Two files with the same bytes are one document, which indexing refuses;
+/// reusing an index refuses them the same way.
+#[test]
+fn a_reused_index_refuses_duplicate_corpus_files() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let dataset = load_dataset(&root.join("datasets/seed.jsonl")).unwrap();
+    let corpus = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("corpus/seed")).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, corpus.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let work = tempfile::tempdir().unwrap();
+    let run = |embedder: Arc<dyn Embedder>, reuse_index| {
+        run_retrieval_eval_run(
+            embedder,
+            corpus.path(),
+            &dataset,
+            work.path(),
+            RetrievalConfig::default(),
+            EvalRun {
+                rank_depth: EVAL_DEPTH,
+                generator: None,
+                rerank: None,
+                reuse_index,
+            },
+        )
+    };
+    run(Arc::new(FakeEmbedder::new()), false).unwrap();
+    let first = std::fs::read_dir(corpus.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::copy(&first, corpus.path().join("zz-copy.md")).unwrap();
+    let err = run(Arc::new(QueryOnly(FakeEmbedder::new())), true).unwrap_err();
+    assert!(err.to_string().contains("same content"), "{err}");
 }

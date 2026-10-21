@@ -403,6 +403,49 @@ fn eval_retrieval_runs_on_seed_set() {
     );
 }
 
+/// v0.6 step 85b: `--index-dir` keeps the index of a first run and the
+/// next run with the same directory queries it (`orag` indexes,
+/// `orag-vulkan` queries, and the reverse).
+#[test]
+fn eval_retrieval_keeps_and_reuses_an_index_dir() {
+    let home = tempfile::tempdir().unwrap();
+    let index = tempfile::tempdir().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval");
+    let run = || {
+        orag()
+            .env("ORAG_HOME", home.path())
+            .args(["eval", "retrieval", "--dev-fake-models", "--corpus"])
+            .arg(root.join("corpus/seed"))
+            .arg("--dataset")
+            .arg(root.join("datasets/seed.jsonl"))
+            .arg("--index-dir")
+            .arg(index.path())
+            .output()
+            .unwrap()
+    };
+    let (first, second) = (run(), run());
+    for out in [&first, &second] {
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(index.path().join("eval.db").is_file());
+    let stderr = String::from_utf8_lossy(&second.stderr);
+    assert!(stderr.contains("reusing the index"), "{stderr}");
+    let table = |out: &std::process::Output| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|line| line.starts_with("| hybrid |"))
+            // The quality columns; the last two are latencies.
+            .map(|line| line.split('|').take(8).collect::<Vec<_>>().join("|"))
+            .collect::<Vec<_>>()
+    };
+    assert!(!table(&first).is_empty());
+    assert_eq!(table(&first), table(&second));
+}
+
 #[test]
 fn v02_dataset_labels_all_resolve() {
     // The harness stops on any label the production-parsed corpus cannot
