@@ -13,8 +13,8 @@ use crate::prefs::Choice;
 use crate::supervisor::{Backends, SidecarEvent, SidecarSpec, Supervisor};
 use crate::window::{
     Action, DESKTOP_MARKER_SCRIPT, SMOKE_SCRIPT, Status, action_for, external_allowed,
-    is_language_report, language_report, language_script, local_origin, navigation_allowed,
-    smoke_report, status_script, with_language,
+    is_language_report, is_loopback_http, language_report, language_script, local_origin,
+    navigation_allowed, smoke_report, status_script, with_language,
 };
 
 /// Set in a smoke test: the app writes `<ui url> <child pid>` here on Ready.
@@ -166,7 +166,9 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             }
             let allowed =
                 navigation_allowed(url, &nav_pages.local, locked(&nav_pages.service).as_ref());
-            if !allowed {
+            // A local service address that is no longer allowed is a stale
+            // page of a paused or restarted service: never the browser's.
+            if !allowed && !is_loopback_http(url) {
                 open_external(&nav_app, url);
             }
             allowed
@@ -269,12 +271,16 @@ fn watch(app: &AppHandle, window: WebviewWindow, supervisor: Supervisor, generat
     };
     let app = app.clone();
     std::thread::spawn(move || {
-        let pages = app.state::<Arc<Pages>>().inner().clone();
         for event in events {
-            let control = pages.bench.lock().unwrap_or_else(|e| e.into_inner());
-            if control.current(generation) {
-                handle_event(&app, &window, &event);
-            }
+            // On the window's thread, where bench commands run too: the
+            // generation is checked when the event's turn comes there.
+            let (app2, window) = (app.clone(), window.clone());
+            let _ = app.run_on_main_thread(move || {
+                let pages = app2.state::<Arc<Pages>>().inner().clone();
+                crate::bench::control::deliver(&pages.bench, generation, || {
+                    handle_event(&app2, &window, &event);
+                });
+            });
         }
     });
 }

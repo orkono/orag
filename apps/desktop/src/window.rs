@@ -264,7 +264,7 @@ fn same_origin(a: &Url, b: &Url) -> bool {
         && a.port_or_known_default() == b.port_or_known_default()
 }
 
-fn is_loopback_http(url: &Url) -> bool {
+pub fn is_loopback_http(url: &Url) -> bool {
     url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port().is_some()
 }
 

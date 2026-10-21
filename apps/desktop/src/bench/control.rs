@@ -81,6 +81,17 @@ impl Control {
     }
 }
 
+/// Runs `act` for an event of the supervisor of `generation` if that
+/// supervisor is still current when the event's turn comes: the app queues
+/// this onto the window's thread, where bench commands also run, so the
+/// check and the window change happen in one step.
+pub fn deliver(control: &std::sync::Mutex<Control>, generation: u64, act: impl FnOnce()) {
+    let control = control.lock().unwrap_or_else(|e| e.into_inner());
+    if control.current(generation) {
+        act();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +153,47 @@ mod tests {
             Some(Step::Resume { .. })
         ));
         assert_eq!(control.command(Command::Resume, Shown::Local), None, "once");
+    }
+
+    /// The window's thread as a queue: an event queued before a bench
+    /// command but run after it is dropped.
+    #[test]
+    fn an_event_queued_before_a_bench_starts_is_dropped_when_its_turn_comes() {
+        use std::sync::Mutex;
+        let control = Mutex::new(Control::default());
+        let generation = control.lock().unwrap().watch();
+        let acted = std::cell::Cell::new(Vec::new());
+        let mut queue: std::collections::VecDeque<Box<dyn FnOnce() + '_>> = Default::default();
+        queue.push_back(Box::new(|| {
+            deliver(&control, generation, || {
+                let mut seen = acted.take();
+                seen.push("restarting");
+                acted.set(seen);
+            })
+        }));
+        queue.push_back(Box::new(|| {
+            assert_eq!(
+                control
+                    .lock()
+                    .unwrap()
+                    .command(Command::Run, Shown::Service),
+                Some(Step::StartBench)
+            );
+        }));
+        queue.push_back(Box::new(|| {
+            deliver(&control, generation, || {
+                let mut seen = acted.take();
+                seen.push("ready");
+                acted.set(seen);
+            })
+        }));
+        while let Some(job) = queue.pop_front() {
+            job();
+        }
+        assert_eq!(
+            acted.take(),
+            vec!["restarting"],
+            "the Ready after the bench start is dropped"
+        );
     }
 }
