@@ -246,6 +246,17 @@ impl GpuStatus {
         }
     }
 
+    /// The setup page's service, with no answer model loaded: nothing is on
+    /// a GPU, Metal included (`of` takes a Metal build's model as on it). A
+    /// desktop fallback keeps its reason and retry.
+    pub fn in_setup(self) -> GpuStatus {
+        GpuStatus {
+            in_use: false,
+            full: false,
+            ..self
+        }
+    }
+
     /// From this process's environment.
     pub fn from_env(generator: Option<&Offload>) -> GpuStatus {
         GpuStatus::of(
@@ -487,6 +498,24 @@ mod tests {
         assert_eq!(
             (metal.backend, metal.in_use, metal.reason, metal.retry),
             ("metal", true, None, false)
+        );
+    }
+
+    #[test]
+    fn setup_mode_has_no_model_on_any_gpu() {
+        for build in [Build::Metal, Build::Vulkan, Build::Cpu] {
+            let setup = GpuStatus::of(build, None, None, false).in_setup();
+            assert_eq!(
+                (setup.in_use, setup.full, setup.reason.clone(), setup.retry),
+                (false, false, None, false),
+                "{build:?}"
+            );
+        }
+        let fallback =
+            GpuStatus::of(Build::Cpu, None, Some("crashed-twice".into()), true).in_setup();
+        assert_eq!(
+            (fallback.reason.as_deref(), fallback.retry),
+            (Some("crashed-twice"), true)
         );
     }
 

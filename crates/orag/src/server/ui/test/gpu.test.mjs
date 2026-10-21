@@ -1,7 +1,7 @@
 // The GPU line of the sidebar footer and the last answer's time (v0.6 step 87).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gpuLine, answerTimeText } from "../gpu.js";
+import { gpuLine, answerTimeText, whereOf, gpuChanged } from "../gpu.js";
 import { setLanguage } from "../i18n.js";
 
 const base = { layers_on_gpu: null, layers_total: null, device: null, reason: null, retry: false };
@@ -51,4 +51,20 @@ test("English texts", () => {
   assert.equal(answerTimeText(108000, "cpu"), "Son yanıt: 108 sn · işlemci");
   assert.equal(answerTimeText(900, "metal"), "Son yanıt: 0,9 sn · Apple GPU");
   assert.equal(answerTimeText(undefined, "cpu"), null);
+});
+
+test("an answer keeps the backend it ran on", () => {
+  assert.equal(whereOf({ ...base, backend: "cpu", in_use: false, full: false, reason: "crashed-twice" }), "cpu");
+  assert.equal(whereOf({ ...base, backend: "vulkan", in_use: false, full: false, reason: "fit_failed" }), "cpu");
+  assert.equal(whereOf({ ...base, backend: "vulkan", in_use: true, full: false }), "vulkan");
+  assert.equal(whereOf({ ...base, backend: "metal", in_use: true, full: true }), "metal");
+  assert.equal(whereOf(undefined), "cpu");
+});
+
+test("a restarted service shows a changed card state", () => {
+  const cpu = { ...base, backend: "cpu", in_use: false, full: false, reason: "crashed-twice", retry: true };
+  assert.equal(gpuChanged(cpu, { ...cpu }), false);
+  assert.equal(gpuChanged(cpu, { ...base, backend: "vulkan", in_use: true, full: true, device: "X" }), true);
+  assert.equal(gpuChanged(cpu, { ...cpu, reason: "start-timeout" }), true);
+  assert.equal(gpuChanged(undefined, cpu), true);
 });

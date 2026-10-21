@@ -45,3 +45,13 @@ export function answerTimeText(ms, backend) {
   const where = t(`gpu.where.${backend === "vulkan" || backend === "metal" ? backend : "cpu"}`);
   return t("gpu.lastAnswer", { seconds: String(seconds).replace(".", t("format.decimal")), where });
 }
+
+/** Where an answer ran, from the `gpu` state at the time: kept with its time. */
+export function whereOf(gpu) {
+  return gpu?.in_use && (gpu.backend === "vulkan" || gpu.backend === "metal") ? gpu.backend : "cpu";
+}
+
+/** True when a `/v1/version` `gpu` differs from the one shown before. */
+export function gpuChanged(before, after) {
+  return JSON.stringify(before ?? null) !== JSON.stringify(after ?? null);
+}

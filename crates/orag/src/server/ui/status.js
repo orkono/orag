@@ -6,15 +6,19 @@ import { $, el } from "./dom.js";
 import { request, versionInfo } from "./api.js";
 import { toast } from "./dialog.js";
 import { setAttrText, setText } from "./i18n.js";
-import { answerTimeText, gpuLine } from "./gpu.js";
+import { answerTimeText, gpuChanged, gpuLine, whereOf } from "./gpu.js";
 
 const HEALTH_MS = 10000;
 const HEALTH_DOWN_MS = 2000;
+/** After "try again" the page asks until the restarted service answers. */
+const RETRY_POLL_MS = 2000;
+const RETRY_WATCH_MS = 180000;
 
 let down = false;
-/** The last `/v1/version` answer and answer time, redrawn on a language change. */
+/** The last `/v1/version` answer and answer, redrawn on a language change. */
 let shown = null;
-let lastAnswerMs = null;
+/** `{ms, where}`: the backend is the one the answer ran on, not today's. */
+let lastAnswer = null;
 
 function showVersion(info) {
   shown = info;
@@ -28,7 +32,7 @@ function showVersion(info) {
     rows.push(line);
     if (gpu.retry) rows.push(retryButton());
   }
-  const time = answerTimeText(lastAnswerMs, info.gpu?.backend === "cpu" || !info.gpu?.in_use ? "cpu" : info.gpu.backend);
+  const time = lastAnswer && answerTimeText(lastAnswer.ms, lastAnswer.where);
   if (time) rows.push(el("div", time, "app-answer-time"));
   $("app-info").replaceChildren(...rows);
 }
@@ -45,9 +49,30 @@ function retryButton() {
     } catch {
       button.disabled = false;
       toast({ key: "gpu.retryFailed" });
+      return;
     }
+    followRestart(shown?.gpu);
   });
   return button;
+}
+
+/**
+ * Asks `/v1/version` until the restarted service answers: after an outage,
+ * or with a changed card state. A restart between two health checks would
+ * otherwise leave the old state and a disabled button on the page.
+ */
+async function followRestart(before) {
+  const until = Date.now() + RETRY_WATCH_MS;
+  let gone = false;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, RETRY_POLL_MS));
+    try {
+      const info = await versionInfo(true);
+      if (gone || gpuChanged(before, info.gpu)) return;
+    } catch {
+      gone = true;
+    }
+  }
 }
 
 async function reachable() {
@@ -78,7 +103,7 @@ async function watchHealth() {
 export function initStatus() {
   document.addEventListener("orag:version", ({ detail }) => showVersion(detail));
   document.addEventListener("orag:answered", ({ detail }) => {
-    lastAnswerMs = detail.generationMs;
+    lastAnswer = { ms: detail.generationMs, where: whereOf(shown?.gpu) };
     if (shown) showVersion(shown);
   });
   window.addEventListener("orag:language", () => {

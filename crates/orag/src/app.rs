@@ -113,6 +113,7 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
     // detached blocking task (an embedding batch, a prefill) still uses it.
     let models_in_use = ModelsInUse::watch(&embedder, &generator);
     let gpu = crate::gpu::GpuStatus::from_env(generator.offload().as_ref());
+    let gpu = if setup { gpu.in_setup() } else { gpu };
     tracing::info!(?gpu, "gpu status");
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
