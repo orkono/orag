@@ -87,9 +87,15 @@ restarts by itself. The Start menu also has
 internet on the PC, build packs elsewhere with `scripts/fetch-model-pack.sh`
 (bash) or `fetch-model-pack.ps1` (PowerShell, also in the installer); copy them to
 the PC and type their folder into *Modelleri kur*, or run
-`orag.exe models import <folder>\<pack>`. Windows runs on the CPU (no GPU
-offload), so answers are expected to be slower than on Apple Silicon; CPU
-speed is not measured yet. Ctrl-C and Ctrl-Break stop ORAG gracefully;
+`orag.exe models import <folder>\<pack>`. `orag.exe` runs on the CPU, so
+answers are slower than on Apple Silicon (about 108 s per answer on a 4-vCPU
+reference machine). From 0.6 the archive also has `orag-vulkan.exe`, the same
+service with llama.cpp's Vulkan backend: `orag-vulkan.exe serve` puts the
+models on the discrete graphics card with the most free memory (at least
+2 GiB), fitted to that memory; `ORAG_GPU_DEVICE=<n>` picks another one
+(`orag-vulkan.exe gpu-probe` lists them) and `gpu = "off"` in `config.toml`
+keeps it on the CPU. The desktop app chooses between the two by itself
+(`docs/desktop.md`). Ctrl-C and Ctrl-Break stop ORAG gracefully;
 closing the console window stops it too, but Windows gives it only a few
 seconds, so indexing that was cut off resumes on the next start.
 The binary is not code-signed yet, so SmartScreen may ask once before it

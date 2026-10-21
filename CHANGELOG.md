@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.6] - 2026-10-21
+
+- Step 86b: the Windows and Linux desktop bundles and CLI archives carry `orag-vulkan` beside `orag` (`tauri.windows.conf.json`, `tauri.linux.conf.json`, `scripts/stage-sidecar.sh`), so the app's GPU choice from step 86 is live; macOS is unchanged. Its imports are checked with `check-binary-deps.sh --vulkan` in the desktop and release workflows. The desktop smoke test on Windows and Linux runners, which have no GPU, checks that the app tried `orag-vulkan` and runs on the CPU with the reason in `gpu-fallback.json`; on Windows without a Vulkan loader the reason must be `loader-missing`. `docs/desktop.md` and the README explain the graphics card choice.
+
 ## [0.6.0-alpha.5] - 2026-10-21
 
 - Step 86: the desktop app chooses `orag-vulkan` or `orag` on every start (`apps/desktop/src/gpu.rs`): `gpu = "off"`, then a fallback marker (`gpu-fallback.json` in the service home, this version, under 7 days), then `orag-vulkan gpu-probe` (killed after 10 s). A GPU sidecar that never gets ready, hangs past the startup timeout or crashes a second time moves the session to the CPU, writes the marker and passes the reason in `ORAG_GPU_FALLBACK_REASON`; exit 75 restarts the same sidecar; exit 76 clears the marker and tries the GPU again. On Windows the app turns system error dialogs off before its first spawn, so a missing `vulkan-1.dll` shows none. Bundles do not carry `orag-vulkan` yet (step 86b).

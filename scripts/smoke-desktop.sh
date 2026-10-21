@@ -3,12 +3,34 @@
 # sidecar serves the page, lets the page send a POST to the API from inside
 # the webview (as the page itself would), then the app closes its window;
 # the app must exit by itself and its sidecar must be gone.
-# Usage: scripts/smoke-desktop.sh <app executable>   (Linux: run under xvfb-run)
+# Usage: scripts/smoke-desktop.sh <app executable> [--expect-gpu-fallback]
+#   (Linux: run under xvfb-run)
 # The app's sidecar must sit next to it (target/release/orag after
-# `cargo build --release -p orag`).
+# `cargo build --release -p orag`; Windows and Linux: orag-vulkan too).
+# --expect-gpu-fallback (Windows, Linux CI without a GPU): the app must have
+# tried orag-vulkan first and run on the CPU, with the fallback marker in its
+# home naming why (v0.6 plan, Task 4): `loader-missing` when the Vulkan
+# loader cannot be found, `no-eligible-device` when it can, never a probe
+# timeout. The app data folder starts empty, so the probe really runs.
 set -euo pipefail
 
-app="${1:?usage: scripts/smoke-desktop.sh <app executable>}"
+app="${1:?usage: scripts/smoke-desktop.sh <app executable> [--expect-gpu-fallback]}"
+expect_fallback=0
+case "${2:-}" in
+  "") ;;
+  --expect-gpu-fallback) expect_fallback=1 ;;
+  *) echo "unknown option: $2" >&2; exit 2 ;;
+esac
+# The app's data folder (Tauri app_data_dir, identifier com.orkono.orag).
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) data="$APPDATA/com.orkono.orag" ;;
+  Darwin) data="$HOME/Library/Application Support/com.orkono.orag" ;;
+  *) data="${XDG_DATA_HOME:-$HOME/.local/share}/com.orkono.orag" ;;
+esac
+marker="$data/orag/gpu-fallback.json"
+if [ "$expect_fallback" = 1 ]; then
+  rm -f "$marker"
+fi
 work=$(mktemp -d)
 ready="$work/ready.txt"
 smoke="$work/smoke.txt"
@@ -41,6 +63,19 @@ if [ ! -s "$ready" ]; then
 fi
 read -r url sidecar < "$ready"
 echo "page $url, sidecar pid $sidecar"
+if [ "$expect_fallback" = 1 ]; then
+  [ -f "$marker" ] || { echo "no GPU fallback marker at $marker" >&2; cat "$log" >&2; exit 1; }
+  reason=$(sed -nE 's/.*"reason":"([^"]*)".*/\1/p' "$marker")
+  echo "GPU fallback: $reason"
+  case "$reason" in
+    loader-missing|no-eligible-device) ;;
+    *) echo "unexpected GPU fallback reason: $(cat "$marker")" >&2; exit 1 ;;
+  esac
+  if [ -n "${ORAG_EXPECT_GPU_REASON:-}" ] && [ "$reason" != "$ORAG_EXPECT_GPU_REASON" ]; then
+    echo "expected the GPU fallback reason $ORAG_EXPECT_GPU_REASON, got $reason" >&2
+    exit 1
+  fi
+fi
 # The service page loaded in the webview and sent its own POST (the app may
 # already be closing by now): a relative pack path is refused as invalid input
 # (400); a 403 would mean the page's origin is not accepted.

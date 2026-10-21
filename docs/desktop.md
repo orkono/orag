@@ -17,6 +17,28 @@ The models are not in these files; the two default packs need about 3.1 GB
 more (see *First start*). Every release also has `SHA256SUMS` and GitHub build
 provenance to check a download with; see `docs/signing.md`.
 
+## Graphics card (Windows and Linux)
+
+From 0.6 the Windows and Linux apps carry two copies of the service: `orag`
+(CPU) and `orag-vulkan` (llama.cpp's Vulkan backend, for NVIDIA, AMD and
+Intel graphics cards). On every start the app checks for a discrete graphics
+card with at least 2 GiB free memory (`orag-vulkan gpu-probe`, at most 10 s)
+and, when there is one, runs `orag-vulkan` on it; the models are fitted to
+the card's free memory, and what does not fit stays on the CPU. Without a
+usable card, without a Vulkan driver, or when `gpu = "off"` is in the data
+folder's `config.toml`, it runs `orag` exactly as before. Integrated graphics
+are not used yet.
+
+If `orag-vulkan` cannot start, does not become ready, or stops twice in one
+session, the app switches to `orag` for the rest of the session and writes
+`gpu-fallback.json` (version, reason, time) into the service's data folder;
+later starts of the same version use the CPU straight away for 7 days, then
+try the card again. Reasons: `loader-missing` (no Vulkan driver),
+`no-eligible-device`, `probe-timeout`, `start-timeout`, `start-failed`,
+`crashed-twice`, or the probe's exit code. Deleting the file makes the next
+start try the card. On Windows a missing `vulkan-1.dll` shows no system
+error window; the app just uses the CPU.
+
 ## First start
 
 The app starts the service in **setup mode** until the two models are
