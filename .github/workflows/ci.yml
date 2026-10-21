@@ -160,5 +160,7 @@ jobs:
           GGML_VK_VISIBLE_DEVICES: "0"
           ORAG_VULKAN_ALLOW_SOFTWARE: "1"
           ORAG_REQUIRE_GPU: "1"
-        run: cargo test --release --locked -p orag --features vulkan --test gpu_offload -- --test-threads=1
+        run: |
+          cargo test --release --locked -p orag --features vulkan --test gpu_offload -- --test-threads=1
+          cargo test --release --locked -p orag --features vulkan --lib infer::llama::offload
       - run: env -u LD_LIBRARY_PATH scripts/check-binary-deps.sh "target/vulkan/release/orag-vulkan$EXE" --release-floor --vulkan

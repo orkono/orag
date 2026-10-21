@@ -218,4 +218,27 @@ mod tests {
             "an unknown device is refused"
         );
     }
+
+    #[test]
+    fn a_cpu_only_model_has_no_device() {
+        let params = cpu_params().unwrap();
+        assert!(params.devices().is_empty(), "{:?}", params.devices());
+        assert_eq!(params.n_gpu_layers(), 0);
+    }
+
+    /// With a GPU device present (CI's lavapipe: `ORAG_REQUIRE_GPU=1`), the
+    /// fit's parameters name that device alone, never every device.
+    #[test]
+    fn a_fit_names_only_the_chosen_device() {
+        let devices = crate::infer::llama::devices::gpu_devices().unwrap();
+        let Some(device) = devices.first() else {
+            assert!(
+                std::env::var_os("ORAG_REQUIRE_GPU").is_none(),
+                "no GPU device"
+            );
+            return;
+        };
+        let params = gpu_params(device.index).unwrap();
+        assert_eq!(params.devices(), vec![device.index]);
+    }
 }
