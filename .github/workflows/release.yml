@@ -222,5 +222,9 @@ jobs:
             echo "release $TAG already exists; nothing to do" >&2
             exit 1
           fi
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft \
+          # A pre-release version (v0.6.0-alpha.11) makes a pre-release
+          # draft, so publishing it never replaces the latest stable release.
+          pre=()
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft "${pre[@]}" \
             --title "ORAG ${TAG#v}" --notes "Draft for ${TAG}: see CHANGELOG.md. Check a download with SHA256SUMS or \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\` (docs/signing.md)."
