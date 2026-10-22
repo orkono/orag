@@ -159,7 +159,8 @@ automatically.
 
 On a computer with internet access, start ORAG and press *Modelleri indir*
 on the page (see *Run*). It downloads the embedder and the answer model you
-picked on the page (the configured one is preselected when this computer has the memory for it), from
+picked on the page (the configured one is preselected when this computer has the memory and
+free disk for it), from
 pinned Hugging Face revisions, checks every file by SHA-256, honours
 `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues where it stopped
 if the connection breaks. It runs only when you press the button, and only
