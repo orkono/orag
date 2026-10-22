@@ -106,7 +106,7 @@ warning that answers may be slow. Pick one and press *Modelleri indir*;
 the embedder and that model download (about 3.15 GiB for the default), the
 choice is written as `generation_model` into `config.toml`, and ORAG
 restarts by itself. The Start menu also has
-*ORAG modellerini indir (internet)*, which downloads the same two packs
+*ORAG modellerini indir (internet)*, which downloads the two default packs (the embedder and the 4B)
 (after asking) into `%USERPROFILE%\ORAG-paketleri` with
 `fetch-model-pack.ps1`. Data lives in
 `%USERPROFILE%\.orag` (or `%ORAG_HOME%`); uninstalling keeps it. Without
@@ -159,7 +159,7 @@ automatically.
 
 On a computer with internet access, start ORAG and press *Modelleri indir*
 on the page (see *Run*). It downloads the embedder and the answer model you
-picked on the page (the configured one is preselected), from
+picked on the page (the configured one is preselected when this computer has the memory for it), from
 pinned Hugging Face revisions, checks every file by SHA-256, honours
 `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues where it stopped
 if the connection breaks. It runs only when you press the button, and only
