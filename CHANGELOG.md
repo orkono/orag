@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.11] - 2026-10-22
+
+- Step 88d: the GPU bench's CPU floor. `.github/workflows/bench-reference.yml` runs the bench's own CPU runs for both tiers on the v0.5 CPU reference runner; its result, `eval/bench/v06-cpu-reference.json` (the 4B finds 10 of 11 facts and abstains on 055 and 058; the 9B finds 11 of 11 and abstains on 058), is built into the desktop app, so a bench on a PC checks its CPU answers against it. `.docs/benchmarks/v0.6-gpu.md` records the reference.
+
 ## [0.6.0-alpha.10] - 2026-10-21
 
 - Step 88c: the GPU bench is wired to the page. Pre-releases of the Windows and Linux desktop apps show **Ekran kartı ölçümü / Graphics card bench** in the help panel; it opens a one-button view (`?bench=1`, desktop only) whose button navigates to `orag-bench://run`. The app acts on it only from the service page and only once at a time: it pauses the service (keeping its GPU policy), runs the bench on a thread, shows the progress and **Durdur** on its status page (`orag-bench://cancel`, only from that page while it runs), opens the results file's folder when done, and **Devam** (`orag-bench://resume`) resumes the same policy. Quitting cancels the bench and waits for it. `orag eval retrieval` takes a hidden `--gpu-auto`, which the bench uses to set `gpu = "off"` aside; the lavapipe workflow checks that an index-only bench and `--gpu-auto` stay on the GPU with `gpu = "off"` while plain retrieval keeps the setting. `docs/desktop.md` describes the bench.

@@ -1,0 +1,147 @@
+{
+  "schema": "orag-bench-reference/1",
+  "machine": "GitHub ubuntu-22.04 x86-64 runner, 4 vCPU (the v0.5 CPU reference)",
+  "commit": "fe720adde3e9a3fc6e4aebfa9ea3b32519031fbb",
+  "sampler": "dry",
+  "tiers": {
+    "default": [
+      {
+        "id": "v2-ans-001",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-005",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-009",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-015",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-020",
+        "found_facts": [
+          0,
+          1
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-024",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-026",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-041",
+        "found_facts": [],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-055",
+        "found_facts": [],
+        "abstained": true
+      },
+      {
+        "id": "v2-ans-058",
+        "found_facts": [],
+        "abstained": true
+      }
+    ],
+    "large": [
+      {
+        "id": "v2-ans-001",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-005",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-009",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-015",
+        "found_facts": [
+          0,
+          1
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-020",
+        "found_facts": [
+          0,
+          1
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-024",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-026",
+        "found_facts": [
+          0
+        ],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-041",
+        "found_facts": [],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-055",
+        "found_facts": [],
+        "abstained": false
+      },
+      {
+        "id": "v2-ans-058",
+        "found_facts": [],
+        "abstained": true
+      }
+    ]
+  },
+  "generators": {
+    "default": "qwen3.5-4b-q4_k_m",
+    "large": "qwen3.5-9b-q4_k_m"
+  }
+}
