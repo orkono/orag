@@ -60,9 +60,10 @@ Windows and Linux) is in pre-release.
   needs at least 7 GiB (8 GiB recommended), the larger `qwen3.5-9b-q4_k_m` at
   least 11 GiB (12 GiB recommended); the setup page checks this
   (`.docs/benchmarks/v0.5-model-tiers.md`).
-- About 3.1 GB of disk for the two installed default models (about 6.3 GB with
-  the larger answer model), plus your documents. `orag models import` copies a pack, so the pack directory you
-  imported from needs another 3.1 GB until you delete it.
+- Disk for the models: about 3.15 GiB for the embedder and the default answer
+  model, about 5.9 GiB with the larger one instead, plus your documents.
+  `orag models import` copies a pack, so the pack directory you imported from
+  needs as much again until you delete it.
 
 Measured speed with the default models on an Apple M5 Max (Metal), for a
 ~600-token prompt: the first answer token arrives in about 0.2 s, then tokens
@@ -74,7 +75,7 @@ median on a 4-vCPU x86-64 reference machine (v0.5). Graphics card numbers come
 with 0.6 (`.docs/benchmarks/v0.6-gpu.md`).
 Dense search over 100 000 chunks stays below 250 ms (p95), measured on an
 Apple M5 Max and on an x86-64 Linux machine with 16 GB RAM (a GitHub-hosted
-runner); a 16 GB M-series laptop is measured after v0.1.0
+runner); a 16 GB M-series laptop is not measured yet
 (`.docs/benchmarks/vector-scale.md`, D-003).
 
 ## Desktop app
@@ -102,7 +103,7 @@ recommended `qwen3.5-4b-q4_k_m` (at least 7 GiB RAM, 8 GiB recommended) and
 `qwen3.5-9b-q4_k_m` (at least 11 GiB, 12 GiB recommended; slower, uses more
 memory). Below the recommended memory a model can still be picked, with a
 warning that answers may be slow. Pick one and press *Modelleri indir*;
-the embedder and that model download (about 3.1 GB for the default), the
+the embedder and that model download (about 3.15 GiB for the default), the
 choice is written as `generation_model` into `config.toml`, and ORAG
 restarts by itself. The Start menu also has
 *ORAG modellerini indir (internet)*, which downloads the same two packs
@@ -111,7 +112,8 @@ restarts by itself. The Start menu also has
 `%USERPROFILE%\.orag` (or `%ORAG_HOME%`); uninstalling keeps it. Without
 internet on the PC, build packs elsewhere with `scripts/fetch-model-pack.sh`
 (bash) or `fetch-model-pack.ps1` (PowerShell, also in the installer); copy them to
-the PC and type their folder into *Modelleri kur*, or run
+the PC, open *Model paketlerim var (çevrimdışı kurulum)* on the page, type
+their folder into *Model paketleri klasörü* and press *İçe aktar*, or run
 `orag.exe models import <folder>\<pack>`. `orag.exe` runs on the CPU, so
 answers are slower than on Apple Silicon (about 108 s per answer on a 4-vCPU
 reference machine). From 0.6 the archive also has `orag-vulkan.exe`, the same
@@ -156,7 +158,8 @@ automatically.
 ## Install models
 
 On a computer with internet access, start ORAG and press *Modelleri indir*
-on the page (see *Run*). It downloads only the configured models, from
+on the page (see *Run*). It downloads the embedder and the answer model you
+picked on the page (the configured one is preselected), from
 pinned Hugging Face revisions, checks every file by SHA-256, honours
 `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and continues where it stopped
 if the connection breaks. It runs only when you press the button, and only
@@ -193,10 +196,11 @@ and restarts it after models are imported from the page; if ORAG already runs,
 it only opens the page. Without installed models ORAG starts in **setup
 mode**. The page shows this computer and the answer models that fit it; pick
 one (the default is recommended) and press *Modelleri indir*, then wait while
-the embedder and that model (about 3.1 GB for the default) download and are
+the embedder and that model (about 3.15 GiB for the default) download and are
 verified. Without internet,
-type the folder you copied the packs to (for example `~/orag-packs`) into
-*Modelleri kur* instead. Either way ORAG restarts by itself under
+open *Model paketlerim var (çevrimdışı kurulum)* instead, type the folder you
+copied the packs to (for example `~/orag-packs`) into *Model paketleri
+klasörü* and press *İçe aktar*. Either way ORAG restarts by itself under
 `orag start` (under `orag serve`, restart it yourself). Until then uploading
 and asking are refused with `models_missing`. Set `models.download = false`
 in `config.toml` to hide the download for a fully offline install.

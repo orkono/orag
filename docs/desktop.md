@@ -13,7 +13,7 @@ data folder are its own.
 | Windows 10 22H2 / 11 x86-64 (AVX2) | `ORAG_<version>_x64-setup.exe` (215 MB, most of it the offline WebView2 installer) | Per user, no administrator rights. It installs WebView2 if Windows lacks it (offline, included). Not code-signed yet: SmartScreen may ask once (*More info → Run anyway*). |
 | Linux x86-64 (glibc 2.35+) | `ORAG_<version>_amd64.AppImage` (85 MB) or `.deb` (11 MB) | The AppImage runs after `chmod +x`; the `.deb` installs with `sudo apt install ./ORAG_<version>_amd64.deb`. Needs WebKitGTK 4.1 (present on Ubuntu 22.04+ and Debian 12+). |
 
-The models are not in these files; the two default packs need about 3.1 GB
+The models are not in these files; the two default packs need about 3.15 GiB
 more (see *First start*). Every release also has `SHA256SUMS` and GitHub build
 provenance to check a download with; see `docs/signing.md`.
 
@@ -59,8 +59,8 @@ its own runs only; it never touches `gpu-fallback.json`.
 The app starts the service in **setup mode** until the two models are
 installed. Its page shows **Bu bilgisayar** (memory, processor, cores, GPU,
 free disk) and the answer models that fit this computer: *Standart*
-(`qwen3.5-4b-q4_k_m`, about 3.1 GB with the embedder; at least 7 GiB RAM,
-8 GiB recommended) and *Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GB; at least
+(`qwen3.5-4b-q4_k_m`, about 3.15 GiB with the embedder; at least 7 GiB RAM,
+8 GiB recommended) and *Büyük* (`qwen3.5-9b-q4_k_m`, about 5.9 GiB; at least
 11 GiB, 12 GiB recommended; slower and uses more memory). Below the
 recommended memory a model can still be picked, with a warning that answers
 may be slow. Without an Apple GPU the page shows the median answer time
@@ -78,8 +78,9 @@ where it stopped if the connection breaks or you cancel it (D-012).
 
 Without internet, use the offline way: build packs on a connected machine
 with `scripts/fetch-model-pack.sh` (bash) or `fetch-model-pack.ps1`
-(PowerShell), copy them over, and type the folder's full path into
-*Modelleri kur*. To turn the download off for a fully offline install, add
+(PowerShell), copy them over, open *Model paketlerim var (çevrimdışı
+kurulum)*, type the folder's full path into *Model paketleri klasörü* and
+press *İçe aktar*. To turn the download off for a fully offline install, add
 `models.download = false` to the app's `config.toml` (see below). The app
 itself makes no network request; besides the download you ask for, the
 service makes none either (no telemetry, no update check).
