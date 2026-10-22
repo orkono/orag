@@ -1,0 +1,88 @@
+name: bench-reference
+# The GPU bench's CPU floor (v0.6 step 88d): the release build runs the
+# bench's own CPU runs (`orag eval bench`, the 10 pinned v0.2 dev questions)
+# for each offered generator tier on GitHub's x86-64 runner, the v0.5 CPU
+# reference machine (.docs/benchmarks/v0.5-model-tiers.md). The reference
+# file it uploads becomes eval/bench/v06-cpu-reference.json. A measurement,
+# not a per-push check: run by pushing a `bench-ref/**` branch.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["bench-ref/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo build --release --locked
+      - name: Fetch and install the embedder and the tiers
+        run: |
+          set -euo pipefail
+          packs="$RUNNER_TEMP/packs"
+          home="$RUNNER_TEMP/home"
+          mkdir -p "$home"
+          for preset in qwen3-embedding-0.6b-q8_0 qwen3.5-4b-q4_k_m qwen3.5-9b-q4_k_m; do
+            scripts/fetch-model-pack.sh "$preset" "$packs"
+            ORAG_HOME="$home" target/release/orag models import "$packs/$preset"
+          done
+          printf 'bind = "127.0.0.1:0"\nui_bind = "off"\n' > "$home/config.toml"
+      - name: Machine
+        run: |
+          {
+            echo "## Machine"
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)'
+            free -g | head -2
+            target/release/orag --version
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The bench's CPU runs
+        run: |
+          set -euo pipefail
+          home="$RUNNER_TEMP/home"
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          bench() {
+            ORAG_HOME="$home" target/release/orag eval bench --corpus eval/corpus/v02 \
+              --dataset eval/datasets/v06-bench.jsonl --index-dir "$RUNNER_TEMP/index" "$@"
+          }
+          bench --tier default --build-index --index-only --out "$out/index.json"
+          for tier in default large; do
+            bench --tier "$tier" --out "$out/$tier.json"
+            jq -e '.status == "ok" and (.results | length) == 10' "$out/$tier.json" >/dev/null
+          done
+          jq -n --arg commit "$GITHUB_SHA" \
+            --slurpfile d "$out/default.json" --slurpfile l "$out/large.json" '{
+              schema: "orag-bench-reference/1",
+              machine: "GitHub ubuntu-22.04 x86-64 runner, 4 vCPU (the v0.5 CPU reference)",
+              commit: $commit,
+              sampler: $d[0].sampler,
+              tiers: {
+                default: [$d[0].results[] | {id, found_facts, abstained}],
+                large: [$l[0].results[] | {id, found_facts, abstained}]
+              },
+              generators: {default: $d[0].generator, large: $l[0].generator}
+            }' > "$out/v06-cpu-reference.json"
+          {
+            echo "## Reference"
+            echo '```json'
+            cat "$out/v06-cpu-reference.json"
+            echo '```'
+            for tier in default large; do
+              # The bench's median: the mean of the middle two of an even count.
+              echo "$tier: p50 answer ms $(jq '[.results[].ms] | sort | if length % 2 == 0 then (.[length/2-1] + .[length/2]) / 2 else .[length/2|floor] end' "$out/$tier.json")"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-reference
+          path: ${{ runner.temp }}/out/

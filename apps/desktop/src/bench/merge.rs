@@ -47,6 +47,10 @@ pub struct Outcome {
 /// The reference CPU run's answers per tier (the CPU floor).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Reference {
+    /// The sampler the reference answered with; a run with another one is
+    /// not compared (`cpu_floor: sampler-mismatch`).
+    #[serde(default)]
+    pub sampler: Option<String>,
     pub tiers: BTreeMap<String, Vec<RefAnswer>>,
 }
 
@@ -149,6 +153,7 @@ pub struct TierResult {
     pub checks: Vec<Check>,
     pub all_pass: bool,
     /// `ok`, `failed` or `no-reference`.
+    /// `ok`, `failed`, `no-reference` or `sampler-mismatch`.
     pub cpu_floor: &'static str,
 }
 
@@ -322,9 +327,11 @@ fn tier_result(tier: Tier, outcomes: &[Outcome], reference: Option<&Reference>) 
     let all_runs_ok = [&cpu, &vulkan].iter().all(|side| {
         side.runs.len() == usize::from(ROUNDS) && side.runs.iter().all(|r| r.status == "ok")
     });
-    let cpu_floor = match reference.and_then(|r| r.tiers.get(tier.name())) {
+    let sampler = cpu_report.as_ref().and_then(|r| r.sampler.clone());
+    let cpu_floor = match reference.and_then(|r| r.tiers.get(tier.name()).map(|t| (r, t))) {
         None => "no-reference",
-        Some(answers) if cpu_floor_holds(answers, cpu_answers) => "ok",
+        Some((r, _)) if r.sampler.is_some() && r.sampler != sampler => "sampler-mismatch",
+        Some((_, answers)) if cpu_floor_holds(answers, cpu_answers) => "ok",
         Some(_) => "failed",
     };
     TierResult {
@@ -332,7 +339,7 @@ fn tier_result(tier: Tier, outcomes: &[Outcome], reference: Option<&Reference>) 
         status: status.into(),
         generator: cpu_report.as_ref().and_then(|r| r.generator.clone()),
         embedder: cpu_report.as_ref().and_then(|r| r.embedder.clone()),
-        sampler: cpu_report.as_ref().and_then(|r| r.sampler.clone()),
+        sampler,
         cpu,
         vulkan,
         vulkan_full_offload,

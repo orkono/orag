@@ -42,6 +42,13 @@ pub const RETRIEVAL: &[u8] = include_bytes!(concat!(
     "/../../eval/datasets/v02-retrieval.jsonl"
 ));
 
+/// The bench's CPU runs on the reference machine (step 88d,
+/// `.github/workflows/bench-reference.yml`): the CPU floor.
+pub const REFERENCE: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../eval/bench/v06-cpu-reference.json"
+));
+
 /// Where [`extract`] put the files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extracted {
@@ -94,6 +101,30 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join(path)
+    }
+
+    #[test]
+    fn the_reference_answers_every_bench_question_per_tier() {
+        let reference: crate::bench::merge::Reference = serde_json::from_slice(REFERENCE).unwrap();
+        let ids: Vec<String> = std::str::from_utf8(QUESTIONS)
+            .unwrap()
+            .lines()
+            .map(|l| {
+                serde_json::from_str::<serde_json::Value>(l).unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(reference.tiers.len(), 2);
+        for tier in ["default", "large"] {
+            let answers: Vec<&str> = reference.tiers[tier]
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect();
+            assert_eq!(answers, ids, "{tier}");
+        }
+        assert!(crate::bench::reference().is_some());
     }
 
     #[test]

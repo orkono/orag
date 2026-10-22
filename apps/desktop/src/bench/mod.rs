@@ -173,10 +173,10 @@ impl Bench {
     }
 }
 
-/// The CPU reference the bench's CPU floor is checked against (step 88d);
-/// None until it is measured, and the gate then reports `no-reference`.
+/// The CPU reference the bench's CPU floor is checked against (step 88d,
+/// `eval/bench/v06-cpu-reference.json`).
 pub fn reference() -> Option<Reference> {
-    None
+    serde_json::from_slice(data::REFERENCE).ok()
 }
 
 fn done_of(status: &Status) -> Done {
