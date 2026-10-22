@@ -18,6 +18,19 @@ pub enum Status {
         message: String,
         details: Vec<String>,
     },
+    /// The GPU bench is running (v0.6 step 88).
+    Bench {
+        answers_done: usize,
+        answers_total: usize,
+        jobs_done: usize,
+        jobs_total: usize,
+        cancelling: bool,
+    },
+    /// The GPU bench wrote its results file (or could not, `error`).
+    BenchDone {
+        path: Option<String>,
+        error: Option<String>,
+    },
 }
 
 /// The origin Tauri serves the app's own files from (`ui/`): fixed per OS,
@@ -251,7 +264,7 @@ fn same_origin(a: &Url, b: &Url) -> bool {
         && a.port_or_known_default() == b.port_or_known_default()
 }
 
-fn is_loopback_http(url: &Url) -> bool {
+pub fn is_loopback_http(url: &Url) -> bool {
     url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port().is_some()
 }
 

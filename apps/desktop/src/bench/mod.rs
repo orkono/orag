@@ -2,6 +2,8 @@
 //! stops its service and runs `eval bench` and `eval retrieval` on `orag`
 //! and `orag-vulkan` in turn, then writes one results file.
 
+pub mod channel;
+pub mod control;
 pub mod data;
 pub mod merge;
 pub mod plan;
@@ -19,7 +21,7 @@ use crate::gpu::ProbeOutcome;
 pub const RESULTS_SCHEMA: &str = "orag-bench/1";
 
 /// What the page shows while the bench runs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Progress {
     pub answers_done: usize,
     pub answers_total: usize,
@@ -169,6 +171,12 @@ impl Bench {
         write_whole(&path, &serde_json::to_vec_pretty(&results)?)?;
         Ok(path)
     }
+}
+
+/// The CPU reference the bench's CPU floor is checked against (step 88d);
+/// None until it is measured, and the gate then reports `no-reference`.
+pub fn reference() -> Option<Reference> {
+    None
 }
 
 fn done_of(status: &Status) -> Done {
