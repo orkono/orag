@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.6.0-alpha.11] - 2026-10-22
 
-- Step 88d: the GPU bench's CPU floor. `.github/workflows/bench-reference.yml` runs the bench's own CPU runs for both tiers on the v0.5 CPU reference runner; its result, `eval/bench/v06-cpu-reference.json` (the 4B finds 10 of 11 facts and abstains on 055 and 058; the 9B finds 11 of 11 and abstains on 058), is built into the desktop app, so a bench on a PC checks its CPU answers against it. `.docs/benchmarks/v0.6-gpu.md` records the reference.
+- Step 88d: the GPU bench's CPU floor. `.github/workflows/bench-reference.yml` runs the bench's own CPU runs for both tiers on the v0.5 CPU reference runner; its result, `eval/bench/v06-cpu-reference.json` (the 4B finds 8 of 9 facts and abstains on 055 and 058; the 9B finds 9 of 9 and abstains on 058), is built into the desktop app, so a bench on a PC checks its CPU answers against it. `.docs/benchmarks/v0.6-gpu.md` records the reference.
 
 ## [0.6.0-alpha.10] - 2026-10-21
 

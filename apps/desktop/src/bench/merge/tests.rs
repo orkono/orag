@@ -62,6 +62,7 @@ fn ok(job: Job, report: serde_json::Value) -> Outcome {
 
 fn reference() -> Reference {
     Reference {
+        sampler: Some("dry".into()),
         tiers: [(
             "default".to_string(),
             vec![
@@ -337,4 +338,13 @@ fn the_gate_compares_the_unrounded_speed_up() {
         "{:?}",
         file.gate.failed
     );
+}
+
+#[test]
+fn a_run_with_another_sampler_is_not_compared_with_the_reference() {
+    let mut other = reference();
+    other.sampler = Some("greedy".into());
+    let file = merge(&full_bench(10_000.0, 1_000.0), Some(&other), true);
+    assert_eq!(file.tiers[0].cpu_floor, "sampler-mismatch");
+    assert!(!file.gate.pass);
 }

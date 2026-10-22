@@ -78,7 +78,8 @@ jobs:
             cat "$out/v06-cpu-reference.json"
             echo '```'
             for tier in default large; do
-              echo "$tier: p50 answer ms $(jq '[.results[].ms] | sort | .[length/2|floor]' "$out/$tier.json")"
+              # The bench's median: the mean of the middle two of an even count.
+              echo "$tier: p50 answer ms $(jq '[.results[].ms] | sort | if length % 2 == 0 then (.[length/2-1] + .[length/2]) / 2 else .[length/2|floor] end' "$out/$tier.json")"
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
