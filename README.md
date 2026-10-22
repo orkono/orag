@@ -14,9 +14,25 @@ install them from offline packs (D-001, D-012).
 
 ## Status
 
-`v0.3.0`: the engine, the built-in web page and a desktop application for
-macOS, Windows and Linux (`docs/desktop.md`) that runs the service and shows
-the page in its own window.
+`v0.5.0` is the latest release: the engine, the built-in web page and a
+desktop application for macOS, Windows and Linux (`docs/desktop.md`) that runs
+the service and shows the page in its own window. `0.6` (graphics cards on
+Windows and Linux) is in pre-release.
+
+- Setup: on the first start the page shows this computer (memory, processor,
+  graphics card, free disk) and the answer models that fit it, and downloads
+  the one you pick with one button (*Modelleri indir*, 0.4.0 and 0.5.0); offline
+  packs still work.
+- Page language: Turkish or English, from the menu at the top right; it opens
+  in Turkish until English is chosen (0.4.1).
+- Graphics cards (0.6, pre-release): the Windows and Linux builds also carry
+  `orag-vulkan`, which runs the models on an NVIDIA, AMD or Intel discrete
+  card through Vulkan; the desktop app picks it by itself and falls back to the
+  CPU when the card cannot be used (see *Windows* and `docs/desktop.md`).
+  Pre-releases of the desktop app have a one-button graphics card bench in the
+  help panel. macOS keeps using Metal.
+- Downloads: every release has `SHA256SUMS` and GitHub build provenance
+  (`docs/signing.md`); the packages are not code-signed yet.
 
 - Formats: TXT, Markdown, DOCX and PDF, up to 10 MB per document by default
   (5 MB in v0.1.0). Scanned PDFs are not OCRed: pages without a text layer
@@ -40,16 +56,22 @@ the page in its own window.
   x86-64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+; the
   binary is built on Ubuntu 22.04), or Windows 10 22H2 / 11 x86-64 on a CPU
   with AVX2 (Intel 2013+, AMD Zen); no Visual C++ runtime is needed.
-- 16 GB RAM recommended.
-- About 3.1 GB of disk for the two installed default models, plus your
-  documents. `orag models import` copies a pack, so the pack directory you
+- RAM, for the whole service: the default answer model `qwen3.5-4b-q4_k_m`
+  needs at least 7 GiB (8 GiB recommended), the larger `qwen3.5-9b-q4_k_m` at
+  least 11 GiB (12 GiB recommended); the setup page checks this
+  (`.docs/benchmarks/v0.5-model-tiers.md`).
+- About 3.1 GB of disk for the two installed default models (about 6.3 GB with
+  the larger answer model), plus your documents. `orag models import` copies a pack, so the pack directory you
   imported from needs another 3.1 GB until you delete it.
 
 Measured speed with the default models on an Apple M5 Max (Metal), for a
 ~600-token prompt: the first answer token arrives in about 0.2 s, then tokens
-stream at roughly 110–130 per second (`.docs/benchmarks/v0.2-seed-eval.md`). A 16 GB
-M-series laptop and CPU-only machines (Linux, Windows) are slower and are not
-measured yet.
+stream at roughly 110–130 per second (`.docs/benchmarks/v0.2-seed-eval.md`).
+A whole answer takes about 0.9 s with the default model and 2.5 s with the
+larger one there. Without a GPU (Linux and Windows on the CPU) answers are much
+slower: about 108 s with the default model and 194 s with the larger one, the
+median on a 4-vCPU x86-64 reference machine (v0.5). Graphics card numbers come
+with 0.6 (`.docs/benchmarks/v0.6-gpu.md`).
 Dense search over 100 000 chunks stays below 250 ms (p95), measured on an
 Apple M5 Max and on an x86-64 Linux machine with 16 GB RAM (a GitHub-hosted
 runner); a 16 GB M-series laptop is measured after v0.1.0
@@ -62,7 +84,10 @@ Install `ORAG_<version>_aarch64.dmg` (macOS), `ORAG_<version>_x64-setup.exe`
 **ORAG**: it starts the service and shows the page in its own window, with its
 own data folder. See `docs/desktop.md` for the first start, the data folder
 and the unsigned-app prompts, and `docs/signing.md` to check a download
-(`SHA256SUMS`, `gh attestation verify`).
+(`SHA256SUMS`, `gh attestation verify`). On Windows and Linux (0.6) the app
+chooses between the graphics card and the CPU on every start; the sidebar
+shows which one answers and, after a fallback, offers *Ekran kartını yeniden
+dene*.
 
 ## Windows
 
@@ -166,8 +191,10 @@ orag serve   # the service alone (for scripts, services and the desktop app)
 `orag start` runs `orag serve`, opens <http://127.0.0.1:2442> once it is up,
 and restarts it after models are imported from the page; if ORAG already runs,
 it only opens the page. Without installed models ORAG starts in **setup
-mode**. The page offers *Modelleri indir*: press it and wait while the two
-default models (about 3.1 GB) download and are verified. Without internet,
+mode**. The page shows this computer and the answer models that fit it; pick
+one (the default is recommended) and press *Modelleri indir*, then wait while
+the embedder and that model (about 3.1 GB for the default) download and are
+verified. Without internet,
 type the folder you copied the packs to (for example `~/orag-packs`) into
 *Modelleri kur* instead. Either way ORAG restarts by itself under
 `orag start` (under `orag serve`, restart it yourself). Until then uploading
@@ -185,7 +212,9 @@ documents; the title bar reindexes or deletes the collection. Ask in the box
 at the bottom (Enter sends, Shift+Enter starts a new line, *Durdur* stops):
 answers stream in, each `[n]` links to its source, and the questions stay on
 screen until you switch collections. *Nasıl kullanılır?* explains ORAG and
-its three steps; it opens by itself on the first visit. The page is part of the binary and loads nothing
+its three steps; it opens by itself on the first visit. The language menu at
+the top right switches the page between Turkish and English. The page is part
+of the binary and loads nothing
 from the network. Set `ui_bind = "off"` in `config.toml` to turn it off. A
 second `orag serve` (another `ORAG_HOME`) needs its own `bind` and `ui_bind`
 (or `ui_bind = "off"`): a busy port stops startup.
