@@ -13,11 +13,11 @@ answers are placeholders; real models answer from the documents).
   from a web page (`Origin` or `Sec-Fetch-Site: cross-site`,
   `403 forbidden_origin`). Any account or process on the same machine can
   call it, so v1 is meant for single-user personal machines.
-- **Allowed origins.** The only web origins accepted are those of the
+- **Allowed origins.** The web origins accepted are those of the
   built-in page (`ui_bind`, default `http://127.0.0.1:2442` and
-  `http://localhost:2442`; the real port when it is `0`). With
-  `ui_bind = "off"` no origin is accepted. Every other page gets
-  `403 forbidden_origin`. A request the browser marks
+  `http://localhost:2442`; the real port when it is `0`) and any named with
+  `--allow-origin` (below). With `ui_bind = "off"` and no `--allow-origin`
+  no origin is accepted. Every other page gets `403 forbidden_origin`. A request the browser marks
   `Sec-Fetch-Site: same-origin` (the page's own) is accepted whatever its
   `Origin` says. Each refusal is logged on stderr as `request refused` with
   the Host, Origin and `Sec-Fetch-Site` that decided it.
@@ -316,12 +316,12 @@ facts once per process, available RAM and free disk on every call):
 
 | Field | Meaning |
 |---|---|
-| `options[]` | Each offered tier, smallest first: `id`, `size` (`default`, `large`), `current`, `label_key` (the page's dictionary key), `bytes` (the pack), `installed`, `min_ram_bytes` (the hard floor: the whole process's measured peak RSS + 1 GiB, rounded up to 0.5 GiB), `recommended_ram_bytes` (peak + 2 GiB, rounded up to 0.5 GiB; the peak is the larger of the Mac and Linux CPU runs), `speed` (`metal_p50_answer_s`: median answer seconds on an Apple M5 Max; `cpu_p50_answer_s`: median on a 4-vCPU GitHub-hosted Linux runner, a reference machine and not a promise for a given PC; `null` when not measured), `download_bytes` (what a download still fetches: 0 when installed, less after an interrupted run), `verdict` and `warnings`. When the configured `generation_model` is a catalog generator but not an offered tier (e.g. a hand-set `qwen3-4b-instruct-2507-q4_k_m`), it comes first as the current option: `current: true`, `size: null`, `label_key` `setup.tier.current`, its own tier's thresholds or else the default tier's. A configured id outside the catalog is not listed |
+| `options[]` | Each offered tier, smallest first: `id`, `size` (`default`, `large`), `current`, `label_key` (a stable message key a client may translate), `bytes` (the pack), `installed`, `min_ram_bytes` (the hard floor: the whole process's measured peak RSS + 1 GiB, rounded up to 0.5 GiB), `recommended_ram_bytes` (peak + 2 GiB, rounded up to 0.5 GiB; the peak is the larger of the Mac and Linux CPU runs), `speed` (`metal_p50_answer_s`: median answer seconds on an Apple M5 Max; `cpu_p50_answer_s`: median on a 4-vCPU GitHub-hosted Linux runner, a reference machine and not a promise for a given PC; `null` when not measured), `download_bytes` (what a download still fetches: 0 when installed, less after an interrupted run), `verdict` and `warnings`. When the configured `generation_model` is a catalog generator but not an offered tier (e.g. a hand-set `qwen3-4b-instruct-2507-q4_k_m`), it comes first as the current option: `current: true`, `size: null`, `label_key` `setup.tier.current`, its own tier's thresholds or else the default tier's. A configured id outside the catalog is not listed |
 | `verdict` | `recommended` (the default tier, whenever it fits; the large tier is never recommended: it is slower and uses more memory), `fits`, `too_big_ram` (total RAM below `min_ram_bytes`) or `too_big_disk` (free disk below what the embedder and the option still have to fetch + 512 MiB); unknown RAM or disk never blocks |
 | `options[].warnings` | `below_recommended_ram` when total RAM is at or above `min_ram_bytes` but below `recommended_ram_bytes` (selectable; answers may be slow); `low_available_memory` when less RAM is free right now than `recommended_ram_bytes`. Warnings never block |
 | `support` | `{"status": "supported" \| "unsupported", "code", "missing_cpu_features"}`; `code` is `cpu_unsupported` (Windows only: an x86-64 CPU without AVX2, FMA, F16C and BMI2, which the Windows binary is built for) or `no_tier_fits` (no option fits). `missing_cpu_features` lists the missing instructions on any x86-64 system |
 | `warnings` | `single_option` when only one option fits; `slow_cpu` on an x86-64 CPU without that floor outside Windows (it runs, more slowly) |
-| `selected` | The option the page starts with: the configured `generation_model` if it is an option that fits, else the recommended one; `null` when unsupported |
+| `selected` | The option the page starts with: the configured generator when it is eligible, else the recommended option, else the first eligible one; distinct from `recommended`; `null` when unsupported |
 | `embedding_bytes` | Bytes of the embedder still to download (0 when installed; `.part` files of an interrupted run count as downloaded) |
 | `configured_downloadable` | Whether the configured models are eligible for a `POST` without a body. `true` only when `available` is `true` for the configured models; it does not account for a download or import already running, which makes any `POST` answer `409 conflict` until it ends. `false` whenever that `POST` would be refused for the models themselves: outside setup mode or with the models installed (`409 conflict`), with `models.download = false` (`403 download_disabled`; `available` is `false` too), or when a configured model is not in the download catalog (`400 download_unavailable`). Only in that last case can `available` still be `true`: when the selected option (and a missing embedder) can be downloaded, `bytes` is the embedder plus that option, and choosing it writes `generation_model` |
 

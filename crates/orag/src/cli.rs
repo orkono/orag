@@ -32,7 +32,7 @@ pub enum Command {
         dev_fake_models: bool,
         /// Stop gracefully when stdin reaches end of file (the desktop app's
         /// stop signal for its sidecar, D-016).
-        #[arg(long, hide = true)]
+        #[arg(long)]
         exit_on_stdin_close: bool,
         /// Try this port first when `ui_bind` uses port 0 (the desktop app
         /// keeps its page origin, and so the page's stored settings).
@@ -50,16 +50,18 @@ pub enum Command {
     /// Internal: parse one document from stdin in an isolated child process.
     #[command(name = "__parse", hide = true)]
     Parse { format: String },
-    /// Internal: GPU checks for the desktop app and CI (v0.6). Prints the
+    /// GPU checks for programs that start orag and for CI (v0.6). Prints the
     /// GPU devices and the one ORAG would use as one JSON line. `--fit <gguf>`
     /// instead runs llama.cpp's memory fit once; `--load <gguf>` loads the
     /// file as a generator would (placement as `serve` decides it, without
     /// a config file) and prints what went to the GPU. Only `orag-vulkan`
     /// has devices; the CPU build reports none.
-    #[command(name = "gpu-probe", hide = true)]
+    #[command(name = "gpu-probe")]
     GpuProbe {
+        /// Run llama.cpp's memory fit once for this model file.
         #[arg(long, conflicts_with = "load")]
         fit: Option<std::path::PathBuf>,
+        /// Load this model file as a generator would; print what went to the GPU.
         #[arg(long)]
         load: Option<std::path::PathBuf>,
     },
@@ -118,14 +120,14 @@ pub enum EvalCommand {
         /// Keep the index in this directory, or query the index a run
         /// with the same directory left there (v0.6: one backend's index,
         /// another's queries).
-        #[arg(long, hide = true)]
+        #[arg(long)]
         index_dir: Option<std::path::PathBuf>,
         /// Exit when stdin closes (the desktop's GPU bench, v0.6).
-        #[arg(long, hide = true)]
+        #[arg(long)]
         exit_on_stdin_close: bool,
         /// Place the embedder by itself, setting `gpu = "off"` aside (the
         /// desktop's GPU bench, v0.6; `serve` keeps the setting).
-        #[arg(long, hide = true)]
+        #[arg(long)]
         gpu_auto: bool,
         #[arg(long, hide = true)]
         dev_fake_models: bool,
@@ -170,7 +172,6 @@ pub enum EvalCommand {
     },
     /// One run of the desktop's GPU bench (v0.6): the fixed questions on
     /// this executable's backend, over an index built once and reused.
-    #[command(hide = true)]
     Bench(crate::eval::bench::BenchArgs),
 }
 

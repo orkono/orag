@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.17] - 2026-11-27
+
+- Engine interface for programs that start orag: docs/engine-interface.md, checked against the CLI by tests/interface.rs; flags the desktop app relies on are no longer hidden.
+
 ## [0.6.0-alpha.16] - 2026-11-27
 
 - serve --allow-origin: CORS for origins the starting program names (engine and UI split)
