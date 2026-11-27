@@ -63,11 +63,22 @@ Any other code is a failure; the reason is on stderr.
 | Variable | Set by | Meaning |
 |---|---|---|
 | `ORAG_HOME` | The user, or the program that starts `orag` | The data folder: `config.toml`, the database, the models. An absolute path; empty or relative is an error. Default `~/.orag` |
-| `ORAG_SUPERVISED` | The supervisor (`orag start`, the desktop app) | `1`: the program restarts the engine on exit code 75. A model download or import that finishes setup then ends the process with 75 (the page says the restart is automatic); without it the user restarts by hand. The data-folder lock is retried for up to 5 seconds |
-| `ORAG_GPU_RETRY` | The desktop app | `1`: the program handles exit code 76. The engine then offers `POST /v1/system/gpu-retry` (`gpu.retry` in the API) when it fell back to the CPU. `orag start` removes it |
-| `ORAG_GPU_FALLBACK_REASON` | The desktop app | Why this CPU engine runs without the graphics card (`loader-missing`, `no-eligible-device`, `probe-timeout`, `start-timeout`, `start-failed`, `crashed-twice`, `exit-<n>`). The engine reports it as `gpu.reason` in the API; it changes nothing else |
-| `ORAG_GPU_DEVICE` | The desktop app | `orag-vulkan` only: the index of the GPU to use, as `gpu-probe` lists it (`devices[].index`). An index that is not listed is an error. `gpu = "off"` in `config.toml` still wins |
+| `ORAG_SUPERVISED` | The supervising program (`orag start`, or e.g. the desktop app) | `1`: the program restarts the engine on exit code 75. A model download or import that finishes setup then ends the process with 75 (the page says the restart is automatic); without it the user restarts by hand. The data-folder lock is retried for up to 5 seconds |
+| `ORAG_GPU_RETRY` | The supervising program (e.g. the desktop app) | `1`: the program handles exit code 76. The engine then offers `POST /v1/system/gpu-retry` (`gpu.retry` in the API) when it fell back to the CPU. `orag start` removes it |
+| `ORAG_GPU_FALLBACK_REASON` | The supervising program (e.g. the desktop app) | Why this CPU engine runs without the graphics card (`loader-missing`, `no-eligible-device`, `probe-timeout`, `start-timeout`, `start-failed`, `crashed-twice`, `exit-<n>`). The engine reports it as `gpu.reason` in the API; it changes nothing else |
+| `ORAG_GPU_DEVICE` | The supervising program (e.g. the desktop app) | `orag-vulkan` only: the index of the GPU to use, as `gpu-probe` lists it (`devices[].index`). An index that is not listed is an error. `gpu = "off"` in `config.toml` still wins |
 | `ORAG_VULKAN_ALLOW_SOFTWARE` | Tests | `1`: `orag-vulkan` may choose a software rasteriser (lavapipe) as the device. Not for users |
+
+A supervising program (the desktop app is one) is responsible for:
+
+- choosing the executable: the CPU `orag`, or `orag-vulkan` when `gpu-probe`
+  (section 6) found a device, and passing that device's `index` in
+  `ORAG_GPU_DEVICE`;
+- starting the CPU `orag` with `ORAG_GPU_FALLBACK_REASON` after the GPU start
+  failed, so the API can say why;
+- setting `ORAG_GPU_RETRY=1` only if it restarts the engine on exit code 76
+  (otherwise `POST /v1/system/gpu-retry` is not offered);
+- restarting the engine on exit code 75, with `ORAG_SUPERVISED=1` set.
 
 A program must remove a variable it does not mean to pass on: the desktop
 app's benchmark children start with `ORAG_GPU_DEVICE` and
