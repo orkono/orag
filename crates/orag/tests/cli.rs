@@ -928,7 +928,12 @@ fn serve_rejects_an_allow_origin_with_a_path() {
 
 #[test]
 fn serve_rejects_an_allow_origin_with_a_bad_host_or_port() {
-    for bad in ["http://:80", "http://localhost:99999", "http://[::1"] {
+    for bad in [
+        "http://:80",
+        "http://localhost:99999",
+        "http://[::1",
+        "http://%zz",
+    ] {
         let out = orag()
             .args(["serve", "--allow-origin", bad])
             .output()

@@ -102,10 +102,10 @@ pub fn parse_origin(value: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-/// `host[:port]` with a name or a bracketed IPv6 literal and, when a colon
-/// follows the host, a port of 0-65535.
+/// `host[:port]`: the host is a DNS-style name, a dotted IPv4 address or a
+/// bracketed IPv6 literal; a port after a colon is numeric, 0-65535.
 fn check_host_and_port(authority: &str) -> Result<(), String> {
-    let (name, port) = if let Some(inner) = authority.strip_prefix('[') {
+    let (host, port) = if let Some(inner) = authority.strip_prefix('[') {
         let (ip, rest) = inner.split_once(']').ok_or("unclosed [ in the host")?;
         ip.parse::<std::net::Ipv6Addr>()
             .map_err(|_| format!("invalid IPv6 address {ip:?}"))?;
@@ -116,18 +116,15 @@ fn check_host_and_port(authority: &str) -> Result<(), String> {
                     .ok_or("junk after the ] of the host")?,
             ),
         };
-        (ip, port)
+        (None, port)
     } else {
         match authority.split_once(':') {
-            Some((name, port)) => (name, Some(port)),
-            None => (authority, None),
+            Some((name, port)) => (Some(name), Some(port)),
+            None => (Some(authority), None),
         }
     };
-    if name.is_empty()
-        || name.contains(['[', ']'])
-        || (!authority.starts_with('[') && name.contains(':'))
-    {
-        return Err("expected a host name".into());
+    if let Some(name) = host {
+        check_dns_name(name)?;
     }
     match port {
         Some(p)
@@ -138,6 +135,22 @@ fn check_host_and_port(authority: &str) -> Result<(), String> {
             Err(format!("invalid port {p:?}, expected 0-65535"))
         }
         _ => Ok(()),
+    }
+}
+
+/// Labels of ASCII letters, digits and `-`, none empty and none starting or
+/// ending with `-`. A dotted IPv4 address is a name of digit labels.
+fn check_dns_name(name: &str) -> Result<(), String> {
+    let label_ok = |l: &str| {
+        !l.is_empty()
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+            && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    };
+    if name.split('.').all(label_ok) {
+        Ok(())
+    } else {
+        Err(format!("invalid host {name:?}"))
     }
 }
 
@@ -184,6 +197,14 @@ mod tests {
             "http://[::1]x",
             "http://[nope]:80",
             "http://[::1]:99999",
+            "http://<bad>",
+            "http://%zz",
+            "http://a@b",
+            "http://-x.com",
+            "http://a..b",
+            "HTTP://Bad Host",
+            "http://a_b",
+            "http://a-.com",
             "",
         ] {
             assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");
