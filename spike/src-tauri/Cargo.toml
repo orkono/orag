@@ -1,0 +1,14 @@
+[package]
+name = "spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Separate workspace: not a member of the repository root workspace.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }

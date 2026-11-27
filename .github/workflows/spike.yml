@@ -1,0 +1,54 @@
+name: spike
+on:
+  push:
+    branches: ["spike/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: rustup toolchain install
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev xvfb
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: spike/src-tauri
+      - run: cargo build
+        working-directory: spike/src-tauri
+      - name: run spike
+        run: |
+          python3 spike/server.py &
+          SERVER=$!
+          sleep 2
+          RUN="spike/src-tauri/target/debug/spike$EXE"
+          if [ "$RUNNER_OS" = Linux ]; then
+            timeout 90 xvfb-run -a "$RUN" || echo "app exit: $?"
+          else
+            timeout 90 "$RUN" || echo "app exit: $?"
+          fi
+          kill $SERVER 2>/dev/null || true
+          echo "---- spike-log.jsonl ----"
+          cat spike-log.jsonl || echo "NO LOG"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: spike-log-${{ matrix.os }}
+          path: spike-log.jsonl
+          if-no-files-found: warn
