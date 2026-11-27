@@ -75,71 +75,34 @@ fn preflight(origin: HeaderValue, request_headers: &HeaderMap) -> Response {
 }
 
 /// Parses one `--allow-origin` value: `scheme://host[:port]`, nothing more
-/// (a trailing `/` is dropped). Custom schemes such as `tauri://localhost`
-/// are fine. Returns the origin in the form browsers send.
+/// (one trailing `/` is dropped). Custom schemes such as `tauri://localhost`
+/// are fine. The URL parser (WHATWG) judges the scheme, host and port; names
+/// must also be DNS-style, which covers the opaque hosts of custom schemes.
 pub fn parse_origin(value: &str) -> Result<String, String> {
     let trimmed = value.strip_suffix('/').unwrap_or(value);
-    let (scheme, host) = trimmed
-        .split_once("://")
-        .ok_or("expected scheme://host[:port], for example tauri://localhost")?;
-    let scheme_ok = scheme
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic())
-        && scheme
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
-    if !scheme_ok {
-        return Err(format!("invalid scheme {scheme:?}"));
+    let url = url::Url::parse(value)
+        .map_err(|e| format!("not an origin ({e}), expected scheme://host[:port]"))?;
+    let host = url
+        .host()
+        .ok_or("expected scheme://host[:port], with a host")?;
+    if let url::Host::Domain(name) = host {
+        check_dns_name(name)?;
     }
-    if host.is_empty() || host.contains(['/', '?', '#', '@', '\\']) {
-        return Err("expected a host and port only, with no path, query or user".into());
+    // The parser accepts an empty port (`host:`); an origin never has one.
+    if trimmed.ends_with(':') {
+        return Err("empty port after ':'".into());
     }
-    if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err("the host holds a space or control character".into());
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("a user name or password is not part of an origin".into());
     }
-    check_host_and_port(host)?;
+    if url.query().is_some() || url.fragment().is_some() || !matches!(url.path(), "" | "/") {
+        return Err("expected a host and port only, with no path, query or fragment".into());
+    }
     Ok(trimmed.to_string())
 }
 
-/// `host[:port]`: the host is a DNS-style name, a dotted IPv4 address or a
-/// bracketed IPv6 literal; a port after a colon is numeric, 0-65535.
-fn check_host_and_port(authority: &str) -> Result<(), String> {
-    let (host, port) = if let Some(inner) = authority.strip_prefix('[') {
-        let (ip, rest) = inner.split_once(']').ok_or("unclosed [ in the host")?;
-        ip.parse::<std::net::Ipv6Addr>()
-            .map_err(|_| format!("invalid IPv6 address {ip:?}"))?;
-        let port = match rest {
-            "" => None,
-            _ => Some(
-                rest.strip_prefix(':')
-                    .ok_or("junk after the ] of the host")?,
-            ),
-        };
-        (None, port)
-    } else {
-        match authority.split_once(':') {
-            Some((name, port)) => (Some(name), Some(port)),
-            None => (Some(authority), None),
-        }
-    };
-    if let Some(name) = host {
-        check_dns_name(name)?;
-    }
-    match port {
-        Some(p)
-            if p.is_empty()
-                || !p.bytes().all(|b| b.is_ascii_digit())
-                || p.parse::<u16>().is_err() =>
-        {
-            Err(format!("invalid port {p:?}, expected 0-65535"))
-        }
-        _ => Ok(()),
-    }
-}
-
 /// Labels of ASCII letters, digits and `-`, none empty and none starting or
-/// ending with `-`. A dotted IPv4 address is a name of digit labels.
+/// ending with `-`; one trailing dot (a fully qualified name) is allowed.
 fn check_dns_name(name: &str) -> Result<(), String> {
     let label_ok = |l: &str| {
         !l.is_empty()
@@ -147,7 +110,12 @@ fn check_dns_name(name: &str) -> Result<(), String> {
             && !l.ends_with('-')
             && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     };
-    if name.split('.').all(label_ok) {
+    if name
+        .strip_suffix('.')
+        .unwrap_or(name)
+        .split('.')
+        .all(label_ok)
+    {
         Ok(())
     } else {
         Err(format!("invalid host {name:?}"))
@@ -170,6 +138,7 @@ mod tests {
         );
         for ok in [
             "http://[::1]:5173",
+            "http://example.com.",
             "http://127.0.0.1:8080",
             "http://tauri.localhost",
             "tauri://localhost",
@@ -205,6 +174,10 @@ mod tests {
             "HTTP://Bad Host",
             "http://a_b",
             "http://a-.com",
+            "http://256.256.256.256",
+            "tauri://%zz",
+            "http://x/?q",
+            "http://x/#f",
             "",
         ] {
             assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");
