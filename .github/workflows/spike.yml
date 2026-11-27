@@ -39,10 +39,14 @@ jobs:
           sleep 2
           RUN="spike/src-tauri/target/debug/spike$EXE"
           if [ "$RUNNER_OS" = Linux ]; then
-            timeout 90 xvfb-run -a "$RUN" || echo "app exit: $?"
+            xvfb-run -a "$RUN" &
           else
-            timeout 90 "$RUN" || echo "app exit: $?"
+            "$RUN" &
           fi
+          APP=$!
+          # 90 s limit (macOS runners have no `timeout`).
+          for _ in $(seq 1 90); do kill -0 $APP 2>/dev/null || break; sleep 1; done
+          kill $APP 2>/dev/null || true
           kill $SERVER 2>/dev/null || true
           echo "---- spike-log.jsonl ----"
           cat spike-log.jsonl || echo "NO LOG"
