@@ -13,11 +13,11 @@ answers are placeholders; real models answer from the documents).
   from a web page (`Origin` or `Sec-Fetch-Site: cross-site`,
   `403 forbidden_origin`). Any account or process on the same machine can
   call it, so v1 is meant for single-user personal machines.
-- **Allowed origins.** The only web origins accepted are those of the
+- **Allowed origins.** The web origins accepted are those of the
   built-in page (`ui_bind`, default `http://127.0.0.1:2442` and
-  `http://localhost:2442`; the real port when it is `0`). With
-  `ui_bind = "off"` no origin is accepted. Every other page gets
-  `403 forbidden_origin`. A request the browser marks
+  `http://localhost:2442`; the real port when it is `0`) and any named with
+  `--allow-origin` (below). With `ui_bind = "off"` and no `--allow-origin`
+  no origin is accepted. Every other page gets `403 forbidden_origin`. A request the browser marks
   `Sec-Fetch-Site: same-origin` (the page's own) is accepted whatever its
   `Origin` says. Each refusal is logged on stderr as `request refused` with
   the Host, Origin and `Sec-Fetch-Site` that decided it.
@@ -321,7 +321,7 @@ facts once per process, available RAM and free disk on every call):
 | `options[].warnings` | `below_recommended_ram` when total RAM is at or above `min_ram_bytes` but below `recommended_ram_bytes` (selectable; answers may be slow); `low_available_memory` when less RAM is free right now than `recommended_ram_bytes`. Warnings never block |
 | `support` | `{"status": "supported" \| "unsupported", "code", "missing_cpu_features"}`; `code` is `cpu_unsupported` (Windows only: an x86-64 CPU without AVX2, FMA, F16C and BMI2, which the Windows binary is built for) or `no_tier_fits` (no option fits). `missing_cpu_features` lists the missing instructions on any x86-64 system |
 | `warnings` | `single_option` when only one option fits; `slow_cpu` on an x86-64 CPU without that floor outside Windows (it runs, more slowly) |
-| `selected` | The option the page starts with: the configured `generation_model` if it is an option that fits, else the recommended one; `null` when unsupported |
+| `selected` | The option the page starts with: the configured generator when it is eligible, else the recommended option, else the first eligible one; distinct from `recommended`; `null` when unsupported |
 | `embedding_bytes` | Bytes of the embedder still to download (0 when installed; `.part` files of an interrupted run count as downloaded) |
 | `configured_downloadable` | Whether the configured models are eligible for a `POST` without a body. `true` only when `available` is `true` for the configured models; it does not account for a download or import already running, which makes any `POST` answer `409 conflict` until it ends. `false` whenever that `POST` would be refused for the models themselves: outside setup mode or with the models installed (`409 conflict`), with `models.download = false` (`403 download_disabled`; `available` is `false` too), or when a configured model is not in the download catalog (`400 download_unavailable`). Only in that last case can `available` still be `true`: when the selected option (and a missing embedder) can be downloaded, `bytes` is the embedder plus that option, and choosing it writes `generation_model` |
 
