@@ -2,6 +2,7 @@
 //! One test binary (`cargo test --test api`), split by area.
 
 mod binary;
+mod cors;
 mod documents;
 mod download;
 mod models;

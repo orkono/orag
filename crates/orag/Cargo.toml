@@ -47,6 +47,8 @@ unicode-segmentation = "1.13.3"
 # cmake/nasm under the static Windows CRT). Pinned: the idle-read limit wraps
 # its `unversioned` transport API, which may change in any release.
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
+# Parses --allow-origin values (WHATWG URL rules); already in the tree through ureq.
+url = "=2.5.8"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

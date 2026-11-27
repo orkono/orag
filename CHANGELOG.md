@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.16] - 2026-11-27
+
+- serve --allow-origin: CORS for origins the starting program names (engine and UI split)
+
 ## [0.6.0-alpha.15] - 2026-11-27
 
 - Implementation plan for the engine and UI split: `.docs/plans/2026-11-27-engine-ui-split-plan.md` (12 tasks in four phases, starting with a webview origin spike; approved by muse and gpt-6-astra).
