@@ -98,7 +98,47 @@ pub fn parse_origin(value: &str) -> Result<String, String> {
     if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err("the host holds a space or control character".into());
     }
+    check_host_and_port(host)?;
     Ok(trimmed.to_string())
+}
+
+/// `host[:port]` with a name or a bracketed IPv6 literal and, when a colon
+/// follows the host, a port of 0-65535.
+fn check_host_and_port(authority: &str) -> Result<(), String> {
+    let (name, port) = if let Some(inner) = authority.strip_prefix('[') {
+        let (ip, rest) = inner.split_once(']').ok_or("unclosed [ in the host")?;
+        ip.parse::<std::net::Ipv6Addr>()
+            .map_err(|_| format!("invalid IPv6 address {ip:?}"))?;
+        let port = match rest {
+            "" => None,
+            _ => Some(
+                rest.strip_prefix(':')
+                    .ok_or("junk after the ] of the host")?,
+            ),
+        };
+        (ip, port)
+    } else {
+        match authority.split_once(':') {
+            Some((name, port)) => (name, Some(port)),
+            None => (authority, None),
+        }
+    };
+    if name.is_empty()
+        || name.contains(['[', ']'])
+        || (!authority.starts_with('[') && name.contains(':'))
+    {
+        return Err("expected a host name".into());
+    }
+    match port {
+        Some(p)
+            if p.is_empty()
+                || !p.bytes().all(|b| b.is_ascii_digit())
+                || p.parse::<u16>().is_err() =>
+        {
+            Err(format!("invalid port {p:?}, expected 0-65535"))
+        }
+        _ => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -115,10 +155,14 @@ mod tests {
             parse_origin("http://tauri.localhost/").unwrap(),
             "http://tauri.localhost"
         );
-        assert_eq!(
-            parse_origin("http://[::1]:5173").unwrap(),
-            "http://[::1]:5173"
-        );
+        for ok in [
+            "http://[::1]:5173",
+            "http://127.0.0.1:8080",
+            "http://tauri.localhost",
+            "tauri://localhost",
+        ] {
+            assert_eq!(parse_origin(ok).unwrap(), ok);
+        }
     }
 
     #[test]
@@ -132,6 +176,14 @@ mod tests {
             "http://u@x",
             "http://x?q=1",
             "1http://x",
+            "http://:80",
+            "http://localhost:bad",
+            "http://localhost:99999",
+            "http://localhost:",
+            "http://[::1",
+            "http://[::1]x",
+            "http://[nope]:80",
+            "http://[::1]:99999",
             "",
         ] {
             assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");

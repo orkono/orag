@@ -925,3 +925,16 @@ fn serve_rejects_an_allow_origin_with_a_path() {
         .expect("run orag");
     assert_eq!(out.status.code(), Some(2));
 }
+
+#[test]
+fn serve_rejects_an_allow_origin_with_a_bad_host_or_port() {
+    for bad in ["http://:80", "http://localhost:99999", "http://[::1"] {
+        let out = orag()
+            .args(["serve", "--allow-origin", bad])
+            .output()
+            .expect("run orag");
+        assert_eq!(out.status.code(), Some(2), "{bad}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("--allow-origin"), "{bad}: {stderr}");
+    }
+}
