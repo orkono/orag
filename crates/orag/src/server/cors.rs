@@ -108,8 +108,17 @@ const NOT_ONLY_HOST_AND_PORT: &str =
 
 /// The authority as typed: after `scheme://`, up to the first `/`, `?` or
 /// `#`. What follows it must be empty or a single `/`. Checked on the raw
-/// text because the parser normalises paths (`/a/..` becomes `/`).
+/// text because the parser normalises paths (`/a/..` becomes `/`). The
+/// parser also reads `\` as `/` and strips tabs and newlines, so those (and
+/// any whitespace or control character) are refused outright: this check
+/// must see the same string the parser does.
 fn raw_authority(value: &str) -> Result<&str, String> {
+    if value
+        .bytes()
+        .any(|b| b == b'\\' || b.is_ascii_whitespace() || b.is_ascii_control())
+    {
+        return Err("a backslash, whitespace or control character is not part of an origin".into());
+    }
     let (_, rest) = value
         .split_once("://")
         .ok_or("expected scheme://host[:port]")?;
@@ -230,7 +239,16 @@ mod tests {
 
     #[test]
     fn rejects_paths_the_parser_would_normalise() {
-        for bad in ["http://x/a/..", "http://x/.", "http://x/?q", "http://x#f"] {
+        for bad in [
+            "http://x/a/..",
+            "http://x/.",
+            "http://x/?q",
+            "http://x#f",
+            "http://x\\a\\..",
+            "http://x\\",
+            "http://x\t/",
+            "http://x /",
+        ] {
             assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");
         }
     }
