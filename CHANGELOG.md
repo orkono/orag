@@ -7,7 +7,7 @@ bumps the version (see `.docs/orag-decisions.md`, D-017).
 
 ## [0.6.0-alpha.14] - 2026-11-26
 
-- Design for splitting the repository: `orag` becomes the engine only (no web page, no installers or binaries, source and a build guide), and the page, the desktop app and the installers move to the public `orkono/orag-ui`, which pins the engine as a git submodule. `.docs/specs/2026-11-26-engine-ui-split-design.md`; reviewed by a builder check and approved by muse, astra's second round pending.
+- Design for splitting the repository: `orag` becomes the engine only (no web page, no installers or binaries, source and a build guide), and the page, the desktop app and the installers move to the public `orkono/orag-ui`, which pins the engine as a git submodule. `.docs/specs/2026-11-26-engine-ui-split-design.md`; reviewed by a builder check and approved by muse and gpt-6-astra.
 
 ## [0.6.0-alpha.13] - 2026-10-22
 

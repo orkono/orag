@@ -1,6 +1,6 @@
 # Engine and UI split: `orag` becomes the engine, `orag-ui` the product
 
-Status: draft for approval (2026-11-26).
+Status: approved (2026-11-27; muse and gpt-6-astra).
 
 ## Intent
 
