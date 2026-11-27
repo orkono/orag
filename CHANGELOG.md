@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.15] - 2026-11-27
+
+- Implementation plan for the engine and UI split: `.docs/plans/2026-11-27-engine-ui-split-plan.md` (12 tasks in four phases, starting with a webview origin spike; approved by muse and gpt-6-astra).
+
 ## [0.6.0-alpha.14] - 2026-11-26
 
 - Design for splitting the repository: `orag` becomes the engine only (no web page, no installers or binaries, source and a build guide), and the page, the desktop app and the installers move to the public `orkono/orag-ui`, which pins the engine as a git submodule. `.docs/specs/2026-11-26-engine-ui-split-design.md`; reviewed by a builder check and approved by muse and gpt-6-astra.
