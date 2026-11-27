@@ -5,6 +5,10 @@ All notable changes to ORAG are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Every change merged to `main`
 bumps the version (see `.docs/orag-decisions.md`, D-017).
 
+## [0.6.0-alpha.14] - 2026-11-26
+
+- Design for splitting the repository: `orag` becomes the engine only (no web page, no installers or binaries, source and a build guide), and the page, the desktop app and the installers move to the public `orkono/orag-ui`, which pins the engine as a git submodule. `.docs/specs/2026-11-26-engine-ui-split-design.md`; reviewed by a builder check and approved by muse and gpt-6-astra.
+
 ## [0.6.0-alpha.13] - 2026-10-22
 
 - README brought up to date: the status names v0.5.0 and the 0.6 pre-release, and lists the setup page's model choice and download, the Turkish/English page, graphics cards on Windows and Linux with the bench, and the release checks; RAM per answer model replaces "16 GB recommended"; the measured CPU answer times (108 s and 194 s) replace "not measured yet"; the desktop, Run and page sections mention the graphics card line, the model choice and the language menu.
