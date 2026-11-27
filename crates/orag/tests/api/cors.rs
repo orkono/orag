@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, header};
+use orag::server::cors::parse_origin;
 use serde_json::json;
 
 use crate::support::{TestApp, app, get, local, send_full};
@@ -129,4 +130,17 @@ async fn private_network_preflight_is_allowed_for_named_origins() {
             .is_none(),
         "{headers:?}"
     );
+}
+
+#[tokio::test]
+async fn origin_given_in_any_case_matches_the_browser_origin() {
+    let allowed = parse_origin("HTTP://Tauri.Localhost/").unwrap();
+    let app = app().map_state(|mut state| {
+        state.allowed_origins = Arc::new(vec![allowed]);
+        state
+    });
+    let origin = "http://tauri.localhost";
+    let (status, headers, _) = send_full(&app, with_origin("/v1/health", origin)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value(&headers, "access-control-allow-origin"), Some(origin));
 }

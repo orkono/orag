@@ -75,11 +75,17 @@ fn preflight(origin: HeaderValue, request_headers: &HeaderMap) -> Response {
 }
 
 /// Parses one `--allow-origin` value: `scheme://host[:port]`, nothing more
-/// (one trailing `/` is dropped). Custom schemes such as `tauri://localhost`
+/// (one trailing `/` is allowed). Custom schemes such as `tauri://localhost`
 /// are fine. The URL parser (WHATWG) judges the scheme, host and port; names
 /// must also be DNS-style, which covers the opaque hosts of custom schemes.
+/// Returns the canonical origin (see [`canonical_origin`]), the form a
+/// browser sends in `Origin`.
 pub fn parse_origin(value: &str) -> Result<String, String> {
-    let trimmed = value.strip_suffix('/').unwrap_or(value);
+    let authority = raw_authority(value)?;
+    // The parser accepts an empty port (`host:`); an origin never has one.
+    if authority.ends_with(':') {
+        return Err("empty port after ':'".into());
+    }
     let url = url::Url::parse(value)
         .map_err(|e| format!("not an origin ({e}), expected scheme://host[:port]"))?;
     let host = url
@@ -88,17 +94,43 @@ pub fn parse_origin(value: &str) -> Result<String, String> {
     if let url::Host::Domain(name) = host {
         check_dns_name(name)?;
     }
-    // The parser accepts an empty port (`host:`); an origin never has one.
-    if trimmed.ends_with(':') {
-        return Err("empty port after ':'".into());
-    }
     if !url.username().is_empty() || url.password().is_some() {
         return Err("a user name or password is not part of an origin".into());
     }
     if url.query().is_some() || url.fragment().is_some() || !matches!(url.path(), "" | "/") {
-        return Err("expected a host and port only, with no path, query or fragment".into());
+        return Err(NOT_ONLY_HOST_AND_PORT.into());
     }
-    Ok(trimmed.to_string())
+    Ok(canonical_origin(&url))
+}
+
+const NOT_ONLY_HOST_AND_PORT: &str =
+    "expected a host and port only, with no path, query or fragment";
+
+/// The authority as typed: after `scheme://`, up to the first `/`, `?` or
+/// `#`. What follows it must be empty or a single `/`. Checked on the raw
+/// text because the parser normalises paths (`/a/..` becomes `/`).
+fn raw_authority(value: &str) -> Result<&str, String> {
+    let (_, rest) = value
+        .split_once("://")
+        .ok_or("expected scheme://host[:port]")?;
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, remainder) = rest.split_at(end);
+    if matches!(remainder, "" | "/") {
+        Ok(authority)
+    } else {
+        Err(NOT_ONLY_HOST_AND_PORT.into())
+    }
+}
+
+/// `scheme://host[:port]` from the parsed URL: the host as the parser
+/// serialises it (lowercased, IDNA and percent-decoded for special schemes;
+/// IPv6 in brackets), the port only when it is not the scheme's default.
+fn canonical_origin(url: &url::Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
+    }
 }
 
 /// Labels of ASCII letters, digits and `-`, none empty and none starting or
@@ -180,6 +212,25 @@ mod tests {
             "http://x/#f",
             "",
         ] {
+            assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn stores_the_canonical_origin() {
+        for (input, stored) in [
+            ("HTTP://Example.COM:80/", "http://example.com"),
+            ("http://%65xample.com", "http://example.com"),
+            ("http://[::1]:8080", "http://[::1]:8080"),
+            ("tauri://localhost", "tauri://localhost"),
+        ] {
+            assert_eq!(parse_origin(input).unwrap(), stored, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_paths_the_parser_would_normalise() {
+        for bad in ["http://x/a/..", "http://x/.", "http://x/?q", "http://x#f"] {
             assert!(parse_origin(bad).is_err(), "{bad:?} should be rejected");
         }
     }
