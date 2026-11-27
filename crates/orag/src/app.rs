@@ -29,7 +29,7 @@ const DEV_REPLY: &str = "This is a development answer from fake models [1].";
 /// import that ends setup mode can restart the process (D-023).
 pub const SUPERVISED_ENV: &str = "ORAG_SUPERVISED";
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ServeOptions {
     pub dev_fake_models: bool,
     /// Stop gracefully when stdin reaches end of file (D-016 sidecar).
@@ -37,6 +37,9 @@ pub struct ServeOptions {
     /// The port to try first when `ui_bind` asks for a free one (port 0):
     /// the desktop app's last page port, so its origin stays the same.
     pub ui_port_hint: Option<u16>,
+    /// Origins the starting program names (`--allow-origin`); they get CORS
+    /// whether or not the page server runs.
+    pub allow_origins: Vec<String>,
 }
 
 /// Runs `orag serve`; returns the process exit code (`EXIT_RESTART` when an
@@ -127,6 +130,8 @@ pub fn run_server(config: Config, options: ServeOptions) -> anyhow::Result<u8> {
             .with_downloads(Downloads::production(config.models.download).with_config_file(config.config_path()));
         let mut effective = config.effective();
         effective["bind"] = serde_json::json!(local_addr.to_string()); // the real port when bind uses :0
+        // The program that starts the engine names these origins (D-013).
+        state.allowed_origins = Arc::new(options.allow_origins);
         let ui_listener = ui_listener.map(TcpListener::from_std).transpose()?;
         let ui_addr = ui_listener.as_ref().map(TcpListener::local_addr).transpose()?;
         if let Some(ui_addr) = ui_addr {

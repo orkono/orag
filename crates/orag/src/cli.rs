@@ -38,6 +38,12 @@ pub enum Command {
         /// keeps its page origin, and so the page's stored settings).
         #[arg(long, hide = true)]
         ui_port_hint: Option<u16>,
+        /// Also accept cross-origin requests from this origin and answer CORS
+        /// for it (scheme://host[:port]); repeat for several. For a program
+        /// that serves its own page and starts the engine, such as the
+        /// desktop app.
+        #[arg(long = "allow-origin", value_name = "ORIGIN", value_parser = crate::server::cors::parse_origin)]
+        allow_origin: Vec<String>,
     },
     /// Write a consistent copy of the database (safe while the server runs).
     Backup { dest: std::path::PathBuf },
@@ -211,6 +217,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
             dev_fake_models,
             exit_on_stdin_close,
             ui_port_hint,
+            allow_origin,
         } => {
             let code = crate::app::run_server(
                 load_config()?,
@@ -218,6 +225,7 @@ fn execute(cli: Cli) -> anyhow::Result<()> {
                     dev_fake_models,
                     exit_on_stdin_close,
                     ui_port_hint,
+                    allow_origins: allow_origin,
                 },
             )?;
             exit_with(i32::from(code))

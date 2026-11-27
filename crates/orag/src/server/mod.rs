@@ -2,6 +2,7 @@
 
 pub mod choice;
 pub mod collections;
+pub mod cors;
 pub mod documents;
 pub mod download;
 pub mod errors;
@@ -301,6 +302,8 @@ fn with_layers(routes: Router<AppState>, state: AppState) -> Router {
     routes
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
+        // Inner to the Host/Origin check: a refused origin never gets CORS headers.
+        .layer(middleware::from_fn_with_state(state.clone(), cors::cors))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             security::check_host_and_origin,

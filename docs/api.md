@@ -21,6 +21,19 @@ answers are placeholders; real models answer from the documents).
   `Sec-Fetch-Site: same-origin` (the page's own) is accepted whatever its
   `Origin` says. Each refusal is logged on stderr as `request refused` with
   the Host, Origin and `Sec-Fetch-Site` that decided it.
+- **Named origins (CORS).** The program that starts the engine can name
+  more origins with `orag serve --allow-origin <scheme://host[:port]>`
+  (repeatable; custom schemes such as `tauri://localhost` work). A request
+  from a named origin passes the origin check, and the engine answers CORS
+  for it and for no other origin: a preflight (`OPTIONS`) gets `204` with
+  `Access-Control-Allow-Origin` (the origin as sent),
+  `Access-Control-Allow-Methods: GET, POST, DELETE`,
+  `Access-Control-Allow-Headers: accept, content-type`,
+  `Access-Control-Max-Age: 600` and `Vary: origin`; a preflight that asks for
+  private-network access also gets `Access-Control-Allow-Private-Network:
+  true`. Other responses to a named origin carry `Access-Control-Allow-Origin`,
+  `Access-Control-Expose-Headers: retry-after` and `Vary: origin`. An origin
+  that is not named still gets `403 forbidden_origin` with no CORS headers.
 - Request and response bodies are JSON (`Content-Type: application/json`),
   except multipart uploads and the SSE query stream.
 
